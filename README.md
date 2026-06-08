@@ -28,11 +28,11 @@ Multi-purpose quadcopter control stack with:
   <img src="docs/sim_demo_1.png" alt="ROS2 Gazebo simulation demo" width="98%">
 </p>
 
-### Hardware: Hovering & Landing (IMU + Barometer + GPS, Betaflight)
+### Hovering & Landing (IMU + Barometer + GPS)
 
-docs/hovering.mp4
+https://github.com/user-attachments/assets/44837663-b281-45db-9803-5aaa9812833d
 
-*Autonomous hover and landing on a Betaflight quad, commanded over the CRSF/ESP-NOW link. The state estimate fuses IMU
+*Autonomous hover and landing, commanded over the CRSF/ESP-NOW link. The state estimate fuses IMU
 attitude, barometric altitude, and GPS position.*
 
 ## Architecture (high level)
