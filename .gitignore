@@ -43,3 +43,6 @@ Thumbs.db
 # Backup files
 *.bak
 *~
+
+# Claude / agent working files (specs, plans, memory, scratch) — never upload
+.local/

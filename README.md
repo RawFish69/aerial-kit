@@ -15,7 +15,19 @@ Multi-purpose quadcopter control stack with:
 - **Safety**: validation, limiting, watchdog (`safety_gate`)
 - **Hardware link**: CRSF adapter + ESP-NOW based TX/RX + protocol bridging
 
-## Demo (Python Sim & ROS2 Gazebo Sim)
+## Demo
+
+### Hardware: Hovering & Landing (IMU + Barometer + GPS)
+
+<video src="https://github.com/RawFish69/UAV-Controller/raw/main/docs/hovering.mp4" controls muted width="98%">
+  Your browser can't play this video.
+  <a href="https://github.com/RawFish69/UAV-Controller/raw/main/docs/hovering.mp4">Watch the hover &amp; landing demo (docs/hovering.mp4)</a>
+</video>
+
+*Autonomous hover and landing on a Betaflight quad, commanded over the CRSF/ESP-NOW link. The state
+estimate fuses IMU attitude, barometric altitude, and GPS position.*
+
+### Python Sim & ROS2 Gazebo Sim
 
 <p>
   <img src="docs/forest_rotor.png" alt="Forest RotorPy demo with quad pose overlay" width="49%">
