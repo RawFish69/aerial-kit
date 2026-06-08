@@ -30,7 +30,7 @@ Multi-purpose quadcopter control stack with:
 
 ### Hovering & Landing (IMU + Barometer + GPS)
 
-https://github.com/RawFish69/UAV-Controller/raw/main/docs/hovering.mp4
+https://github.com/user-attachments/assets/44837663-b281-45db-9803-5aaa9812833d
 
 *Autonomous hover and landing, commanded over the CRSF/ESP-NOW link. The state estimate fuses IMU
 attitude, barometric altitude, and GPS position.*
