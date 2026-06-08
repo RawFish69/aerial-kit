@@ -17,16 +17,6 @@ Multi-purpose quadcopter control stack with:
 
 ## Demo
 
-### Hardware: Hovering & Landing (IMU + Barometer + GPS)
-
-<video src="https://github.com/RawFish69/UAV-Controller/raw/main/docs/hovering.mp4" controls muted width="98%">
-  Your browser can't play this video.
-  <a href="https://github.com/RawFish69/UAV-Controller/raw/main/docs/hovering.mp4">Watch the hover &amp; landing demo (docs/hovering.mp4)</a>
-</video>
-
-*Autonomous hover and landing on a Betaflight quad, commanded over the CRSF/ESP-NOW link. The state
-estimate fuses IMU attitude, barometric altitude, and GPS position.*
-
 ### Python Sim & ROS2 Gazebo Sim
 
 <p>
@@ -37,6 +27,13 @@ estimate fuses IMU attitude, barometric altitude, and GPS position.*
 <p>
   <img src="docs/sim_demo_1.png" alt="ROS2 Gazebo simulation demo" width="98%">
 </p>
+
+### Hovering & Landing (IMU + Barometer + GPS)
+
+https://github.com/RawFish69/UAV-Controller/raw/main/docs/hovering.mp4
+
+*Autonomous hover and landing, commanded over the CRSF/ESP-NOW link. The state estimate fuses IMU
+attitude, barometric altitude, and GPS position.*
 
 ## Architecture (high level)
 
