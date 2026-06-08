@@ -1,0 +1,14 @@
+crsf_backend_adapter_node:
+  ros__parameters:
+    udp_host: "192.168.4.1"
+    udp_port: 9000
+    send_rate_hz: 50.0
+    command_timeout_sec: 0.5
+    kv_xy: 0.5
+    max_tilt_deg: 25.0
+    hover_throttle: 0.5
+    kz: 0.2
+    throttle_min: 0.05
+    throttle_max: 0.95
+    max_yaw_rate_rps: 1.5
+    disarmed_throttle: 0.0

@@ -2,6 +2,7 @@ import math
 from typing import Optional
 
 import rclpy
+from air_unit.rtl import RTL_ARRIVED, RtlParams, rtl_command
 from drone_msgs.msg import Command, Telemetry
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
@@ -38,6 +39,10 @@ class CommandManagerNode(Node):
         self.declare_parameter('manual_scale_xy', 1.5)
         self.declare_parameter('manual_scale_z', 1.0)
         self.declare_parameter('manual_scale_yaw', 1.0)
+        self.declare_parameter('rtl_altitude_m', 15.0)
+        self.declare_parameter('rtl_cruise_speed_mps', 3.0)
+        self.declare_parameter('rtl_arrival_radius_m', 1.0)
+        self.declare_parameter('rtl_kp', 0.8)
 
         self.command_topic = self.get_parameter('command_topic').value
         self.telemetry_raw_topic = self.get_parameter('telemetry_raw_topic').value
@@ -64,6 +69,10 @@ class CommandManagerNode(Node):
         self.manual_scale_xy = float(self.get_parameter('manual_scale_xy').value)
         self.manual_scale_z = float(self.get_parameter('manual_scale_z').value)
         self.manual_scale_yaw = float(self.get_parameter('manual_scale_yaw').value)
+        self.rtl_altitude_m = float(self.get_parameter('rtl_altitude_m').value)
+        self.rtl_cruise_speed_mps = float(self.get_parameter('rtl_cruise_speed_mps').value)
+        self.rtl_arrival_radius_m = float(self.get_parameter('rtl_arrival_radius_m').value)
+        self.rtl_kp = float(self.get_parameter('rtl_kp').value)
 
         self.pub_backend_cmd = self.create_publisher(Twist, self.backend_cmd_topic, 10)
         self.pub_backend_enable = self.create_publisher(Bool, self.backend_enable_topic, 10)
@@ -92,6 +101,7 @@ class CommandManagerNode(Node):
         self._last_armed_state: bool | None = None  # track to suppress redundant enable publishes
         self._enable_republish_tick: int = 0  # periodic republish when armed so backend/Gazebo get it
         self._hover_target_altitude: Optional[float] = None
+        self._home_xy: tuple[float, float] | None = None
         self._prev_mode = self.mode
 
         self.get_logger().info('Command manager started')
@@ -100,17 +110,24 @@ class CommandManagerNode(Node):
         self.last_cmd_time = self.get_clock().now()
         self.planning_mode = int(msg.planning_mode)
         self.manual_override = bool(msg.manual_override)
+        was_armed = self.armed
 
         if msg.disarm:
             self.armed = False
             self.mode = Command.MODE_IDLE
             self.status_text = 'disarmed'
+            self._home_xy = None
         elif msg.arm:
             self.armed = True
             self.status_text = 'armed'
 
         self.mode = int(msg.mode_request)
         self.last_manual_cmd = self._command_to_manual_twist(msg)
+        if msg.arm and not was_armed and self.last_raw_telemetry is not None and self._home_xy is None:
+            self._home_xy = (
+                float(self.last_raw_telemetry.pose.position.x),
+                float(self.last_raw_telemetry.pose.position.y),
+            )
 
     def _on_telemetry_raw(self, msg: Telemetry) -> None:
         self.last_raw_telemetry = msg
@@ -211,6 +228,7 @@ class CommandManagerNode(Node):
                     self.armed = False
                     enable.data = False
                     self.mode = Command.MODE_IDLE
+                    self._home_xy = None
                     self.land_confirmed_count = 0
                     self.status_text = 'landed -> disarmed'
                 else:
@@ -219,6 +237,30 @@ class CommandManagerNode(Node):
                 self.land_confirmed_count = 0
                 cmd.linear.z = -abs(self.land_rate_mps)
                 self.status_text = 'landing'
+        elif self.mode == Command.MODE_RTL:
+            self.takeoff_confirmed_count = 0
+            if self._home_xy is None or altitude is None or self.last_raw_telemetry is None:
+                self.mode = Command.MODE_LAND
+                self.status_text = 'RTL: no home -> land in place'
+            else:
+                params = RtlParams(
+                    self.rtl_altitude_m,
+                    self.rtl_cruise_speed_mps,
+                    self.rtl_arrival_radius_m,
+                    self.rtl_kp,
+                )
+                pos = (
+                    float(self.last_raw_telemetry.pose.position.x),
+                    float(self.last_raw_telemetry.pose.position.y),
+                    float(altitude),
+                )
+                vx, vy, vz, phase = rtl_command(params, pos, self._home_xy)
+                if phase == RTL_ARRIVED:
+                    self.mode = Command.MODE_LAND
+                    self.status_text = 'RTL: arrived -> land'
+                else:
+                    cmd.linear.x, cmd.linear.y, cmd.linear.z = vx, vy, vz
+                    self.status_text = f'RTL: {phase} ({vx:.1f},{vy:.1f},{vz:.1f})'
         else:
             self.status_text = f'mode {self.mode} idle behavior'
 

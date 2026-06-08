@@ -1,0 +1,9 @@
+px4_backend_adapter_node:
+  ros__parameters:
+    mavlink_url: "udpin:0.0.0.0:14540"
+    backend_cmd_topic: "/uav/backend/cmd_twist"
+    backend_enable_topic: "/uav/backend/enable"
+    backend_odom_topic: "/uav/backend/odom"
+    setpoint_rate_hz: 20.0
+    heartbeat_rate_hz: 2.0
+    recv_rate_hz: 50.0

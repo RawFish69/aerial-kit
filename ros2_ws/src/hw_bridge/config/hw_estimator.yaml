@@ -1,0 +1,8 @@
+hw_state_estimator_node:
+  ros__parameters:
+    imu_topic: "/uav/hw/imu"
+    baro_topic: "/uav/hw/baro"
+    gps_topic: "/uav/hw/gps"
+    publish_rate_hz: 30.0
+    baro_alpha: 0.98
+    min_gps_status: 0

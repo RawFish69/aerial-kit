@@ -28,11 +28,11 @@ Multi-purpose quadcopter control stack with:
   <img src="docs/sim_demo_1.png" alt="ROS2 Gazebo simulation demo" width="98%">
 </p>
 
-### Hovering & Landing (IMU + Barometer + GPS)
+### Hardware: Hovering & Landing (IMU + Barometer + GPS, Betaflight)
 
-https://github.com/user-attachments/assets/44837663-b281-45db-9803-5aaa9812833d
+docs/hovering.mp4
 
-*Autonomous hover and landing, commanded over the CRSF/ESP-NOW link. The state estimate fuses IMU
+*Autonomous hover and landing on a Betaflight quad, commanded over the CRSF/ESP-NOW link. The state estimate fuses IMU
 attitude, barometric altitude, and GPS position.*
 
 ## Architecture (high level)
@@ -47,7 +47,14 @@ TX (IMU+Joystick) -> ESP-NOW -> RX -> Protocol Bridge -> Flight Controller
 **Autonomous (Hardware-in-the-loop)**
 
 ```
-ROS Controllers -> Safety Gate -> CRSF Adapter -> UDP -> TX -> ESP-NOW -> RX -> Protocol -> FC
+/uav/backend/cmd_twist + /uav/backend/enable
+    -> hw_bridge (crsf_backend_adapter_node | px4_backend_adapter_node)
+    -> FC command link (CRSF/ESP-NOW or MAVLink)
+
+FC sensors (/uav/hw/imu, /uav/hw/baro, /uav/hw/gps)
+    -> hw_state_estimator_node
+    -> /uav/backend/odom
+    -> telemetry_adapter_node -> /uav/backend/telemetry_raw
 ```
 
 **Simulation**
@@ -146,6 +153,31 @@ The rebuilt Gazebo + ground-station / air-unit stack now lives in `ros2_ws`.
 - Primary sim bringup: `ros2 launch sim_gazebo bringup.launch.py`
 - Ground station bringup: `ros2 launch ground_station ground.launch.py`
 
+### Hardware autonomous flight
+
+CRSF/Betaflight backend launch:
+
+```bash
+cd ros2_ws
+source install/setup.bash
+ros2 launch hw_bridge hw_crsf.launch.py udp_host:=192.168.4.1
+```
+
+PX4/MAVLink backend launch:
+
+```bash
+ros2 launch hw_bridge hw_px4.launch.py mavlink_url:=udpin:0.0.0.0:14540
+```
+
+Sensor topic contract for hardware estimation:
+- `/uav/hw/imu` (`sensor_msgs/msg/Imu`)
+- `/uav/hw/baro` (`std_msgs/msg/Float64`, meters)
+- `/uav/hw/gps` (`sensor_msgs/msg/NavSatFix`)
+
+Bring-up and TX integration details are in `docs/HARDWARE.md`.
+
+**Before real flight:** tune `hover_throttle` and mapping gains per airframe, and keep Betaflight in **Angle mode** for the velocity-to-stick mapping used by `hw_bridge`.
+
 ### Build
 
 ```bash
@@ -224,6 +256,7 @@ The `gps/` project is an ESP32 GPS bring-up/telemetry module using `Adafruit_GPS
 | `ros2_ws/src/ground_station` | Python | CLI, monitor, and demo mission tools |
 | `ros2_ws/src/planner` | Python | ROS2 planner service wrapper for `sim_py` planners |
 | `ros2_ws/src/sim_bridge` | Python | Backend adapters (Gazebo / fast sim) |
+| `ros2_ws/src/hw_bridge` | Python | Hardware backend adapters + estimator (CRSF/PX4) |
 | `ros2_ws/src/sim_fast` | Python | Headless simulation bringup |
 | `ros2_ws/src/sim_gazebo` | Python | Gazebo Sim bringup and assets |
 | `ros2_ws/src/px4_bridge` | Python | PX4 bridge scaffolding |
@@ -248,6 +281,9 @@ The current ROS2 Gazebo/fast-sim stack uses the `/uav/...` namespace by default.
 - `/uav/backend/enable` (`std_msgs/msg/Bool`)
 - `/uav/backend/odom` (`nav_msgs/msg/Odometry`)
 - `/uav/backend/telemetry_raw` (`drone_msgs/msg/Telemetry`)
+- `/uav/hw/imu` (`sensor_msgs/msg/Imu`)
+- `/uav/hw/baro` (`std_msgs/msg/Float64`)
+- `/uav/hw/gps` (`sensor_msgs/msg/NavSatFix`)
 
 Gazebo bridged topics:
 

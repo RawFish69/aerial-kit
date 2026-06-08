@@ -7,7 +7,33 @@ TX_RX handles hardware. ROS provides autonomous algorithms.
 **Manual flight**: TX with IMU+joystick. No ROS needed.  
 **Autonomous flight**: ROS → TX via UDP. Requires TX modification.
 
-## Code to Add
+## ROS-Side Hardware Contract
+
+Hardware autonomous flight is wired through the same backend contract used by sim:
+
+- Commands from control stack:
+  - `/uav/backend/cmd_twist` (`geometry_msgs/msg/Twist`)
+  - `/uav/backend/enable` (`std_msgs/msg/Bool`)
+- Estimated state back to control stack:
+  - `/uav/backend/odom` (`nav_msgs/msg/Odometry`)
+
+For Betaflight CRSF mode, the estimator consumes:
+
+- `/uav/hw/imu` (`sensor_msgs/msg/Imu`)
+- `/uav/hw/baro` (`std_msgs/msg/Float64`, altitude meters)
+- `/uav/hw/gps` (`sensor_msgs/msg/NavSatFix`)
+
+Launch paths:
+
+```bash
+ros2 launch hw_bridge hw_crsf.launch.py udp_host:=192.168.4.1
+ros2 launch hw_bridge hw_px4.launch.py mavlink_url:=udpin:0.0.0.0:14540
+```
+
+> Betaflight path assumes **Angle mode** (stick commands represent tilt angles).
+> Tune `hover_throttle` and mapping gains before real flight.
+
+## TX UDP Receiver Code
 
 In TX_RX/src/main.cpp, `#ifdef BUILD_TX` section:
 
@@ -78,10 +104,10 @@ pio run -e transmitter -t upload
 
 # Connect computer to UAV_TX WiFi (192.168.4.1)
 
-# Launch ROS
+# Launch ROS (CRSF hardware backend)
 cd UAV-Controller
 source ros2_ws/install/setup.bash
-./scripts/run_crsf_link_pid.sh transport:=udp udp_host:=192.168.4.1
+./scripts/run_crsf_link_pid.sh udp_host:=192.168.4.1
 ```
 
 ## Packet Format
@@ -95,3 +121,14 @@ DirectCommandPayload: 20 bytes, little-endian `<ffffI`
 **TX not receiving**: Check WiFi connection, ping 192.168.4.1  
 **RX not responding**: Check ESP-NOW link, CRSF wiring (GPIO 21)  
 **No FC response**: Verify FC set to CRSF input
+
+## Follow-up Integration Work
+
+The outbound UDP/TX command path above is active. Hardware sensor topic population is a separate
+integration step:
+
+- GPS serial/NMEA -> `/uav/hw/gps`
+- Betaflight telemetry (attitude/baro) -> `/uav/hw/imu` + `/uav/hw/baro`
+
+Those bridges/firmware hooks are intentionally separate from the ROS backend package and can be
+implemented incrementally on the hardware side.
