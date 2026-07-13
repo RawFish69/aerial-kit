@@ -1,0 +1,21 @@
+mavlink_bridge_node:
+  ros__parameters:
+    connection_url: "/dev/ttyACM0"
+    baud: 57600
+    flight_stack: "px4"          # "px4" or "ardupilot" (informational/logging only)
+    system_id: 245
+    component_id: 191            # MAV_COMP_ID_ONBOARD_COMPUTER
+    target_system: 1
+    target_component: 1
+
+    backend_cmd_topic: "/uav/backend/cmd_twist"
+    backend_enable_topic: "/uav/backend/enable"
+    backend_odom_topic: "/uav/backend/odom"
+    telemetry_raw_topic: "/uav/backend/telemetry_raw"
+
+    setpoint_rate_hz: 20.0
+    command_timeout_sec: 0.5
+    heartbeat_timeout_sec: 3.0
+    disarm_max_speed_mps: 0.3
+    disarm_max_altitude_m: 0.3
+    yaw_rate_sign: -1.0          # verify on a props-off bench test, see README
