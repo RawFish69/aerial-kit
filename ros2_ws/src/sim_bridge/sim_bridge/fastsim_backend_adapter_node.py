@@ -17,7 +17,7 @@ def _ensure_repo_root_on_path() -> None:
 
 
 _ensure_repo_root_on_path()
-from sim_py.dynamics import PointMassDynamics, PointMassParams  # noqa: E402
+from aerial_kit.dynamics.pointmass import PointMassDynamics, PointMassParams  # noqa: E402
 
 
 class FastSimBackendAdapterNode(Node):

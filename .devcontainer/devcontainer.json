@@ -28,7 +28,7 @@
       }
     }
   },
-  "postCreateCommand": "sudo chown -R $(whoami) /workspace && cd /workspace/ros2_ws && rosdep update && rosdep install --from-paths src --ignore-src -r -y && . /opt/ros/humble/setup.bash && colcon build --symlink-install && cd /workspace && ./scripts/setup_sim_py_venv.sh && ./sim_py/.venv/bin/python -m pip install -r Utils/requirements.txt -r gps/requirements-dashboard.txt",
+  "postCreateCommand": "sudo chown -R $(whoami) /workspace && cd /workspace/ros2_ws && rosdep update && rosdep install --from-paths src --ignore-src -r -y && . /opt/ros/humble/setup.bash && colcon build --symlink-install && cd /workspace && ./scripts/setup_sim_py_venv.sh && ./sim_py/.venv/bin/python -m pip install -r tools/requirements.txt -r tools/requirements-gps-dashboard.txt",
   "remoteUser": "ros",
   "features": {},
   "mounts": [

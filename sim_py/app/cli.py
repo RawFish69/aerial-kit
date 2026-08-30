@@ -23,16 +23,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--controller",
         type=str,
-        choices=["pid", "lqr", "mpc", "teleop"],
+        choices=["pid", "lqr", "mpc", "teleop", "l1_tecs"],
         default="pid",
-        help="Controller type to use.",
+        help="Controller type to use. l1_tecs pairs with --airframe twin_wing "
+        "--backend fixedwing (AIRSPEED_NAV) -- see sim_py/INFO.md.",
     )
     parser.add_argument(
         "--backend",
         type=str,
-        choices=["pointmass", "rotorpy"],
+        # fixedwing missions always start at zero velocity (run_simulation() has no
+        # runway/launch model), so a CLI run belly-flops before gaining lift rather
+        # than demonstrating cruise flight -- exercise it directly in tests instead
+        # (sim_py/tests/test_fixed_wing_guidance.py starts at cruise trim).
+        choices=["pointmass", "rotorpy", "fixedwing"],
         default=None,
         help="Dynamics backend to use (default: pointmass or simulation.backend).",
+    )
+    parser.add_argument(
+        "--airframe",
+        type=str,
+        choices=["quad", "hex", "octo", "twin_wing"],
+        default=None,
+        help="Airframe profile to use (default: quad or vehicle.airframe).",
     )
     parser.add_argument(
         "--sim-time",

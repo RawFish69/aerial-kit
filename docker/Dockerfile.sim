@@ -15,12 +15,11 @@ WORKDIR /workspace
 
 COPY sim_py /workspace/sim_py
 COPY scripts /workspace/scripts
-COPY Utils /workspace/Utils
-COPY gps /workspace/gps
+COPY tools /workspace/tools
 
 RUN /workspace/scripts/setup_sim_py_venv.sh && \
-    /workspace/sim_py/.venv/bin/python -m pip install -r /workspace/Utils/requirements.txt && \
-    /workspace/sim_py/.venv/bin/python -m pip install -r /workspace/gps/requirements-dashboard.txt
+    /workspace/sim_py/.venv/bin/python -m pip install -r /workspace/tools/requirements.txt && \
+    /workspace/sim_py/.venv/bin/python -m pip install -r /workspace/tools/requirements-gps-dashboard.txt
 
 ENV PATH="/workspace/sim_py/.venv/bin:${PATH}"
 CMD ["bash"]

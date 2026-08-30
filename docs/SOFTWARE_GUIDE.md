@@ -21,13 +21,23 @@ A comprehensive guide to the UAV Controller system covering simulation, hardware
 
 ## Overview
 
-The UAV Controller is a multi-purpose control system for quadcopters supporting:
+The UAV Controller is a multi-purpose control system for **aerial robots**. Multirotors are
+implemented and flying today; fixed-wing, monocopter, and TVC airframes are being added — see
+the airframe table in the [root README](../README.md#supported-airframes). Features:
 
+- **Airframes**: quadcopter (reference, flying); hexacopter, octacopter, twin-motor wing,
+  single-motor wing, monocopter, and TVC are planned
 - **Controllers**: PID (cascaded), LQR (optimal), MPC (Model Predictive Control)
 - **Safety**: Multi-layer validation, slew limiting, timeout watchdog
+- **Autopilots**: Betaflight over CRSF, PX4 / ArduPilot over MAVLink, and this repo's own
+  ESP32 firmware
 - **Hardware**: Custom TX/RX with universal protocol support (CRSF, SBUS, PPM, iBus, FrSky)
 - **Simulation**: 200Hz dynamics with RViz visualization
 - **Terrain Generation**: Forest, Mountains, and Plains environments
+
+> Anything in this guide that names a quadcopter — hover throttle, four-motor mixing, the
+> `x3` / `lr_drone` Gazebo models — is describing the reference airframe, not a limit of the
+> architecture.
 
 ### Architecture
 
@@ -80,7 +90,8 @@ source install/setup.bash
 ./scripts/run_sim_mpc.sh headless
 ```
 
-The quadcopter should hover at 1m altitude in RViz (or run silently in headless mode).
+The vehicle (a quadcopter in the default configuration) should hover at 1m altitude in RViz
+(or run silently in headless mode).
 
 ---
 
@@ -315,7 +326,7 @@ The system supports two hardware modes:
 
 **Step 1: Modify TX Firmware**
 
-Add UDP support to `TX_RX/src/main.cpp` in the `#ifdef BUILD_TX` section:
+Add UDP support to `firmware/espnow/src/main.cpp` in the `#ifdef BUILD_TX` section:
 
 ```cpp
 #include <WiFi.h>
@@ -367,7 +378,7 @@ void loop() {
 **Step 2: Flash TX**
 
 ```bash
-cd TX_RX
+cd firmware/espnow
 pio run -e transmitter -t upload
 ```
 
@@ -385,7 +396,7 @@ source ros2_ws/install/setup.bash
 
 ### Protocol Configuration
 
-Edit `TX_RX/src/config.h` to select output protocol:
+Edit `firmware/espnow/src/config.h` to select output protocol:
 
 ```cpp
 #define OUTPUT_PROTOCOL PROTOCOL_CRSF  // or PROTOCOL_SBUS, PROTOCOL_PPM, etc.
@@ -452,7 +463,7 @@ Monitor RC channels from your receiver:
 
 **3D Web Visualizer (Recommended):**
 ```bash
-cd Utils
+cd tools
 pip install -r requirements.txt
 python drone_visualizer.py COM3  # or /dev/ttyUSB0 on Linux
 ```
@@ -740,8 +751,8 @@ ros2 node list
 
 - **📖 [Example Usage](EXAMPLE_USAGE.md)** - Complete walkthrough of using controllers with generated terrain
 - **Hardware Details**: See `docs/HARDWARE.md` for detailed TX/RX integration
-- **TX/RX System**: See `TX_RX/README.md` for transmitter/receiver documentation
-- **Protocol Visualizer**: See `Utils/README.md` for monitoring tools
+- **Firmware**: See `firmware/README.md` for the ESP-NOW / ELRS / LoRa / GPS project index
+- **Protocol Visualizer**: See `tools/README.md` for monitoring tools
 
 ---
 

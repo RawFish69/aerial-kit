@@ -8,7 +8,7 @@ sim adapters in `sim_bridge` (`gazebo_backend_adapter_node`,
 
 ## Wiring
 
-This is **not** the ELRS RC link. The ELRS firmware in `../ELRS` carries
+This is **not** the ELRS RC link. The ELRS firmware in `firmware/elrs` carries
 CRSF RC channels (roll/pitch/yaw/throttle + switches) over the air to the
 flight controller's RC input — it does not carry MAVLink. `mavlink_bridge`
 needs a **separate, direct MAVLink connection** between the companion

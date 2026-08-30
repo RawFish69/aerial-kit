@@ -8,7 +8,7 @@ import numpy as np
 
 from ..core.interfaces import DynamicsBackend
 from ..core.types import ControlTarget, SimState
-from ..dynamics import PointMassDynamics, PointMassParams
+from aerial_kit.dynamics.pointmass import PointMassDynamics, PointMassParams
 
 
 class PointMassBackend(DynamicsBackend):

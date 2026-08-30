@@ -14,8 +14,6 @@ RUN python -m pip install --no-cache-dir --upgrade pip && \
     python -m pip install --no-cache-dir platformio
 
 WORKDIR /workspace
-COPY ESPNOW_TX /workspace/ESPNOW_TX
-COPY LoRa_TX /workspace/LoRa_TX
-COPY gps /workspace/gps
+COPY firmware /workspace/firmware
 
 CMD ["bash"]

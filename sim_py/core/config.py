@@ -27,6 +27,7 @@ class NormalizedSimConfig:
     simulation_cfg: dict[str, Any]
     raw_cfg: dict[str, Any]
     seed: int | None
+    airframe_name: str = "quad"
 
 
 def load_sim_config(path: Path) -> dict[str, Any]:
@@ -72,6 +73,13 @@ def normalize_sim_config(args: argparse.Namespace) -> NormalizedSimConfig:
     seed_raw = sim_cfg.get("seed")
     seed = None if seed_raw is None else int(seed_raw)
 
+    vehicle_cfg = dict(raw_cfg.get("vehicle", {}) or {})
+    airframe_name = (
+        str(args.airframe)
+        if getattr(args, "airframe", None) is not None
+        else str(vehicle_cfg.get("airframe", "quad"))
+    )
+
     return NormalizedSimConfig(
         sim_config_path=sim_config_path,
         terrain_override=args.terrain,
@@ -86,4 +94,5 @@ def normalize_sim_config(args: argparse.Namespace) -> NormalizedSimConfig:
         simulation_cfg=sim_cfg,
         raw_cfg=raw_cfg,
         seed=seed,
+        airframe_name=airframe_name,
     )

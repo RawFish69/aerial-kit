@@ -17,7 +17,7 @@ docker run --rm -it --network=host --privileged -v "$PWD":/workspace uav-control
 
 File: `docker/Dockerfile.sim`
 
-Includes `sim_py` virtualenv and Python deps for `Utils` + GPS dashboard.
+Includes `sim_py` virtualenv and Python deps for `tools/` (protocol monitors + GPS dashboard).
 
 ```bash
 docker build -f docker/Dockerfile.sim -t uav-controller:sim .
@@ -28,7 +28,7 @@ docker run --rm -it -v "$PWD":/workspace uav-controller:sim
 
 File: `docker/Dockerfile.firmware`
 
-Includes PlatformIO and firmware folders (`ESPNOW_TX`, `LoRa_TX`, `gps`).
+Includes PlatformIO and the whole `firmware/` tree (`espnow`, `elrs`, `lora`, `gps`).
 
 ```bash
 docker build -f docker/Dockerfile.firmware -t uav-controller:firmware .

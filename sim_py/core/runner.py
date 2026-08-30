@@ -8,8 +8,14 @@ from pathlib import Path
 import numpy as np
 
 from ..core.config import NormalizedSimConfig
-from ..core.registry import create_backend, create_controller, create_planner, register_builtin_components
-from ..core.types import ControlTarget, SimState, TrajectoryLog, Waypoint
+from ..core.registry import (
+    create_airframe,
+    create_backend,
+    create_controller,
+    create_planner,
+    register_builtin_components,
+)
+from ..core.types import CommandKind, ControlTarget, SimState, TrajectoryLog, Waypoint, Wrench
 from ..terrain_wrapper import (
     TerrainConfig,
     generate_terrain,
@@ -155,6 +161,19 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
 
     register_builtin_components()
 
+    # Airframe is created before planning (not just before backend/controller) so a
+    # curvature-aware planner (e.g. "dubins") can read min_turn_radius_m from
+    # Capabilities, per plan 04's design -- quad/hex/octo report None here (they can
+    # turn in place), so this is a no-op for them.
+    airframe_name = str(cfg_norm.airframe_name).lower()
+    airframe = create_airframe(airframe_name)
+    logger.info(
+        f"Airframe: {airframe_name.upper()} ({airframe.capabilities.n_actuators} actuators, "
+        f"command_kind={airframe.capabilities.command_kind.name})"
+    )
+    if airframe.capabilities.min_turn_radius_m is not None:
+        path_cfg.setdefault("turn_radius_m", airframe.capabilities.min_turn_radius_m)
+
     planner_type_raw = str(path_cfg.get("planner_type", "straight")).lower()
     planner_type = "rrtstar" if planner_type_raw in {"rrt*", "rrt_star", "rrtstar"} else planner_type_raw
     planner = create_planner(planner_type)
@@ -193,6 +212,14 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
 
     backend_name = str(cfg_norm.backend_name).lower()
     backend = create_backend(backend_name)
+
+    if controller.command_kind != airframe.capabilities.command_kind:
+        raise ValueError(
+            f"Controller '{controller_name}' produces {controller.command_kind.name} "
+            f"control targets, but airframe '{airframe_name}' ({airframe.name}) accepts "
+            f"{airframe.capabilities.command_kind.name}. Pick a controller/airframe pair "
+            f"with matching command kinds."
+        )
 
     initial_state = SimState(
         position=path_start.copy(),
@@ -243,6 +270,14 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
     min_bounds = np.array([0.0, 0.0, 0.0], dtype=float)
     max_bounds = np.array([float(cfg.space_dim[0]), float(cfg.space_dim[1]), max_z_allowed], dtype=float)
 
+    # PointMassBackend integrates accel_cmd directly and has no actuator concept, so
+    # allocate() here is exercised for validation/logging only -- its output does not
+    # feed back into the physics. This keeps the quad trajectory unchanged regardless
+    # of which airframe is selected (CommandKind dispatch lands in phase 3).
+    pm_cfg = dict(cfg_norm.simulation_cfg.get("pointmass", {}) or {})
+    airframe_mass_kg = float(pm_cfg.get("mass", 1.0))
+    gravity_mps2 = 9.81
+
     while t < max_t and wp_idx < len(waypoints):
         state = backend.state()
         pos = state.position
@@ -268,13 +303,30 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
             cfg={"controller": ctrl_cfg},
         )
 
-        acc_cmd = np.asarray(control_target.accel_cmd, dtype=float)
-        acc_mag = np.linalg.norm(acc_cmd)
-        acc_max = float(ctrl_cfg.get("acc_max", 20.0))
-        if acc_mag > acc_max:
-            acc_cmd = acc_cmd * (acc_max / (acc_mag + 1e-6))
+        if airframe.capabilities.command_kind == CommandKind.AIRSPEED_NAV:
+            # Actuator-level path: the controller already produced a Wrench (it
+            # has no accel_cmd concept), allocate() turns it into actuator
+            # commands, and the backend consumes those via metadata rather than
+            # accel_cmd -- see FixedWingBackend's docstring for why.
+            wrench = control_target.metadata["wrench"]
+            actuator_cmd = airframe.allocate(wrench, state)
+            step_metadata = dict(control_target.metadata)
+            step_metadata["actuator_cmd"] = actuator_cmd
+            backend.step(ControlTarget(accel_cmd=np.zeros(3, dtype=float), metadata=step_metadata), dt)
+        else:
+            acc_cmd = np.asarray(control_target.accel_cmd, dtype=float)
+            acc_mag = np.linalg.norm(acc_cmd)
+            acc_max = float(ctrl_cfg.get("acc_max", 20.0))
+            if acc_mag > acc_max:
+                acc_cmd = acc_cmd * (acc_max / (acc_mag + 1e-6))
 
-        backend.step(ControlTarget(accel_cmd=acc_cmd, metadata=control_target.metadata), dt)
+            wrench = Wrench(
+                force_body=airframe_mass_kg * (acc_cmd + np.array([0.0, 0.0, gravity_mps2])),
+                moment_body=np.zeros(3, dtype=float),
+            )
+            airframe.allocate(wrench, state)
+
+            backend.step(ControlTarget(accel_cmd=acc_cmd, metadata=control_target.metadata), dt)
         backend.apply_constraints(
             min_bounds=min_bounds,
             max_bounds=max_bounds,

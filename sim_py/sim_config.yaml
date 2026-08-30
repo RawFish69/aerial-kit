@@ -16,7 +16,10 @@ path:
   end_xy_offset_range: 100.0
 
   # Path planner settings
-  # planner_type: "straight" | "astar" | "rrt" | "rrt*"
+  # planner_type: "straight" | "astar" | "rrt" | "rrt*" | "dubins"
+  # "dubins" produces a single curvature-feasible start->goal path; turn_radius_m
+  # defaults from the selected airframe's Capabilities.min_turn_radius_m when set
+  # (e.g. twin_wing), otherwise defaults to 20.0 -- override with path.turn_radius_m.
   planner_type: "rrt*"
   grid_resolution: 1.5       # For A* (smaller = finer grid, better avoidance)
   collision_inflation: 1.5    # Safety margin around obstacles [m] (increase to stay farther)
@@ -79,6 +82,13 @@ visual:
   terrain_alpha: 0.45
   terrain_cmap: "terrain"
 
+vehicle:
+  # Airframe profile: "quad" (default), "hex", or "octo".
+  # Not yet consumed by the simulation loop (workstream 02, phase 1) --
+  # PointMassBackend still integrates accel_cmd directly. This selects the
+  # Airframe object created via aerial_kit.registry.create_airframe.
+  airframe: "quad"
+
 simulation:
   # Dynamics backend: "pointmass" (default) or "rotorpy"
   backend: "pointmass"
@@ -92,3 +102,15 @@ simulation:
     vehicle: "crazyflie"
     aero: true
     enable_ground: false
+
+  # FixedWingBackend params (workstream 04). Not CLI-selectable yet -- see the
+  # comment on --backend in sim_py/app/cli.py. Aero/inertia coefficients are a
+  # plausible default set for a ~1.5 kg foam flying wing, not a fitted model of
+  # any real airframe; override per-field as real airframe data becomes available.
+  fixedwing:
+    mass_kg: 1.5
+    wing_area_m2: 0.35
+    wingspan_m: 1.4
+    mean_chord_m: 0.25
+    inertia_kg_m2: [0.05, 0.03, 0.06]
+    wind_mps: [0.0, 0.0, 0.0]

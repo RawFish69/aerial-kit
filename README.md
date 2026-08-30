@@ -1,9 +1,14 @@
 # UAV Controller + Path Planning
 
-Multi-purpose quadcopter control stack with:
+Control, planning, and radio-link stack for **aerial robots**. Alongside the ROS 2 /
+Python control stack, this repo carries fully custom ESP32 flight-link firmware
+(ESP-NOW, ELRS, LoRa, GPS) — custom multirotor firmware is being added here too,
+alongside the existing links.
+
 - **ROS 2 control + safety pipeline** (hardware + Gazebo Sim / fast sim)
 - **Standalone Python simulator** (no ROS) for fast iteration on planners/controllers
-- **ESP32 TX/RX link** for manual flight + autonomous command relay
+- **Autopilot bridges** for PX4, ArduPilot, and Betaflight
+- **ESP32 firmware** (ESP-NOW, ELRS, LoRa, GPS) for manual flight + autonomous command relay
 
 ## What's in this repo
 
@@ -13,9 +18,13 @@ Multi-purpose quadcopter control stack with:
 - **Path planning (Python-only)**: straight / A* / RRT planners
 - **Terrain generation**: forest / mountains / plains (shared between ROS and Python sim)
 - **Safety**: validation, limiting, watchdog (`safety_gate`)
-- **Hardware link**: CRSF adapter + ESP-NOW based TX/RX + protocol bridging
+- **Hardware link**: CRSF adapter + ESP-NOW / ELRS TX/RX + protocol bridging
+- **Autopilot bridges**: MAVLink (PX4 / ArduPilot) and CRSF (Betaflight)
 
 ## Demo
+
+All demos below are **quadcopter** flights — see [Supported airframes](#supported-airframes)
+for what else is in progress.
 
 ### Python Sim & ROS2 Gazebo Sim
 
@@ -28,12 +37,47 @@ Multi-purpose quadcopter control stack with:
   <img src="docs/sim_demo_1.png" alt="ROS2 Gazebo simulation demo" width="98%">
 </p>
 
+### ROS2 Gazebo
+
+<img src="docs/sim_demo_2.png" alt="ROS2 Gazebo demo screenshot (additional)" width="900">
+
 ### Hovering & Landing (IMU + Barometer + GPS)
 
 https://github.com/user-attachments/assets/44837663-b281-45db-9803-5aaa9812833d
 
 *Autonomous hover and landing, commanded over the CRSF/ESP-NOW link. The state estimate fuses IMU
 attitude, barometric altitude, and GPS position.*
+
+## Supported airframes
+
+| Airframe | Simulation | Control |
+|----------|-----------|---------|
+| Quadcopter | ✅ Working | ✅ PID / LQR / MPC |
+| Hexacopter | ✅ Mixer verified | ✅ PID / LQR / MPC |
+| Octacopter | ✅ Mixer verified | ✅ PID / LQR / MPC |
+| Twin-motor wing | 🚧 6-DOF backend | 🚧 L1/TECS guidance |
+| Single-motor wing | ⏳ To be added | ⏳ To be added |
+| Monocopter | ⏳ To be added | ⏳ To be added |
+| TVC (thrust-vectored) | ⏳ To be added | ⏳ To be added |
+
+Quadcopter is the reference airframe and everything in the demos above is a quad. The
+pieces that are still quad-shaped today are the `rotorpy` dynamics backend, the
+`hover_throttle` / velocity-to-stick mapping in `hw_bridge`, and the Gazebo `x3` /
+`lr_drone` models. Lifting those into a shared airframe layer is the active line of work;
+see [Roadmap](#roadmap).
+
+## Autopilot & firmware support
+
+| Platform | Link | Package | Status |
+|----------|------|---------|--------|
+| Betaflight | CRSF over ESP-NOW/UDP relay | `ros2_ws/src/hw_bridge` (`crsf_backend_adapter_node`) | ✅ Working |
+| PX4 | MAVLink over USB / UART / telemetry radio | `ros2_ws/src/mavlink_bridge` | ✅ Working |
+| ArduPilot | MAVLink, same node (`flight_stack: ardupilot`) | `ros2_ws/src/mavlink_bridge` | 🚧 Supported, in testing |
+| Custom firmware (this repo) | ESP-NOW + CRSF, 2.4 GHz SX1280 ELRS, LoRa telemetry | `firmware/` | ✅ Working |
+
+All autopilot backends implement the same `/uav/backend/*` contract as the simulation
+adapters, so the mission and control stack above them is unchanged between sim, Betaflight,
+and PX4/ArduPilot.
 
 ## Architecture (high level)
 
@@ -48,8 +92,8 @@ TX (IMU+Joystick) -> ESP-NOW -> RX -> Protocol Bridge -> Flight Controller
 
 ```
 /uav/backend/cmd_twist + /uav/backend/enable
-    -> hw_bridge (crsf_backend_adapter_node | px4_backend_adapter_node)
-    -> FC command link (CRSF/ESP-NOW or MAVLink)
+    -> hw_bridge (crsf_backend_adapter_node)      -> Betaflight over CRSF/ESP-NOW
+     | mavlink_bridge (mavlink_bridge_node)       -> PX4 / ArduPilot over MAVLink
 
 FC sensors (/uav/hw/imu, /uav/hw/baro, /uav/hw/gps)
     -> hw_state_estimator_node
@@ -163,11 +207,23 @@ source install/setup.bash
 ros2 launch hw_bridge hw_crsf.launch.py udp_host:=192.168.4.1
 ```
 
-PX4/MAVLink backend launch:
+PX4 / ArduPilot MAVLink backend launch:
 
 ```bash
+# Direct MAVLink to the flight controller (USB / UART / telemetry radio).
+# Defaults come from mavlink_bridge/config/mavlink_bridge_default.yaml.
+ros2 launch mavlink_bridge real_hardware.launch.py
+
+# To change connection_url / baud / flight_stack ("px4" or "ardupilot"),
+# copy that YAML and point the launch at it:
+ros2 launch mavlink_bridge real_hardware.launch.py \
+    mavlink_bridge_params_file:=/path/to/my_vehicle.yaml
+
+# SITL / UDP via the older hw_bridge adapter
 ros2 launch hw_bridge hw_px4.launch.py mavlink_url:=udpin:0.0.0.0:14540
 ```
+
+Wiring and parameter details: `ros2_ws/src/mavlink_bridge/README.md`.
 
 Sensor topic contract for hardware estimation:
 - `/uav/hw/imu` (`sensor_msgs/msg/Imu`)
@@ -198,10 +254,6 @@ ros2 launch sim_fast bringup.launch.py
 
 For the current tested Gazebo + terrain + planner demo commands (including dense forest and path visualization), use:
 - `ros2_ws/README.md` -> `Recommended Test Flows (Current)`
-
-### ROS2 Gazebo
-
-<img src="docs/sim_demo_2.png" alt="ROS2 Gazebo demo screenshot (additional)" width="900">
 
 ### Legacy ROS2 prototype scripts
 
@@ -236,15 +288,17 @@ More details: `docker/README.md`.
 
 ## GPS module (ESP32)
 
-The `gps/` project is an ESP32 GPS bring-up/telemetry module using `Adafruit_GPS`.
+The `firmware/gps/` project is an ESP32 GPS bring-up/telemetry module using `Adafruit_GPS`.
 
 - Supports PMTK/NMEA modules (Adafruit Ultimate GPS / MTK33xx style)
 - Supports u-blox modules with UBX configuration (while parsing NMEA output)
 - Auto-probes common UART baud rates (9600/38400/115200), parses fix/satellite/SNR metrics, and prints diagnostics over serial
 - Build/flash protocol options:
-  - `pio run -d gps -e gps_auto -t upload` (AUTO detect PMTK vs UBLOX)
-  - `pio run -d gps -e gps_pmtk -t upload` (force PMTK mode)
-  - `pio run -d gps -e gps_ublox -t upload` (force UBLOX mode)
+  - `pio run -d firmware/gps -e gps_auto -t upload` (AUTO detect PMTK vs UBLOX)
+  - `pio run -d firmware/gps -e gps_pmtk -t upload` (force PMTK mode)
+  - `pio run -d firmware/gps -e gps_ublox -t upload` (force UBLOX mode)
+
+The host-side live dashboard is `tools/gps_dashboard.py` (see `tools/GPS_DASHBOARD.md`).
 
 <img src="docs/gps_demo_1.png" alt="GPS telemetry demo output" width="700">
 
@@ -256,18 +310,20 @@ The `gps/` project is an ESP32 GPS bring-up/telemetry module using `Adafruit_GPS
 | `ros2_ws/src/ground_station` | Python | CLI, monitor, and demo mission tools |
 | `ros2_ws/src/planner` | Python | ROS2 planner service wrapper for `sim_py` planners |
 | `ros2_ws/src/sim_bridge` | Python | Backend adapters (Gazebo / fast sim) |
-| `ros2_ws/src/hw_bridge` | Python | Hardware backend adapters + estimator (CRSF/PX4) |
+| `ros2_ws/src/hw_bridge` | Python | Hardware backend adapters + estimator (CRSF/Betaflight) |
+| `ros2_ws/src/mavlink_bridge` | Python | MAVLink backend adapter for PX4 / ArduPilot |
 | `ros2_ws/src/sim_fast` | Python | Headless simulation bringup |
 | `ros2_ws/src/sim_gazebo` | Python | Gazebo Sim bringup and assets |
-| `ros2_ws/src/px4_bridge` | Python | PX4 bridge scaffolding |
 | `ros2_ws/src/uav_algorithms` | Python | Shared algorithms / planning API helpers |
 | `ros2_ws/src/drone_msgs` | ROS msgs/srvs | Command, telemetry, mission, planner interfaces |
 | `ros2_ws/src/terrain_generator` | Python | Terrain + obstacles (forest/mountains/plains) |
 | `sim_py` | Python | Standalone planner/controller/dynamics/visualization |
-| `ESPNOW_TX` | ESP32 | ESP-NOW based TX/RX firmware |
-| `LoRa_TX` | ESP32 | LoRa TX experiments |
-| `gps` | ESP32 | GPS telemetry module (Adafruit_GPS / NMEA + PMTK + UBX support) |
-| `Utils` | Python | Protocol decoder/monitor + tools |
+| `firmware/espnow` | ESP32 | ESP-NOW TX/RX firmware + protocol bridging |
+| `firmware/elrs` | ESP32 | ExpressLRS-compatible SX1280 TX/RX (CRSF over the air) |
+| `firmware/lora` | ESP32 | LoRa point-to-point template (long-range telemetry) |
+| `firmware/gps` | ESP32 | GPS telemetry module (Adafruit_GPS / NMEA + PMTK + UBX) |
+| `tools` | Python | RC protocol decoders/monitors, 3D visualizer, GPS dashboard |
+| `assets/urdf` | URDF/SDF | Airframe descriptions, one folder per airframe family |
 
 ## ROS 2 topics (current stack)
 
@@ -300,17 +356,36 @@ See `ros2_ws/README.md` for the full topic/node diagram and troubleshooting note
 - **`sim_py/INFO.md`**: standalone simulator architecture + usage
 - **`docker/README.md`**: Docker build/run commands by workflow
 - **`docs/HARDWARE.md`**: TX integration for autonomous mode
-- **`ESPNOW_TX/README.md`**: TX/RX firmware details
-- **`gps/DASHBOARD.md`**: GPS serial dashboard usage
-- **`Utils/README.md`**: protocol monitor / decoder tooling
+- **`firmware/README.md`**: firmware project index (ESP-NOW / ELRS / LoRa / GPS)
+- **`firmware/espnow/README.md`**: TX/RX firmware details
+- **`firmware/elrs/README.md`**: ExpressLRS-compatible link details
+- **`ros2_ws/src/mavlink_bridge/README.md`**: PX4 / ArduPilot wiring and setup
+- **`tools/README.md`**: protocol monitor / decoder tooling
+- **`tools/GPS_DASHBOARD.md`**: GPS serial dashboard usage
+- **`assets/urdf/README.md`**: airframe description conventions
+
+## Roadmap
+
+The repo is moving from a quadcopter stack to a general aerial-robotics stack. In order:
+
+1. **Airframe abstraction** — done: a shared `aerial_kit` package provides
+   `Airframe`/`Capabilities`/`Wrench`/`trim()`, with `sim_py.core` re-exporting so existing
+   imports are unaffected. Hex/octo mixers are config-only, unit-tested, and fly the same
+   mission as quad. A controller/airframe `CommandKind` mismatch fails at startup with a
+   readable error.
+2. **Twin-motor wing** — control stack done: `TwinWingAirframe`, `FixedWingBackend`
+   (6-DOF + aero model), L1/TECS guidance with coordinated turns, and Dubins-planner path
+   generation all pass their acceptance tests. Still needed: URDF and a sim demo
+   (user-supplied assets).
+3. **Multirotor variants** — done: hexacopter and octacopter reuse the multirotor control
+   law with a different mixer (config-only).
+4. **Remaining airframes** — single-motor wing, monocopter, TVC.
+5. **Autopilot breadth** — flight-test the ArduPilot path, and keep the Betaflight, PX4, and
+   custom-firmware backends behind one backend contract.
 
 ## Notes
 
 - **ROS 2 Humble** is required for ROS-based control + RViz simulation
 - The **Python-only sim** (`sim_py`) is designed for fast iteration (no ROS needed)
-
-## Hardware photo
-
-<img src="docs/brushed.jpg" alt="Brushed Motor Quadcopter" width="400">
-
-*Test brushed quad with the custom TX/RX.*
+- Airframe-specific behavior belongs in the control stack, not the firmware — the ESP32
+  projects in `firmware/` carry RC channels and telemetry and are airframe-agnostic

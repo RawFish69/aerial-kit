@@ -46,3 +46,7 @@ Thumbs.db
 
 # Claude / agent working files (specs, plans, memory, scratch) — never upload
 .local/
+.claude/
+
+# Local planning notes (never committed)
+plans/

@@ -2,10 +2,20 @@
 
 ## Overview
 
-TX_RX handles hardware. ROS provides autonomous algorithms.
+Firmware (`firmware/`) handles the radio link and flight-controller I/O. ROS provides the
+autonomous algorithms.
 
 **Manual flight**: TX with IMU+joystick. No ROS needed.  
 **Autonomous flight**: ROS → TX via UDP. Requires TX modification.
+
+This page covers the **Betaflight / CRSF** path over this repo's own ESP32 TX/RX. For
+**PX4 or ArduPilot over MAVLink**, use `mavlink_bridge` instead — see
+`ros2_ws/src/mavlink_bridge/README.md`. Both paths present the same `/uav/backend/*`
+contract, so the control stack above them is identical.
+
+The stick mapping and `hover_throttle` described here are **multirotor-specific**. Fixed-wing
+and other airframes need their own mapping; that work is tracked in the roadmap in the
+[root README](../README.md#roadmap).
 
 ## ROS-Side Hardware Contract
 
@@ -35,7 +45,7 @@ ros2 launch hw_bridge hw_px4.launch.py mavlink_url:=udpin:0.0.0.0:14540
 
 ## TX UDP Receiver Code
 
-In TX_RX/src/main.cpp, `#ifdef BUILD_TX` section:
+In `firmware/espnow/src/main.cpp`, `#ifdef BUILD_TX` section:
 
 ```cpp
 // At top with includes
@@ -99,8 +109,7 @@ void loop() {
 
 ```bash
 # Flash TX
-cd TX_RX
-pio run -e transmitter -t upload
+pio run -d firmware/espnow -e transmitter -t upload
 
 # Connect computer to UAV_TX WiFi (192.168.4.1)
 
