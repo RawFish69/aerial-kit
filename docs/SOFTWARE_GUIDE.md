@@ -1,6 +1,6 @@
-# UAV Controller - Software Guide
+# aerial-kit - Software Guide
 
-A comprehensive guide to the UAV Controller system covering simulation, hardware integration, controllers, and all features.
+A comprehensive guide to the aerial-kit system covering simulation, hardware integration, controllers, and all features.
 
 ---
 
@@ -21,7 +21,7 @@ A comprehensive guide to the UAV Controller system covering simulation, hardware
 
 ## Overview
 
-The UAV Controller is a multi-purpose control system for **aerial robots**. Multirotors are
+aerial-kit is a multi-purpose control system for **aerial robots**. Multirotors are
 implemented and flying today; fixed-wing, monocopter, and TVC airframes are being added — see
 the airframe table in the [root README](../README.md#supported-airframes). Features:
 
@@ -389,7 +389,7 @@ pio run -e transmitter -t upload
 # TX IP will be 192.168.4.1
 
 # Launch ROS autonomous control
-cd UAV-Controller
+cd aerial-kit
 source ros2_ws/install/setup.bash
 ./scripts/run_crsf_link_pid.sh transport:=udp udp_host:=192.168.4.1
 ```

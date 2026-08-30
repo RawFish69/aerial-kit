@@ -18,6 +18,7 @@ venv/
 *.egg-info/
 dist/
 *.egg
+/build/
 **/__pycache__/
 *.pyc
 **/*.egg-info/

@@ -1,6 +1,6 @@
 # mavlink_bridge
 
-Real-flight-controller backend adapter for UAV-Controller: talks MAVLink to
+Real-flight-controller backend adapter for aerial-kit: talks MAVLink to
 PX4 or ArduPilot and implements the same `/uav/backend/*` contract as the
 sim adapters in `sim_bridge` (`gazebo_backend_adapter_node`,
 `fastsim_backend_adapter_node`), so `command_manager_node` /

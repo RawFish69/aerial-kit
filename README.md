@@ -1,14 +1,19 @@
-# UAV Controller + Path Planning
+# aerial-kit
 
-Control, planning, and radio-link stack for **aerial robots**. Alongside the ROS 2 /
-Python control stack, this repo carries fully custom ESP32 flight-link firmware
-(ESP-NOW, ELRS, LoRa, GPS) — custom multirotor firmware is being added here too,
-alongside the existing links.
+**UAS Controller, Planner, Simulator, Firmware** — a control, planning, simulation, and
+radio-link stack for **aerial robots**. Alongside the ROS 2 / Python control stack, this
+repo carries fully custom ESP32 flight-link firmware (ESP-NOW, ELRS, LoRa, GPS) — custom
+multirotor firmware is being added here too, alongside the existing links. The shared,
+ROS-free control layer is also published standalone on PyPI as
+[`aerial-kit`](https://pypi.org/project/aerial-kit/) (`pip install aerial-kit`).
 
-- **ROS 2 control + safety pipeline** (hardware + Gazebo Sim / fast sim)
-- **Standalone Python simulator** (no ROS) for fast iteration on planners/controllers
-- **Autopilot bridges** for PX4, ArduPilot, and Betaflight
-- **ESP32 firmware** (ESP-NOW, ELRS, LoRa, GPS) for manual flight + autonomous command relay
+- **Controller**: ROS 2 control + safety pipeline (hardware + Gazebo Sim / fast sim), plus
+  a standalone `aerial_kit` package (PID / LQR / MPC, L1 + TECS for fixed wing)
+- **Planner**: straight / A* / RRT / RRT* / Dubins path planners
+- **Simulator**: standalone Python simulator (no ROS) for fast iteration on planners/
+  controllers, plus ROS 2 + Gazebo simulation
+- **Firmware**: ESP32 firmware (ESP-NOW, ELRS, LoRa, GPS) for manual flight + autonomous
+  command relay, plus autopilot bridges for PX4, ArduPilot, and Betaflight
 
 ## What's in this repo
 
@@ -372,11 +377,16 @@ The repo is moving from a quadcopter stack to a general aerial-robotics stack. I
    `Airframe`/`Capabilities`/`Wrench`/`trim()`, with `sim_py.core` re-exporting so existing
    imports are unaffected. Hex/octo mixers are config-only, unit-tested, and fly the same
    mission as quad. A controller/airframe `CommandKind` mismatch fails at startup with a
-   readable error.
-2. **Twin-motor wing** — control stack done: `TwinWingAirframe`, `FixedWingBackend`
-   (6-DOF + aero model), L1/TECS guidance with coordinated turns, and Dubins-planner path
-   generation all pass their acceptance tests. Still needed: URDF and a sim demo
-   (user-supplied assets).
+   readable error. Published standalone on PyPI as
+   [`aerial-kit`](https://pypi.org/project/aerial-kit/) (`pip install aerial-kit`) — no ROS,
+   no matplotlib dependency.
+2. **Twin-motor wing** — **under development, simulation-only, not flown.**
+   `TwinWingAirframe`, `FixedWingBackend` (6-DOF + placeholder aero model), L1/TECS
+   guidance with coordinated turns, and Dubins-planner path generation all pass their own
+   simulated acceptance tests, but nothing here has touched real hardware and the aero
+   model isn't fitted to any specific airframe. Still needed: URDF and a sim demo
+   (user-supplied assets), then real flight-testing before any of this is trusted the way
+   the quadcopter path is.
 3. **Multirotor variants** — done: hexacopter and octacopter reuse the multirotor control
    law with a different mixer (config-only).
 4. **Remaining airframes** — single-motor wing, monocopter, TVC.

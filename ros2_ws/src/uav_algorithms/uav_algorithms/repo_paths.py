@@ -16,7 +16,7 @@ def ensure_repo_root_on_path() -> Path:
 
     candidates: list[Path] = []
 
-    env_root = os.environ.get("UAV_CONTROLLER_REPO_ROOT")
+    env_root = os.environ.get("AERIAL_KIT_REPO_ROOT")
     if env_root:
         candidates.append(Path(env_root).expanduser())
 
@@ -35,6 +35,6 @@ def ensure_repo_root_on_path() -> Path:
             return repo_root
 
     raise RuntimeError(
-        "Could not locate UAV-Controller repo root for importing sim_py. "
-        "Set UAV_CONTROLLER_REPO_ROOT or run from within the repo."
+        "Could not locate aerial-kit repo root for importing sim_py. "
+        "Set AERIAL_KIT_REPO_ROOT or run from within the repo."
     )

@@ -114,7 +114,7 @@ pio run -d firmware/espnow -e transmitter -t upload
 # Connect computer to UAV_TX WiFi (192.168.4.1)
 
 # Launch ROS (CRSF hardware backend)
-cd UAV-Controller
+cd aerial-kit
 source ros2_ws/install/setup.bash
 ./scripts/run_crsf_link_pid.sh udp_host:=192.168.4.1
 ```

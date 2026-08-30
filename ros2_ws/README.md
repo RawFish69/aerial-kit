@@ -1,6 +1,6 @@
 # ROS2 Workspace (Gazebo + Ground Station / Air Unit)
 
-This workspace contains the rebuilt ROS2 + Gazebo simulation stack for `UAV-Controller`.
+This workspace contains the rebuilt ROS2 + Gazebo simulation stack for `aerial-kit`.
 
 Status:
 - `drone_msgs` interfaces (commands / telemetry / mission / planner service)

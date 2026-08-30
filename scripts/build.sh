@@ -1,9 +1,9 @@
 #!/bin/bash
-# Build script for UAV-Controller workspace
+# Build script for aerial-kit workspace
 
 set -e
 
-echo "=== Building UAV-Controller Workspace ==="
+echo "=== Building aerial-kit Workspace ==="
 
 # Navigate to workspace
 cd "$(dirname "$0")/../ros2_ws"

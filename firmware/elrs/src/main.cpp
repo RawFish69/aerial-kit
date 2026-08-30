@@ -17,7 +17,7 @@ extern void ELRS_RX_Loop();
 void setup() {
     Serial.begin(115200);
     delay(500);
-    Serial.println("ELRS UAV-Controller");
+    Serial.println("ELRS aerial-kit");
 
 #if defined(BUILD_ELRS_TX)
     ELRS_TX_Setup();

@@ -1,0 +1,41 @@
+name: Publish aerial-kit to PyPI
+
+# Runs only when a tag like "aerial-kit-v0.1.1" is pushed -- publishing stays a
+# deliberate act (bump pyproject.toml, tag, push the tag), not something that
+# fires on every commit to main. Uses PyPI Trusted Publishing (OIDC): no API
+# token stored in GitHub. See aerial_kit/PUBLISHING.md for the one-time setup
+# this workflow depends on, and the release steps.
+
+on:
+  push:
+    tags:
+      - "aerial-kit-v*"
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required for PyPI Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          tag_version="${GITHUB_REF_NAME#aerial-kit-v}"
+          pkg_version="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "Tag aerial-kit-v$tag_version does not match pyproject.toml version $pkg_version" >&2
+            exit 1
+          fi
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

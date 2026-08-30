@@ -1,4 +1,4 @@
-# ELRS — ExpressLRS-style link for UAV-Controller
+# ELRS — ExpressLRS-style link for aerial-kit
 
 ESP32-C3 **Transmitter (TX)** and **Receiver (RX)** using an ExpressLRS-compatible over-the-air protocol over 2.4 GHz SX1280 FLRC. Intended for autonomous flight: computer sends CRSF over UART to TX; RX outputs CRSF to the flight controller.
 
@@ -55,7 +55,7 @@ pio run -e elrs_rx -t upload
 
 - **OTA**: 8-byte packets (OTA4-style): RCDATA (4 channels + switches) or SYNC (timing/FHSS). CRC and nonce for validation.
 - **FHSS**: 2.4 GHz ISM, 80 channels, 256-step sequence derived from bind phrase.
-- **CRSF**: Same frame format as `../espnow` / UAV-Controller CRSF (16×11-bit channels, DVB-S2 CRC).
+- **CRSF**: Same frame format as `../espnow` / aerial-kit CRSF (16×11-bit channels, DVB-S2 CRC).
 
 ## Rate and interval
 
@@ -63,5 +63,5 @@ Default: 500 Hz packet rate (`ELRS_PACKET_INTERVAL_US = 2000`), hop every 2 pack
 
 ## Notes
 
-- This is a minimal ELRS-compatible stack for UAV-Controller. It is not a full ExpressLRS fork; sync word uses RadioLib defaults so it will not bind with standard ExpressLRS hardware.
+- This is a minimal ELRS-compatible stack for aerial-kit. It is not a full ExpressLRS fork; sync word uses RadioLib defaults so it will not bind with standard ExpressLRS hardware.
 - For production you may want to add telemetry (link stats, battery) and/or vendored SX1280 driver with custom sync word from UID for full ExpressLRS compatibility.

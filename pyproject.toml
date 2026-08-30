@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aerial-kit"
+version = "0.1.1"
+description = "Shared control-stack package for aerial robots: airframe capabilities, allocation/trim, dynamics, controllers, and guidance -- no ROS, no matplotlib."
+readme = "aerial_kit/README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "RawFish69" }]
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.22", "scipy>=1.10"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.urls]
+Homepage = "https://github.com/RawFish69/aerial-kit"
+Repository = "https://github.com/RawFish69/aerial-kit"
+
+[tool.setuptools.packages.find]
+include = ["aerial_kit*"]
+
+[tool.setuptools.package-data]
+aerial_kit = ["py.typed"]

@@ -80,36 +80,29 @@ def create_airframe(name: str) -> Airframe:
 
 
 def register_builtin_components() -> None:
-    """Register built-in planners/controllers/backends once."""
+    """Register aerial_kit's own built-in airframes and controllers.
+
+    This package has no ROS or matplotlib dependency, so it deliberately does
+    not know about ``sim_py``'s planners/backends here -- those are
+    sim-specific (some pull in matplotlib-adjacent legacy planner code, or an
+    optional external dependency like RotorPy) and register themselves via
+    ``sim_py.core.registry``'s own ``register_builtin_components()``, which
+    calls this one first. Calling *this* function alone, with only
+    ``aerial_kit`` installed, is a fully self-contained, valid use.
+    """
     global _BUILTINS_REGISTERED
     if _BUILTINS_REGISTERED:
         return
-
-    from sim_py.backends.fixedwing_backend import FixedWingBackend
-    from sim_py.backends.pointmass_backend import PointMassBackend
-    from sim_py.backends.rotorpy_backend import RotorPyBackend
-    from sim_py.planners.basic import AStarPlanner, RRTPlanner, RRTStarPlanner, StraightPlanner
-    from sim_py.planners.dubins import DubinsPlanner
 
     from .airframes.fixed_wing import TwinWingAirframe
     from .airframes.multirotor import MultirotorAirframe
     from .controllers.basic import LQRController, MPCController, PIDController
     from .controllers.fixed_wing import FixedWingL1TECSController
 
-    register_planner("straight", StraightPlanner)
-    register_planner("astar", AStarPlanner)
-    register_planner("rrt", RRTPlanner)
-    register_planner("rrtstar", RRTStarPlanner)
-    register_planner("dubins", DubinsPlanner)
-
     register_controller("pid", PIDController)
     register_controller("lqr", LQRController)
     register_controller("mpc", MPCController)
     register_controller("l1_tecs", FixedWingL1TECSController)
-
-    register_backend("pointmass", PointMassBackend)
-    register_backend("rotorpy", RotorPyBackend)
-    register_backend("fixedwing", FixedWingBackend)
 
     register_airframe("quad", lambda: MultirotorAirframe(arms=4, layout="x"))
     register_airframe("hex", lambda: MultirotorAirframe(arms=6, layout="x"))

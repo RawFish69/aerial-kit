@@ -1,5 +1,5 @@
 {
-  "name": "UAV-Controller - Full Dev (ROS Humble)",
+  "name": "aerial-kit - Full Dev (ROS Humble)",
   "build": {
     "dockerfile": "../docker/Dockerfile.humble",
     "context": "..",
