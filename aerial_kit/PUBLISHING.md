@@ -20,13 +20,13 @@ repo's workflow as a trusted publisher once:
 
 After that, this repo's GitHub Actions can publish without any API key ever touching
 GitHub. (`aerial-kit 0.1.0` itself was published manually with an API token before this
-workflow existed -- that token is no longer needed for future releases.)
+workflow existed - that token is no longer needed for future releases.)
 
 ## Cutting a release
 
 1. Bump the version in `pyproject.toml` (`[project] version = "..."`), following semver.
 2. Update `plans/PROGRESS.md`'s log with what changed (standard practice in this repo).
-3. Commit and push to `main` as normal -- this does **not** publish anything by itself.
+3. Commit and push to `main` as normal - this does **not** publish anything by itself.
 4. Tag and push the tag:
    ```bash
    git tag aerial-kit-v0.1.1
@@ -37,5 +37,5 @@ workflow existed -- that token is no longer needed for future releases.)
 6. Watch the run under the repo's Actions tab; verify at
    https://pypi.org/project/aerial-kit/#history once it completes.
 
-Version numbers on PyPI can never be reused, even if yanked -- double-check
+Version numbers on PyPI can never be reused, even if yanked - double-check
 `pyproject.toml`'s version before tagging.
