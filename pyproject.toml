@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aerial-kit"
-version = "0.1.1"
-description = "Shared control-stack package for aerial robots: airframe capabilities, allocation/trim, dynamics, controllers, and guidance -- no ROS, no matplotlib."
+version = "0.1.3"
+description = "Control stack for aerial robots covering multirotors and fixed-wing aircraft: airframe capabilities & actuator allocation, 6-DOF/point-mass dynamics, PID/LQR/MPC and L1+TECS controllers, and guidance -- no ROS, no matplotlib."
 readme = "aerial_kit/README.md"
 license = "MIT"
 license-files = ["LICENSE"]

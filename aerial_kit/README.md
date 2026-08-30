@@ -1,14 +1,15 @@
-# aerial_kit
+# aerial-kit
 
-A shared control-stack package for aerial robots: airframe capabilities, actuator
-allocation/trim, 6-DOF and point-mass dynamics models, controllers (PID/LQR/MPC, and an
-L1 + TECS fixed-wing autopilot), and lateral/longitudinal guidance laws -- all pure
-numpy/scipy, no ROS and no matplotlib dependency.
+A control stack for aerial robots covering multirotors and fixed-wing aircraft: airframe
+capabilities, actuator allocation/trim, 6-DOF and point-mass dynamics models, controllers
+(PID/LQR/MPC, and an L1 + TECS fixed-wing autopilot), and lateral/longitudinal guidance
+laws -- all pure numpy/scipy, no ROS and no matplotlib dependency.
 
-It grew out of [aerial-kit](https://github.com/RawFish69/aerial-kit)'s parent project, a
-quadcopter-to-general-aerial-robotics control stack, where it's the shared layer imported
-by both a standalone Python simulator and ROS 2 flight nodes so they don't duplicate
-control code.
+It's the `aerial_kit` package inside the
+[aerial-kit](https://github.com/RawFish69/aerial-kit) repo, a
+quadcopter-to-general-aerial-robotics control stack -- there, it's the shared layer
+imported by both a standalone Python simulator and ROS 2 flight nodes so they don't
+duplicate control code.
 
 ## What's in it
 
