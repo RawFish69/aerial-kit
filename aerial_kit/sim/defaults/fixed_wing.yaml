@@ -57,3 +57,10 @@ visual:
   path_linewidth: 2.5
   planned_linewidth: 2.0
   marker_size: 45
+  # Teleop only (aerial-kit-teleop --airframe fixed-wing /
+  # aerial-kit-sim --example fixed-wing --teleop). The autonomous L1/TECS run
+  # above ignores this and keeps the shared 120x120x60 m terrain.yaml default
+  # -- this key is only read by sim_py/teleop/world.py. A hand-flown wing at
+  # 15-25 m/s crosses that default in a handful of seconds; piloting it wants
+  # real room to roam and turn without immediately pinning against the edge.
+  teleop_terrain_space_dim_m: [700.0, 700.0, 250.0]

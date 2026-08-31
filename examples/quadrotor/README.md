@@ -41,6 +41,13 @@ Click the plot window first. Controls are body-relative, so `Q`/`E` changes
 where `W` takes you. The HUD shows `NO FOCUS` when keystrokes are not reaching
 the window, and held keys are released on focus loss.
 
+The follow camera is a third-person chase view: it stays behind the vehicle
+and turns with its heading rather than watching from a fixed compass bearing.
+
+The [fixed-wing example](../fixed_wing) has its own teleop with different,
+plane-appropriate controls (pitch/bank/throttle rather than strafe/climb) --
+see `examples/fixed_wing/README.md`.
+
 Run headlessly and save the result:
 
 ```bash

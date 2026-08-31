@@ -74,6 +74,31 @@ CONTROL_HELP_BAR = (
     "X neutral | P pause | C cam | -/= zoom out/in | H help | Esc exit"
 )
 
+#: A fixed wing cannot strafe or yaw in place the way a multirotor can -- A/D
+#: banks it into a turn and Q/E biases differential thrust, not a rudder --
+#: so the shared text above would describe motions the airframe doesn't have.
+FIXED_WING_CONTROL_HELP_LINES = (
+    "W/S or Up/Down: pitch (dive/climb)   A/D or Left/Right: bank (turn right/left)",
+    "Space/Shift: throttle up/down        Q/E: differential-thrust yaw nudge",
+    "X: neutralize commands   P: pause    C: follow/world camera   -/=: zoom out/in",
+    "H: hide this help        Esc: exit",
+)
+
+FIXED_WING_CONTROL_HELP_BAR = (
+    "W/S pitch  A/D bank | Space/Shift throttle | Q/E yaw nudge | "
+    "X neutral | P pause | C cam | -/= zoom out/in | H help | Esc exit"
+)
+
+
+def control_help_lines(*, is_fixed_wing: bool = False) -> tuple[str, ...]:
+    """Startup help text, worded for the airframe actually being flown."""
+    return FIXED_WING_CONTROL_HELP_LINES if is_fixed_wing else CONTROL_HELP_LINES
+
+
+def control_help_bar(*, is_fixed_wing: bool = False) -> str:
+    """On-canvas help bar text, worded for the airframe actually being flown."""
+    return FIXED_WING_CONTROL_HELP_BAR if is_fixed_wing else CONTROL_HELP_BAR
+
 
 def normalize_key(key: str | None) -> tuple[str, ...]:
     """Split a Matplotlib key string into lowercase physical key tokens.
@@ -210,6 +235,8 @@ __all__ = [
     "CONTROL_HELP_BAR",
     "CONTROL_HELP_LINES",
     "DESCEND",
+    "FIXED_WING_CONTROL_HELP_BAR",
+    "FIXED_WING_CONTROL_HELP_LINES",
     "FORWARD",
     "HELD_ACTIONS",
     "HOLD_BINDINGS",
@@ -218,5 +245,7 @@ __all__ = [
     "RIGHT",
     "YAW_LEFT",
     "YAW_RIGHT",
+    "control_help_bar",
+    "control_help_lines",
     "normalize_key",
 ]

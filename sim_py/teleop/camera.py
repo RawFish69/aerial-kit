@@ -30,6 +30,21 @@ class CameraController:
     world_elevation_deg: float = 34.0
     world_azimuth_deg: float | None = None
     mode: str = FOLLOW
+    #: Third-person chase camera: in FOLLOW mode, ``azimuth_deg`` is recomputed
+    #: from the vehicle's own heading every frame (when :meth:`apply` is given
+    #: one) instead of staying fixed in world space -- the camera stays behind
+    #: the vehicle and turns with it, like a game's behind-the-vehicle camera,
+    #: rather than watching from a stationary compass bearing. ``apply`` still
+    #: falls back to the static ``azimuth_deg`` whenever no heading is passed
+    #: (world mode, or a caller -- like a static README-still capture -- that
+    #: wants to fix the angle itself), so this is backward compatible.
+    chase: bool = True
+    #: Degrees added to the vehicle's heading to place the camera. Empirically
+    #: calibrated (see sim_py/tests/test_teleop.py's chase-camera tests):
+    #: ``azim = heading`` puts the camera in *front* of the vehicle looking
+    #: back at its nose, so directly behind -- as if piloting it -- is
+    #: ``heading + 180`` exactly.
+    chase_azimuth_offset_deg: float = 180.0
     #: Axes3D leaves wide margins by default; this fills the canvas so the
     #: aircraft is large enough to read its attitude. Distinct from
     #: :meth:`zoom`, which changes how much world the view covers.
@@ -84,7 +99,16 @@ class CameraController:
             return self.follow_limits(position)
         return self.world_limits()
 
-    def apply(self, ax: Any, position: np.ndarray) -> None:
+    def apply(self, ax: Any, position: np.ndarray, yaw: float | None = None) -> None:
+        """Position the axes' limits and viewing angle for this frame.
+
+        ``yaw`` (radians) is the vehicle's current heading. When given, FOLLOW
+        mode with ``chase`` enabled recomputes ``azimuth_deg`` from it every
+        call, so the camera stays behind the vehicle as it turns instead of
+        watching from a fixed compass bearing. Omit it (as a static-still
+        capture script does after setting ``azimuth_deg`` itself, or as WORLD
+        mode always does) to keep the azimuth exactly as last set.
+        """
         limits = self.limits_for(position)
         lower, upper = limits
         ax.set_xlim(float(lower[0]), float(upper[0]))
@@ -92,6 +116,8 @@ class CameraController:
         ax.set_zlim(float(lower[2]), float(upper[2]))
         span = np.maximum(upper - lower, 1e-6)
         ax.set_box_aspect(tuple(span / float(span[0])), zoom=self.canvas_fill)
+        if self.mode == FOLLOW and self.chase and yaw is not None:
+            self.azimuth_deg = float(np.degrees(yaw)) + self.chase_azimuth_offset_deg
         if self.mode == WORLD:
             elev = self.world_elevation_deg
             azim = self.azimuth_deg if self.world_azimuth_deg is None else self.world_azimuth_deg
@@ -102,7 +128,8 @@ class CameraController:
 
     def describe(self) -> str:
         if self.mode == FOLLOW:
-            return f"follow r={self.radius:.0f}m"
+            chase_tag = " chase" if self.chase else ""
+            return f"follow r={self.radius:.0f}m{chase_tag}"
         return "world"
 
 

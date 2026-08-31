@@ -147,9 +147,12 @@ python -m pip install -e ".[sim]"
 python examples/quadrotor/run.py
 python examples/fixed_wing/run.py
 
-# Real-time keyboard control of the quadrotor
-# W/S A/D or arrows to move, Space/Shift to climb, Q/E to yaw, Esc to exit
-aerial-kit-teleop
+# Real-time keyboard control -- works from a fresh clone, no install needed
+python examples/quadrotor/teleop.py    # W/S A/D or arrows to move, Space/Shift to climb, Q/E to yaw
+python examples/fixed_wing/teleop.py   # W/S to pitch, A/D to bank, Space/Shift for throttle
+# Esc exits either one. If you did the pip install above and its Scripts
+# directory is on PATH, the short forms also work: aerial-kit-teleop,
+# aerial-kit-teleop --airframe fixed-wing
 
 # Headless runs that save plots
 python examples/quadrotor/run.py --no-show --save quadrotor-result.png
@@ -198,13 +201,26 @@ python -m sim_py.run_sim --backend rotorpy
 python -m sim_py.run_sim --controller teleop --backend multirotor --terrain forest
 ```
 
-### Quadrotor teleop (real-time keyboard control)
+### Teleop (real-time keyboard control)
 
-One command from the repository root:
+Works from a fresh clone, no install required:
 
 ```bash
-aerial-kit-teleop
+python examples/quadrotor/teleop.py     # quadrotor
+python examples/fixed_wing/teleop.py    # fixed wing
 ```
+
+or, from the repository root: `python -m aerial_kit.sim.teleop` (add
+`--airframe fixed-wing` for the wing). If you ran `pip install -e ".[sim]"`
+**and** the Python Scripts directory that installs into is on your `PATH`, the
+short console-script forms also work: `aerial-kit-teleop`,
+`aerial-kit-teleop --airframe fixed-wing`, or `aerial-kit-sim --teleop` /
+`aerial-kit-sim --example fixed-wing --teleop`. If a short form prints
+`'aerial-kit-teleop' is not recognized`, that `PATH` condition is what's
+missing — the `python -m`/script forms above need neither the install nor
+`PATH` and always work.
+
+**Quadrotor** — drone-style controls:
 
 | Key | Action |
 | --- | --- |
@@ -212,6 +228,21 @@ aerial-kit-teleop
 | `A` / `D` or `Left` / `Right` | strafe left / right |
 | `Space` / `Shift` | climb / descend |
 | `Q` / `E` | yaw left / right |
+
+**Fixed wing** — RC-plane-style controls (the wing has no rudder, so `Q`/`E`
+biases differential thrust rather than yawing directly):
+
+| Key | Action |
+| --- | --- |
+| `W` / `S` or `Up` / `Down` | pitch: dive / climb |
+| `A` / `D` or `Left` / `Right` | bank: turn right / left |
+| `Space` / `Shift` | throttle up / down |
+| `Q` / `E` | differential-thrust yaw nudge |
+
+Shared, both airframes:
+
+| Key | Action |
+| --- | --- |
 | `X` | neutralize all commands |
 | `P` | pause / resume |
 | `C` | toggle follow / world camera |
@@ -224,26 +255,27 @@ changes where `W` takes you. Click the plot window first — the HUD says
 `NO FOCUS` when keystrokes are not reaching it, and held keys are dropped
 whenever the window loses focus.
 
-Equivalent launchers:
+The follow camera is a third-person chase view: it stays behind the vehicle
+and turns with its heading, low and close, rather than watching from a fixed
+compass bearing or an overhead survey angle. Press `C` for a top-down world
+view instead. The HUD reports simulation time, frame count, render rate,
+real-time factor, position, velocity, roll/pitch/yaw, the current control
+inputs, per-motor thrust, backend, run state, focus state and collision
+state. Propellers/motors tint from cool idle to hot full thrust. Physics runs
+at a fixed step against `time.monotonic()`, so the simulation stays at 1.0x
+real time regardless of the achieved frame rate.
 
-```bash
-aerial-kit-sim --teleop                 # same viewer through the simulator CLI
-python examples/quadrotor/teleop.py     # or click Run in VS Code, any directory
-python -m aerial_kit.sim.teleop         # from the repo root, no install needed
-```
+The fixed wing's aero model is a small-angle approximation with no rate
+limiter of its own; a sustained extreme input (holding full aileron for
+several seconds, say) can drive it into a regime the model was never fit for
+and the integration diverges. The engine detects this and freezes rather than
+crashing the window — the HUD reports `CRASHED` and Esc still exits cleanly.
 
-The viewer opens in follow-camera mode with a ~12 m local radius, which is what
-makes metre-scale motion visible inside the 120 m map; press `C` for the whole
-world. The HUD reports simulation time, frame count, render rate, real-time
-factor, position, velocity, roll/pitch/yaw, the current control inputs, per-rotor
-thrust, backend, run state, focus state and collision state. Propellers tint from
-cool idle to hot full thrust. Physics runs at a fixed step against
-`time.monotonic()`, so the simulation stays at 1.0x real time regardless of the
-achieved frame rate.
-
-Tuning lives under `controller.teleop` (accelerations, damping, speed and yaw-rate
-limits) and `visual.teleop_*` (view radius, model scale, grid spacing) in
-`examples/quadrotor/config.yaml`.
+Tuning lives under `controller.teleop` / `controller.teleop_fixedwing`
+(accelerations/damping/speed limits for the quad; throttle and elevon
+authority for the wing) and `visual.teleop_*` (view radius, model scale, grid
+spacing) in `examples/quadrotor/config.yaml` and
+`aerial_kit/sim/defaults/fixed_wing.yaml` respectively.
 
 ### Python sim configuration
 

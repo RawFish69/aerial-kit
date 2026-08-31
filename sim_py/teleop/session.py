@@ -12,11 +12,11 @@ from aerial_kit.types import SimState
 from ..core.config import NormalizedSimConfig
 from ..core.registry import create_backend, register_builtin_components
 from .camera import CameraController
-from .commands import TeleopTuning
+from .commands import FixedWingTeleopTuning, TeleopTuning
 from .engine import TeleopEngine
-from .input_state import CONTROL_HELP_LINES, KeyboardState
+from .input_state import KeyboardState, control_help_lines
 from .loop import FixedStepScheduler
-from .model import QuadGeometry
+from .model import QuadGeometry, WingGeometry
 from .renderer import HudInfo, TeleopRenderer
 from .telemetry import TelemetryRecorder
 from .world import TeleopWorld, build_world
@@ -306,6 +306,7 @@ class TeleopSession:
             paused=self.keyboard.paused,
             focused=self.keyboard.focused,
             colliding=self.engine.colliding,
+            crashed=self.engine.crashed,
             camera=self.camera.describe(),
             neutralized=self._neutral_frames_left > 0,
             motor_thrust=self.engine.motor_thrust_fractions(),
@@ -362,18 +363,49 @@ def build_session(
 
     register_builtin_components()
     backend_name = str(cfg_norm.backend_name).lower()
-    if backend_name not in {"multirotor", "rotorpy"}:
+    is_fixed_wing = backend_name == "fixedwing"
+    if backend_name not in {"multirotor", "rotorpy", "fixedwing"}:
         logger.warning(
-            "Teleop expects a multirotor-capable backend; '%s' may ignore attitude commands.",
+            "Teleop expects a multirotor- or fixed-wing-capable backend; '%s' may "
+            "ignore attitude commands.",
             backend_name,
         )
     backend = create_backend(backend_name)
-    backend.reset(
-        initial_state=SimState(
+
+    if is_fixed_wing:
+        # A fixed wing has no hover: starting it at rest means zero airspeed,
+        # zero lift, and an immediate stall/fall. Seed velocity and attitude
+        # from initial_state config the same way aerial_kit.sim.api.run_simulation
+        # does for the autonomous L1/TECS flight, so --teleop and the
+        # autonomous run launch from the same physical state.
+        initial_cfg = dict(cfg_norm.initial_state_cfg)
+        initial_velocity = np.asarray(
+            initial_cfg.get("velocity_mps", [12.0, 0.0, 0.0]), dtype=float
+        ).reshape(3)
+        if "attitude_quat_wxyz" in initial_cfg:
+            initial_attitude = np.asarray(initial_cfg["attitude_quat_wxyz"], dtype=float)
+        else:
+            from aerial_kit.dynamics.fixed_wing import level_attitude_quat
+
+            heading_rad = np.radians(float(initial_cfg.get("heading_deg", 0.0)))
+            initial_attitude = level_attitude_quat(heading_rad)
+        initial_body_rates = np.asarray(
+            initial_cfg.get("body_rates_rps", [0.0, 0.0, 0.0]), dtype=float
+        ).reshape(3)
+        initial_state = SimState(
             position=world.start_position.copy(),
-            velocity=np.zeros(3, dtype=float),
+            velocity=initial_velocity,
             t=0.0,
-        ),
+            attitude_quat=initial_attitude,
+            body_rates=initial_body_rates,
+        )
+    else:
+        initial_state = SimState(
+            position=world.start_position.copy(), velocity=np.zeros(3, dtype=float), t=0.0
+        )
+
+    backend.reset(
+        initial_state=initial_state,
         world={
             "space_dim": world.space_dim.copy(),
             "max_z_allowed": world.max_z_allowed,
@@ -389,21 +421,35 @@ def build_session(
     fps = float(target_fps if target_fps is not None else teleop_cfg.get("target_fps", 30.0))
     scheduler = FixedStepScheduler(dt=dt, target_fps=fps)
 
+    tuning: TeleopTuning | FixedWingTeleopTuning = (
+        FixedWingTeleopTuning.from_config(ctrl_cfg)
+        if is_fixed_wing
+        else TeleopTuning.from_config(ctrl_cfg)
+    )
     engine = TeleopEngine(
         backend=backend,
         world=world,
-        tuning=TeleopTuning.from_config(ctrl_cfg),
+        tuning=tuning,
         dt=dt,
         keyboard=KeyboardState(),
         telemetry=TelemetryRecorder(stride=max(1, int(round(0.05 / dt)))),
     )
 
+    # A fixed wing covers ground much faster than a hovering quad and never
+    # loiters, so it needs a wider follow cube by default -- the quad's
+    # close-chase radius would put it outside the frame within a second or
+    # two of flight. Elevation is kept low for both so the live view reads as
+    # a camera sitting just behind and above the vehicle (a third-person
+    # chase cam) rather than an overhead survey shot; the wing's is a little
+    # higher than the quad's so a banked turn doesn't foreshorten flat.
+    default_radius = 35.0 if is_fixed_wing else 12.0
+    default_elevation = 13.0 if is_fixed_wing else 9.0
     camera = CameraController(
         world_bounds=world.camera_bounds,
-        radius=float(vis_cfg.get("teleop_view_radius_m", 12.0)),
+        radius=float(vis_cfg.get("teleop_view_radius_m", default_radius)),
         min_radius=float(vis_cfg.get("teleop_view_radius_min_m", 5.0)),
         max_radius=float(max(world.space_dim[:2].max(), 60.0)),
-        elevation_deg=float(vis_cfg.get("teleop_view_elevation_deg", 22.0)),
+        elevation_deg=float(vis_cfg.get("teleop_view_elevation_deg", default_elevation)),
         azimuth_deg=float(vis_cfg.get("teleop_view_azimuth_deg", -60.0)),
         world_elevation_deg=float(vis_cfg.get("teleop_world_elevation_deg", 34.0)),
         world_azimuth_deg=(
@@ -413,10 +459,18 @@ def build_session(
         ),
         canvas_fill=float(vis_cfg.get("teleop_view_zoom", 1.45)),
     )
-    geometry = QuadGeometry(
-        arm_length=float(vis_cfg.get("teleop_quad_arm_m", 0.9)),
-        scale=float(vis_cfg.get("teleop_model_scale", 3.0)),
-    )
+    geometry: QuadGeometry | WingGeometry
+    if is_fixed_wing:
+        geometry = WingGeometry(
+            fuselage_length=float(vis_cfg.get("teleop_wing_fuselage_m", 6.8)),
+            wingspan=float(vis_cfg.get("teleop_wing_span_m", 10.6)),
+            chord=float(vis_cfg.get("teleop_wing_chord_m", 1.45)),
+        )
+    else:
+        geometry = QuadGeometry(
+            arm_length=float(vis_cfg.get("teleop_quad_arm_m", 0.9)),
+            scale=float(vis_cfg.get("teleop_model_scale", 3.0)),
+        )
     renderer = TeleopRenderer(
         world=world,
         camera=camera,
@@ -450,7 +504,7 @@ def run_teleop_session(cfg_norm: NormalizedSimConfig) -> None:
             session.engine.dt,
             np.round(session.world.space_dim, 1).tolist(),
         )
-        for line in CONTROL_HELP_LINES:
+        for line in control_help_lines(is_fixed_wing=session.backend_name == "fixedwing"):
             logger.info("%s", line)
         session.start()
         plt.show()

@@ -27,6 +27,13 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+#: Body-rate magnitude bound applied every step -- see the comment at its use
+#: in FixedWingDynamics.step(). ~4x anything seen in a hard sustained
+#: maneuver during normal (even aggressive) flight; a real airframe never
+#: approaches it, it only stops forward Euler's gyroscopic cross-coupling
+#: term from diverging to inf/nan under a sustained extreme command.
+MAX_BODY_RATE_RAD_S = 15.0
+
 
 @dataclass
 class FixedWingParams:
@@ -223,7 +230,17 @@ class FixedWingDynamics:
         self.position = self.position + self.velocity * dt
         self.velocity = self.velocity + accel_world * dt
         self.attitude_quat = _integrate_quaternion(self.attitude_quat, self.body_rates, dt)
-        self.body_rates = self.body_rates + np.array([p_dot, q_dot, r_dot]) * dt
+        body_rates = self.body_rates + np.array([p_dot, q_dot, r_dot]) * dt
+        # p_dot/q_dot/r_dot's gyroscopic cross-coupling terms (q*r, p*r, p*q)
+        # have aero damping (cl_p, cm_q, cn_r) but nothing damps the coupling
+        # itself, so a sustained extreme input -- full aileron held for
+        # several seconds, e.g. -- can grow it faster than forward Euler's
+        # fixed dt can track, diverging exponentially rather than saturating.
+        # A real airframe's rates don't exceed this regardless of input; the
+        # clamp exists purely to keep the explicit integrator from overflowing
+        # to inf/nan once something well outside the model's flyable envelope
+        # is commanded, not because rates approaching it are meant to be flown.
+        self.body_rates = np.clip(body_rates, -MAX_BODY_RATE_RAD_S, MAX_BODY_RATE_RAD_S)
 
     def compute_trim(self, cruise_airspeed_mps: float) -> np.ndarray:
         """Closed-form level-cruise trim: ``[throttle_L, throttle_R, elevon_L, elevon_R]``.

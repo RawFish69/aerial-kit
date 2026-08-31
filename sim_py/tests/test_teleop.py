@@ -15,25 +15,35 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+from aerial_kit.controllers.fixed_wing import body_axis_pitch_bank
 from aerial_kit.types import ControlTarget, SimState
 from sim_py.backends.multirotor_backend import YAW_RATE_METADATA_KEY, MultirotorBackend
 from sim_py.core.registry import create_backend, register_builtin_components
 from sim_py.teleop import input_state as ks
 from sim_py.teleop.camera import FOLLOW, WORLD, CameraController
 from sim_py.teleop.commands import (
+    FixedWingTeleopTuning,
+    InputAxes,
     TeleopTuning,
     axes_from_keys,
     command_from_keys,
+    fixedwing_actuator_from_axes,
+    fixedwing_command_from_keys,
     neutral_command,
+    neutral_fixedwing_command,
 )
 from sim_py.teleop.engine import TeleopEngine
 from sim_py.teleop.loop import FixedStepScheduler, resolve_interval_ms
-from sim_py.teleop.model import MOTOR_IS_FRONT, QuadGeometry, quat_to_euler_rpy
+from sim_py.teleop.model import MOTOR_IS_FRONT, QuadGeometry, WingGeometry, quat_to_euler_rpy
 from sim_py.teleop.session import ensure_interactive_backend, run_teleop_cli
 from sim_py.teleop.world import TeleopWorld
 
 TUNING = TeleopTuning()
+FW_TUNING = FixedWingTeleopTuning()
 START = np.array([50.0, 50.0, 20.0])
+#: Cruise velocity along +x; a fixed wing cannot reset() at rest without
+#: stalling on the very first step (zero airspeed -> zero lift).
+FW_CRUISE_VELOCITY = np.array([18.0, 0.0, 0.0])
 
 
 def _world() -> TeleopWorld:
@@ -56,6 +66,20 @@ def _engine(dt: float = 0.01) -> TeleopEngine:
         cfg={"simulation": {"multirotor": {"mass": 1.2, "kv_drag": 0.12}}},
     )
     return TeleopEngine(backend=backend, world=world, tuning=TUNING, dt=dt)
+
+
+def _fixedwing_engine(dt: float = 0.02) -> TeleopEngine:
+    register_builtin_components()
+    world = _world()
+    backend = create_backend("fixedwing")
+    backend.reset(
+        initial_state=SimState(
+            position=START.copy(), velocity=FW_CRUISE_VELOCITY.copy(), t=0.0
+        ),
+        world={},
+        cfg={"simulation": {"fixedwing": {}}},
+    )
+    return TeleopEngine(backend=backend, world=world, tuning=FW_TUNING, dt=dt)
 
 
 def _command(*keys: str, yaw: float = 0.0, velocity: np.ndarray | None = None):
@@ -798,6 +822,125 @@ def test_follow_camera_radius_keeps_local_motion_visible() -> None:
     assert view_span <= 30.0
 
 
+def _camera(**overrides) -> CameraController:
+    defaults = dict(world_bounds=np.array([[0.0, 0.0, 0.0], [200.0, 200.0, 100.0]]), radius=15.0)
+    defaults.update(overrides)
+    return CameraController(**defaults)
+
+
+def test_chase_camera_recomputes_azimuth_from_heading_each_call() -> None:
+    """The whole point of chase mode: azimuth must follow the vehicle, not stay fixed."""
+    camera = _camera()
+    position = np.array([50.0, 50.0, 20.0])
+
+    class _StubAxes:
+        def set_xlim(self, *a): pass
+        def set_ylim(self, *a): pass
+        def set_zlim(self, *a): pass
+        def set_box_aspect(self, *a, **kw): pass
+        def view_init(self, *, elev, azim): pass
+
+    ax = _StubAxes()
+    camera.apply(ax, position, yaw=0.0)
+    first = camera.azimuth_deg
+    camera.apply(ax, position, yaw=np.radians(90.0))
+    second = camera.azimuth_deg
+
+    assert first != second
+    assert second - first == pytest.approx(90.0)
+
+
+def test_chase_camera_offset_puts_it_behind_not_in_front() -> None:
+    """heading + offset must land near heading + 180 (behind), not heading (in front).
+
+    Empirically calibrated against the quad's red-front/blue-rear geometry: at
+    azim == heading the camera faces the nose head-on; the chase view needs to
+    be looking at the tail instead, i.e. roughly opposite.
+    """
+    camera = _camera()
+    behind = (0.0 + camera.chase_azimuth_offset_deg) % 360.0
+    assert 135.0 <= behind <= 225.0  # within 45 deg of directly-behind (180)
+
+
+def test_chase_camera_only_engages_in_follow_mode() -> None:
+    camera = _camera(mode=WORLD)
+    position = np.array([50.0, 50.0, 20.0])
+    camera.azimuth_deg = 12.0
+
+    class _StubAxes:
+        def set_xlim(self, *a): pass
+        def set_ylim(self, *a): pass
+        def set_zlim(self, *a): pass
+        def set_box_aspect(self, *a, **kw): pass
+        def view_init(self, *, elev, azim): pass
+
+    camera.apply(_StubAxes(), position, yaw=np.radians(45.0))
+
+    assert camera.azimuth_deg == 12.0  # untouched -- world mode doesn't chase
+
+
+def test_chase_camera_can_be_disabled_for_a_fixed_angle() -> None:
+    """A static-still capture script sets azimuth_deg itself and must keep it."""
+    camera = _camera(chase=False)
+    camera.azimuth_deg = 42.0
+    position = np.array([50.0, 50.0, 20.0])
+
+    class _StubAxes:
+        def set_xlim(self, *a): pass
+        def set_ylim(self, *a): pass
+        def set_zlim(self, *a): pass
+        def set_box_aspect(self, *a, **kw): pass
+        def view_init(self, *, elev, azim): pass
+
+    camera.apply(_StubAxes(), position, yaw=np.radians(90.0))
+
+    assert camera.azimuth_deg == 42.0
+
+
+def test_chase_camera_defaults_to_enabled() -> None:
+    assert CameraController(world_bounds=np.zeros((2, 3))).chase is True
+
+
+def test_camera_describe_reports_chase_status() -> None:
+    on = _camera(chase=True)
+    off = _camera(chase=False)
+
+    assert "chase" in on.describe()
+    assert "chase" not in off.describe()
+
+
+def test_renderer_chase_camera_tracks_a_live_turn() -> None:
+    """End-to-end: as the vehicle's heading changes across frames, so must the view."""
+    from sim_py.teleop.model import yaw_to_quat
+    from sim_py.teleop.renderer import HudInfo, TeleopRenderer
+
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+    world = _world()
+    camera = CameraController(world_bounds=world.camera_bounds, radius=14.0)
+    renderer = TeleopRenderer(
+        world=world, camera=camera, geometry=QuadGeometry(), backend_name="multirotor"
+    )
+    try:
+        level = SimState(position=START.copy(), velocity=np.zeros(3), t=0.0)
+        renderer.update(level, neutral_command(), np.vstack([START, START + 1.0]), HudInfo())
+        azim_level = camera.azimuth_deg
+
+        turned = SimState(
+            position=START.copy(),
+            velocity=np.zeros(3),
+            t=1.0,
+            attitude_quat=yaw_to_quat(np.pi / 2.0),
+        )
+        renderer.update(turned, neutral_command(), np.vstack([START, START + 1.0]), HudInfo())
+        azim_turned = camera.azimuth_deg
+
+        assert azim_turned - azim_level == pytest.approx(90.0)
+    finally:
+        plt.close("all")
+
+
 # --------------------------------------------------------------------------
 # Session assembly and backend guard
 # --------------------------------------------------------------------------
@@ -1114,4 +1257,355 @@ def test_renderer_transforms_the_model_with_the_attitude_quaternion() -> None:
         assert rolled_motors[:, 2].max() > level_motors[:, 2].max() + 0.1
         assert rolled_motors[:, 2].min() < level_motors[:, 2].min() - 0.1
     finally:
+        plt.close("all")
+
+
+# --------------------------------------------------------------------------
+# Fixed-wing teleop
+#
+# The multirotor path commands a world-frame acceleration; a fixed wing
+# cannot be driven that way (see FixedWingBackend.step's docstring), so it
+# gets its own actuator-command mapping, tuning class and idle/neutral
+# command. These tests exercise that path in isolation (command mapping),
+# through the headless engine (physics), and through the full session
+# (renderer + HUD), mirroring the multirotor tests above.
+# --------------------------------------------------------------------------
+
+
+def test_fixedwing_actuator_from_axes_is_neutral_at_rest() -> None:
+    neutral = fixedwing_actuator_from_axes(InputAxes(), tuning=FW_TUNING)
+
+    throttle_l, throttle_r, elevon_l, elevon_r = neutral
+    assert throttle_l == pytest.approx(FW_TUNING.throttle_trim_n)
+    assert throttle_r == pytest.approx(FW_TUNING.throttle_trim_n)
+    assert elevon_l == pytest.approx(FW_TUNING.trim_elevon_rad)
+    assert elevon_r == pytest.approx(FW_TUNING.trim_elevon_rad)
+
+
+def test_fixedwing_throttle_axis_moves_both_motors_together() -> None:
+    up = fixedwing_actuator_from_axes(InputAxes(up=1.0), tuning=FW_TUNING)
+    down = fixedwing_actuator_from_axes(InputAxes(up=-1.0), tuning=FW_TUNING)
+
+    assert up[0] == pytest.approx(up[1])
+    assert down[0] == pytest.approx(down[1])
+    assert up[0] > FW_TUNING.throttle_trim_n > down[0]
+    assert down[0] >= 0.0  # thrust never goes negative
+
+
+def test_fixedwing_roll_axis_differentiates_the_elevons() -> None:
+    # Verified empirically against FixedWingDynamics: a positive
+    # elevon_L - elevon_R produces a positive roll moment there, which in
+    # this body-FRD convention (y = right) banks the aircraft to the right.
+    right = fixedwing_actuator_from_axes(InputAxes(right=1.0), tuning=FW_TUNING)
+    left = fixedwing_actuator_from_axes(InputAxes(right=-1.0), tuning=FW_TUNING)
+
+    assert right[2] > right[3]  # elevon_L > elevon_R
+    assert left[2] < left[3]
+    # Throttle is untouched by a pure roll command.
+    assert right[0] == pytest.approx(FW_TUNING.throttle_trim_n)
+    assert right[1] == pytest.approx(FW_TUNING.throttle_trim_n)
+
+
+def test_fixedwing_pitch_axis_moves_both_elevons_together() -> None:
+    # Forward stick dives: both elevons deflect the same amount, nose-down.
+    forward = fixedwing_actuator_from_axes(InputAxes(forward=1.0), tuning=FW_TUNING)
+    backward = fixedwing_actuator_from_axes(InputAxes(forward=-1.0), tuning=FW_TUNING)
+
+    assert forward[2] == pytest.approx(forward[3])
+    assert backward[2] == pytest.approx(backward[3])
+    assert forward[2] < FW_TUNING.trim_elevon_rad < backward[2]
+
+
+def test_fixedwing_yaw_axis_biases_thrust_not_elevons() -> None:
+    # No rudder on a flying wing -- Q/E nudges differential thrust instead.
+    yaw = fixedwing_actuator_from_axes(InputAxes(yaw=1.0), tuning=FW_TUNING)
+
+    assert yaw[0] != pytest.approx(yaw[1])
+    assert yaw[2] == pytest.approx(FW_TUNING.trim_elevon_rad)
+    assert yaw[3] == pytest.approx(FW_TUNING.trim_elevon_rad)
+
+
+def test_fixedwing_command_from_keys_round_trips_through_axes() -> None:
+    keyboard = ks.KeyboardState()
+    keyboard.press("d")
+    command = fixedwing_command_from_keys(keyboard, tuning=FW_TUNING)
+
+    assert command.axes.right == 1.0
+    assert command.actuator_cmd is not None
+    assert command.actuator_cmd[2] > command.actuator_cmd[3]
+
+
+def test_fixedwing_neutral_command_keeps_cruise_thrust_not_zero() -> None:
+    # Unlike the multirotor (thrust off = hover), zero thrust here means fall.
+    neutral = neutral_fixedwing_command(FW_TUNING)
+
+    assert neutral.actuator_cmd is not None
+    assert neutral.actuator_cmd[0] == pytest.approx(FW_TUNING.throttle_trim_n)
+    assert neutral.actuator_cmd[1] == pytest.approx(FW_TUNING.throttle_trim_n)
+
+
+def test_fixedwing_command_to_control_target_carries_actuator_cmd() -> None:
+    command = fixedwing_command_from_keys(ks.KeyboardState(), tuning=FW_TUNING)
+    target = command.to_control_target()
+
+    assert target.metadata["actuator_cmd"] is not None
+    assert "yaw_rate_cmd" not in target.metadata
+    np.testing.assert_array_equal(target.accel_cmd, np.zeros(3))
+
+
+def test_fixedwing_engine_flies_forward_under_neutral_input() -> None:
+    engine = _fixedwing_engine()
+    engine.advance(50)
+
+    assert engine.command.actuator_cmd is not None
+    assert engine.state.position[0] > START[0]  # moved forward along +x
+    assert np.all(np.isfinite(engine.state.position))
+    assert np.all(np.isfinite(engine.state.velocity))
+
+
+def test_fixedwing_engine_right_roll_input_banks_right() -> None:
+    engine = _fixedwing_engine()
+    engine.keyboard.press("d")
+    engine.advance(30)
+
+    _pitch, bank = body_axis_pitch_bank(engine.state.attitude_quat)
+    assert bank > np.radians(5.0)
+
+
+def test_fixedwing_engine_left_roll_input_banks_left() -> None:
+    engine = _fixedwing_engine()
+    engine.keyboard.press("a")
+    engine.advance(30)
+
+    _pitch, bank = body_axis_pitch_bank(engine.state.attitude_quat)
+    assert bank < -np.radians(5.0)
+
+
+def test_fixedwing_engine_forward_input_pitches_nose_down() -> None:
+    engine = _fixedwing_engine()
+    engine.keyboard.press("w")
+    engine.advance(15)
+
+    pitch, _bank = body_axis_pitch_bank(engine.state.attitude_quat)
+    assert pitch < -np.radians(5.0)
+
+
+def test_fixedwing_engine_backward_input_pitches_nose_up() -> None:
+    engine = _fixedwing_engine()
+    engine.keyboard.press("s")
+    engine.advance(15)
+
+    pitch, _bank = body_axis_pitch_bank(engine.state.attitude_quat)
+    assert pitch > np.radians(5.0)
+
+
+def test_fixedwing_engine_neutralizes_when_unfocused() -> None:
+    # Losing focus must fall back to trimmed flight, not a missing actuator_cmd.
+    engine = _fixedwing_engine()
+    engine.keyboard.press("w")
+    engine.keyboard.set_focused(False)
+
+    engine.advance(5)  # must not raise FixedWingBackend's missing-actuator_cmd error
+
+    assert engine.command.actuator_cmd is not None
+    assert engine.command.actuator_cmd[2] == pytest.approx(FW_TUNING.trim_elevon_rad)
+
+
+def test_fixedwing_motor_thrust_fractions_are_two_wide_and_bounded() -> None:
+    engine = _fixedwing_engine()
+    engine.advance(5)
+
+    fractions = engine.motor_thrust_fractions()
+    assert fractions.shape == (2,)
+    assert np.all(fractions >= 0.0) and np.all(fractions <= 1.0)
+
+
+class _NaNAfterOneStepBackend:
+    """A backend that flies fine once, then diverges -- for testing the
+    engine's non-finite-state guard without needing a real dynamics model to
+    actually blow up (slow, and dependent on exact aero coefficients)."""
+
+    def __init__(self) -> None:
+        self._t = 0.0
+        self._steps = 0
+
+    def reset(self, *, initial_state, world, cfg) -> None:
+        self._state = initial_state
+
+    def step(self, control_target, dt: float) -> None:
+        self._steps += 1
+        self._t += dt
+        if self._steps >= 2:
+            self._state = SimState(
+                position=np.full(3, np.nan),
+                velocity=np.full(3, np.nan),
+                t=self._t,
+                attitude_quat=np.full(4, np.nan),
+                body_rates=np.full(3, np.nan),
+            )
+        else:
+            self._state = SimState(
+                position=self._state.position + 1.0,
+                velocity=self._state.velocity,
+                t=self._t,
+                attitude_quat=self._state.attitude_quat,
+                body_rates=self._state.body_rates,
+            )
+
+    def apply_constraints(self, **kwargs) -> None:
+        pass
+
+    def state(self) -> SimState:
+        return self._state
+
+
+def test_engine_freezes_and_flags_a_crash_instead_of_propagating_nan() -> None:
+    """Regression: a diverging fixed-wing model used to hand NaN position to
+    the renderer, which crashed the whole GUI on ax.set_xlim(nan, nan)."""
+    backend = _NaNAfterOneStepBackend()
+    backend.reset(
+        initial_state=SimState(
+            position=START.copy(),
+            velocity=FW_CRUISE_VELOCITY.copy(),
+            t=0.0,
+            attitude_quat=np.array([1.0, 0.0, 0.0, 0.0]),
+            body_rates=np.zeros(3),
+        ),
+        world={},
+        cfg={},
+    )
+    engine = TeleopEngine(backend=backend, world=_world(), tuning=FW_TUNING, dt=0.02)
+
+    engine.step()  # advances fine
+    assert not engine.crashed
+    last_good = engine.state.position.copy()
+
+    engine.step()  # backend now returns NaN
+    assert engine.crashed
+    assert engine.colliding
+    np.testing.assert_array_equal(engine.state.position, last_good)  # frozen, not NaN
+    assert np.all(np.isfinite(engine.state.position))
+
+    engine.advance(10)  # must not raise, and must stay frozen
+    np.testing.assert_array_equal(engine.state.position, last_good)
+
+
+def test_hud_reports_crashed_distinctly_from_a_normal_collision() -> None:
+    """A diverged flight and a bumped obstacle must not read the same to the pilot."""
+    from sim_py.teleop.renderer import HudInfo, TeleopRenderer
+
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+    world = _world()
+    camera = CameraController(world_bounds=world.camera_bounds, radius=14.0)
+    renderer = TeleopRenderer(
+        world=world, camera=camera, geometry=QuadGeometry(), backend_name="multirotor"
+    )
+    try:
+        state = SimState(position=START.copy(), velocity=np.zeros(3), t=1.0)
+        text = renderer._hud_text(state, neutral_command(), HudInfo(crashed=True))
+        assert "CRASHED" in text
+
+        text = renderer._hud_text(state, neutral_command(), HudInfo(colliding=True, crashed=False))
+        assert "CRASHED" not in text
+    finally:
+        plt.close("all")
+
+
+def test_public_launcher_selects_fixed_wing_when_requested() -> None:
+    from aerial_kit.sim.teleop import teleop_config
+
+    config = teleop_config("fixed-wing")
+
+    assert config.airframe_name == "twin_wing"
+    assert config.backend_name == "fixedwing"
+    assert config.sim_time == 0.0
+    assert config.initial_state_cfg.get("velocity_mps") is not None
+
+
+def test_public_launcher_rejects_an_unknown_airframe() -> None:
+    from aerial_kit.sim.teleop import teleop_config
+
+    with pytest.raises(ValueError):
+        teleop_config("hexacopter")
+
+
+def test_renderer_draws_the_wing_for_a_fixedwing_geometry() -> None:
+    from sim_py.teleop.renderer import HudInfo, TeleopRenderer
+
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+    world = _world()
+    camera = CameraController(world_bounds=world.camera_bounds, radius=25.0)
+    geometry = WingGeometry()
+    renderer = TeleopRenderer(
+        world=world, camera=camera, geometry=geometry, backend_name="fixedwing"
+    )
+    try:
+        expected = len(geometry.segments_body())
+        assert renderer.wing.segment_count == expected
+        assert renderer.airframe is renderer.wing
+        assert not hasattr(renderer, "quad")
+
+        command = fixedwing_command_from_keys(ks.KeyboardState(), tuning=FW_TUNING)
+        state = SimState(
+            position=START.copy(), velocity=FW_CRUISE_VELOCITY.copy(), t=1.5
+        )
+        info = HudInfo(motor_thrust=np.array([0.8, 0.3]))
+        renderer.update(state, command, np.vstack([START, START + 1.0]), info)
+
+        assert len(renderer.wing.world_segments) == expected
+        # HUD text must render without raising for the two-motor / actuator-cmd path.
+        text = renderer._hud_text(state, command, info)
+        assert "thr  L 80   R 30 %" in text
+        assert "thrN" in text  # actuator suffix, not the multirotor's "yr" field
+    finally:
+        plt.close("all")
+
+
+def test_session_builds_fixed_wing_and_ticks_without_keyboard_input() -> None:
+    from aerial_kit.sim.teleop import teleop_config
+    from sim_py.teleop.session import build_session
+
+    import matplotlib.pyplot as plt
+
+    session = build_session(teleop_config("fixed-wing"), target_fps=60.0)
+    try:
+        session.start()
+        first = session.hud_info()
+        for _ in range(5):
+            session.tick()
+        later = session.hud_info()
+
+        assert later.frames > first.frames
+        assert session.engine.state.t > 0.0
+        assert later.backend_name == "fixedwing"
+        assert later.motor_thrust.shape == (2,)
+        assert hasattr(session.renderer, "wing")
+    finally:
+        session.stop()
+        plt.close("all")
+
+    assert session.keyboard.running is False
+
+
+def test_session_fixed_wing_key_events_reach_the_engine_as_actuator_commands() -> None:
+    from aerial_kit.sim.teleop import teleop_config
+    from sim_py.teleop.session import build_session
+
+    import matplotlib.pyplot as plt
+
+    session = build_session(teleop_config("fixed-wing"), target_fps=60.0)
+    try:
+        session.start()
+        session._on_key_press(type("Event", (), {"key": "d"})())
+        session.engine.advance(5)
+
+        assert session.engine.command.actuator_cmd is not None
+        left, right = session.engine.command.actuator_cmd[2:]
+        assert left > right  # right-roll differential reached the backend
+    finally:
+        session.stop()
         plt.close("all")

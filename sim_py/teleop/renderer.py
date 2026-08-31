@@ -17,12 +17,13 @@ from aerial_kit.types import SimState
 
 from .camera import CameraController
 from .commands import TeleopCommand, describe_axes
-from .input_state import CONTROL_HELP_BAR
+from .input_state import control_help_bar
 from .model import (
     BODY_COLOR,
     NOSE_COLOR,
     PROP_COLOR,
     QuadGeometry,
+    WingGeometry,
     quat_to_euler_rpy,
     quat_to_rotation_matrix,
     thrust_to_color,
@@ -53,6 +54,10 @@ class HudInfo:
     paused: bool = False
     focused: bool = True
     colliding: bool = False
+    #: The dynamics model diverged (non-finite state) and the engine has
+    #: frozen at its last good pose -- distinct from colliding, which is a
+    #: normal "hit an obstacle" and keeps updating.
+    crashed: bool = False
     camera: str = ""
     neutralized: bool = False
     motor_thrust: np.ndarray | None = None
@@ -160,15 +165,60 @@ class QuadArtist:
             self.body_axes.set_segments(np.split(axis_points, self._axis_split))
 
 
+class WingArtist:
+    """The twin-wing airframe: fuselage, spar and two thrust-tinted propellers.
+
+    Mirrors :class:`QuadArtist`'s role but stays much simpler: the wing has no
+    per-frame-changing shape (no body-axis overlay, one geometry regardless of
+    thrust), so colors are recomputed from :meth:`WingGeometry.segment_styles`
+    each frame rather than tracked through a precomputed index table -- eight
+    segments is cheap enough that the bookkeeping QuadArtist needs for its
+    4-motor, ~20-segment frame is not worth it here.
+    """
+
+    def __init__(self, ax: Any, geometry: WingGeometry) -> None:
+        self.geometry = geometry
+        parts = geometry.segments_body()
+        colors, widths = geometry.segment_styles()
+
+        self._split_indices = np.cumsum([len(part) for part in parts])[:-1]
+        self._body_points = np.vstack(parts)
+        self.world_segments: list[np.ndarray] = list(parts)
+        self.segment_count = len(parts)
+        self.display_colors = list(colors)
+
+        self.frame = Line3DCollection(parts, colors=colors, linewidths=widths, zorder=12)
+        ax.add_collection3d(self.frame)
+
+    def update(
+        self,
+        position: np.ndarray,
+        attitude_quat: np.ndarray | None,
+        *,
+        colliding: bool,
+        motor_thrust: np.ndarray | None = None,
+    ) -> None:
+        rotation = quat_to_rotation_matrix(attitude_quat)
+        world_points = transform_points(self._body_points, rotation, position)
+        self.world_segments = np.split(world_points, self._split_indices)
+        self.frame.set_segments(self.world_segments)
+        if colliding:
+            colors = [COLLISION_COLOR] * self.segment_count
+        else:
+            colors, _ = self.geometry.segment_styles(motor_thrust=motor_thrust)
+        self.frame.set_color(colors)
+        self.display_colors = colors
+
+
 class TeleopRenderer:
-    """Owns the figure, the static scene, the quad artist and the HUD."""
+    """Owns the figure, the static scene, the airframe artist and the HUD."""
 
     def __init__(
         self,
         *,
         world: TeleopWorld,
         camera: CameraController,
-        geometry: QuadGeometry,
+        geometry: QuadGeometry | WingGeometry,
         backend_name: str,
         visual_cfg: dict[str, Any] | None = None,
     ) -> None:
@@ -181,8 +231,20 @@ class TeleopRenderer:
         self.backend_name = backend_name
 
         self.fig = plt.figure(figsize=(11.0, 7.5), facecolor=BACKGROUND)
-        self.fig.canvas.manager.set_window_title("aerial-kit quadrotor teleop")
+        window_title = (
+            "aerial-kit fixed-wing teleop"
+            if isinstance(geometry, WingGeometry)
+            else "aerial-kit quadrotor teleop"
+        )
+        self.fig.canvas.manager.set_window_title(window_title)
         self.ax = self.fig.add_subplot(111, projection="3d", facecolor=BACKGROUND)
+        # Axes3D defaults to an orthographic-equivalent projection (no vanishing
+        # point), which reads as a technical diagram rather than a camera
+        # actually sitting behind the vehicle. A finite focal length gives real
+        # perspective convergence -- combined with the low chase elevation
+        # below, this is what makes the follow view feel like a third-person
+        # chase camera instead of a top-down survey shot.
+        self.ax.set_proj_type("persp", focal_length=0.2)
         self._style_axes()
         self._draw_static_scene(visual_cfg)
 
@@ -208,11 +270,19 @@ class TeleopRenderer:
             [start[0]], [start[1]], [0.0],
             marker="x", color="#6b7488", markersize=6, linestyle="none", zorder=7,
         )
-        self.quad = QuadArtist(
-            self.ax,
-            geometry,
-            show_body_axes=bool(visual_cfg.get("teleop_show_body_axes", True)),
-        )
+        # ``self.airframe`` is the generic handle update()/tests should prefer;
+        # ``self.quad``/``self.wing`` stay as airframe-specific aliases so
+        # existing quad-only test code (renderer.quad.*) keeps working.
+        if isinstance(geometry, WingGeometry):
+            self.wing = WingArtist(self.ax, geometry)
+            self.airframe = self.wing
+        else:
+            self.quad = QuadArtist(
+                self.ax,
+                geometry,
+                show_body_axes=bool(visual_cfg.get("teleop_show_body_axes", True)),
+            )
+            self.airframe = self.quad
 
         # Overlay text is rasterized on every frame, so the HUD is kept compact
         # and the help is one toggleable line -- together they were costing more
@@ -225,7 +295,7 @@ class TeleopRenderer:
             zorder=20,
         )
         self.help_text = self.fig.text(
-            0.5, 0.012, CONTROL_HELP_BAR,
+            0.5, 0.012, control_help_bar(is_fixed_wing=isinstance(geometry, WingGeometry)),
             fontsize=8.5, family="monospace", color="#8f99ad",
             va="bottom", ha="center", zorder=20,
         )
@@ -347,7 +417,7 @@ class TeleopRenderer:
         position = np.asarray(state.position, dtype=float).reshape(3)
         velocity = np.asarray(state.velocity, dtype=float).reshape(3)
 
-        self.quad.update(
+        self.airframe.update(
             position,
             state.attitude_quat,
             colliding=info.colliding,
@@ -365,7 +435,8 @@ class TeleopRenderer:
         ground_z = self.world.ground_height(position[0], position[1])
         self.ground_marker.set_data_3d([position[0]], [position[1]], [ground_z])
 
-        self.camera.apply(self.ax, position)
+        _roll, _pitch, yaw = quat_to_euler_rpy(state.attitude_quat)
+        self.camera.apply(self.ax, position, yaw=yaw)
         self.hud.set_text(self._hud_text(state, command, info))
 
     def _hud_text(self, state: SimState, command: TeleopCommand, info: HudInfo) -> str:
@@ -374,7 +445,9 @@ class TeleopRenderer:
         roll, pitch, yaw = quat_to_euler_rpy(state.attitude_quat)
         speed = float(np.linalg.norm(velocity))
 
-        if not info.focused:
+        if info.crashed:
+            status = "CRASHED - flight diverged, frozen. Esc to exit, restart to fly again."
+        elif not info.focused:
             status = "NO FOCUS - click the window"
         elif info.paused:
             status = "PAUSED"
@@ -389,7 +462,7 @@ class TeleopRenderer:
             f"pos {position[0]:7.1f} {position[1]:7.1f} {position[2]:6.1f} m",
             f"vel {velocity[0]:7.2f} {velocity[1]:7.2f} {velocity[2]:6.2f}  |v| {speed:5.2f}",
             f"rpy {np.degrees(roll):7.1f} {np.degrees(pitch):7.1f} {np.degrees(yaw):6.1f} deg",
-            f"cmd {describe_axes(command.axes)} yr{command.yaw_rate_cmd:+5.2f}",
+            f"cmd {describe_axes(command.axes)} {_command_hud_suffix(command)}",
             _thrust_hud_line(info.motor_thrust),
             f"{info.backend_name or self.backend_name}"
             f"{(' | ' + self.world.planner_type) if self.world.planner_type else ''}"
@@ -407,8 +480,26 @@ def _thrust_hud_line(motor_thrust: np.ndarray | None) -> str:
     if motor_thrust is None:
         return "thr  --  --  --  --   FL FR RR RL"
     frac = np.asarray(motor_thrust, dtype=float).reshape(-1)
+    if frac.size == 2:
+        pct = [int(round(100.0 * float(v))) for v in frac]
+        return f"thr  L{pct[0]:3d}   R{pct[1]:3d} %"
     pct = [int(round(100.0 * float(frac[i]))) if i < frac.size else 0 for i in range(4)]
     return f"thr FL{pct[0]:3d} FR{pct[1]:3d} RR{pct[2]:3d} RL{pct[3]:3d} %"
 
 
-__all__ = ["HudInfo", "QuadArtist", "TeleopRenderer"]
+def _command_hud_suffix(command: TeleopCommand) -> str:
+    """Airframe-specific tail of the ``cmd`` HUD line.
+
+    A fixed-wing command has no physical yaw rate (there is no rudder), so
+    printing ``yaw_rate_cmd`` for it would be a meaningless always-zero field;
+    show the actuator command it actually sent instead.
+    """
+    if command.actuator_cmd is not None:
+        throttle_l, throttle_r, elevon_l, elevon_r = np.asarray(command.actuator_cmd, dtype=float)
+        elevator_deg = np.degrees(0.5 * (elevon_l + elevon_r))
+        aileron_deg = np.degrees(0.5 * (elevon_l - elevon_r))
+        return f"thrN {throttle_l:4.1f}/{throttle_r:4.1f} elev{elevator_deg:+5.1f} ail{aileron_deg:+5.1f}"
+    return f"yr{command.yaw_rate_cmd:+5.2f}"
+
+
+__all__ = ["HudInfo", "QuadArtist", "TeleopRenderer", "WingArtist"]

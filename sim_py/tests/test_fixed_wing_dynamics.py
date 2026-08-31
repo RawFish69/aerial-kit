@@ -124,3 +124,34 @@ def test_backend_trim_step_via_actuator_cmd_metadata():
         )
     state = backend.state()
     assert abs(state.position[2] - 50.0) < 0.5
+
+
+def test_body_rates_stay_finite_under_a_sustained_extreme_command():
+    """Regression: full aileron held for many seconds used to diverge to inf/nan.
+
+    p_dot/q_dot/r_dot's gyroscopic cross-coupling terms (q*r, p*r, p*q) have
+    aero damping on the rates themselves but nothing damping the coupling, so
+    forward Euler at a fixed dt can grow it faster than the timestep can
+    track once a sustained extreme actuator command pushes the aircraft well
+    outside the model's linear-alpha flyable envelope. Reproduced originally
+    by holding full right aileron continuously for ~7 simulated seconds.
+    """
+    from aerial_kit.dynamics.fixed_wing import MAX_BODY_RATE_RAD_S
+
+    backend = FixedWingBackend()
+    backend.reset(
+        initial_state=SimState(position=np.zeros(3), velocity=np.array([15.0, 0.0, 0.0])),
+        world={},
+        cfg={},
+    )
+    # Full aileron (max differential elevon), no elevator, trim-ish throttle.
+    actuator_cmd = np.array([3.0, 3.0, np.radians(20.0), -np.radians(20.0)])
+    for _ in range(1000):  # ~10s at dt=0.01, well past where this used to blow up
+        backend.step(ControlTarget(accel_cmd=np.zeros(3), metadata={"actuator_cmd": actuator_cmd}), dt=0.01)
+        assert np.all(np.isfinite(backend._dyn.body_rates))
+        assert np.all(np.abs(backend._dyn.body_rates) <= MAX_BODY_RATE_RAD_S + 1e-9)
+
+    state = backend.state()
+    assert np.all(np.isfinite(state.position))
+    assert np.all(np.isfinite(state.velocity))
+    assert np.all(np.isfinite(state.attitude_quat))

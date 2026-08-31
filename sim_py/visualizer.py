@@ -443,6 +443,11 @@ def plot_follow_view(
     background = "#10131a"
     fig = plt.figure(figsize=(11.0, 7.5), facecolor=background)
     ax = fig.add_subplot(111, projection="3d", facecolor=background)
+    # Axes3D defaults to an orthographic-equivalent projection (no vanishing
+    # point), which reads as a technical diagram rather than a camera actually
+    # positioned near the aircraft. Matches the interactive teleop renderer's
+    # projection so a still and the live view look like the same camera.
+    ax.set_proj_type("persp", focal_length=0.2)
     ax.tick_params(colors="#8b93a7", labelsize=7)
     for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
         axis.set_pane_color((0.06, 0.07, 0.10, 1.0))

@@ -97,6 +97,14 @@ def build_world(cfg_norm: NormalizedSimConfig) -> TeleopWorld:
             terrain_cfg = load_terrain_config()
         if cfg_norm.terrain_override is not None:
             terrain_cfg.terrain_type = cfg_norm.terrain_override
+        # Applied before generation (not after) so obstacles scatter across the
+        # enlarged area rather than staying clustered in one corner of it --
+        # generate_plains/generate_forest/etc. all sample positions from
+        # cfg.space_dim. A fixed wing cruising at 15-25 m/s crosses the shared
+        # 120x120 m default in a handful of seconds; scenarios that need more
+        # room set this rather than everything inheriting a wing-sized world.
+        if "teleop_terrain_space_dim_m" in vis_cfg:
+            terrain_cfg.space_dim = np.asarray(vis_cfg["teleop_terrain_space_dim_m"], dtype=float)
 
         obstacles = generate_terrain(
             terrain_cfg,

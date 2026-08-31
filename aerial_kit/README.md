@@ -56,13 +56,16 @@ aerial-kit-sim --example fixed-wing
 aerial-kit-sim --no-show --save result.png
 ```
 
-### Quadrotor teleop
+### Teleop
 
 Launch real-time keyboard teleoperation with one command:
 
 ```bash
-aerial-kit-teleop
+aerial-kit-teleop                          # quadrotor
+aerial-kit-teleop --airframe fixed-wing    # twin-wing
 ```
+
+**Quadrotor** — drone-style controls:
 
 | Key | Action |
 | --- | --- |
@@ -70,22 +73,33 @@ aerial-kit-teleop
 | `A` / `D` or `Left` / `Right` | strafe left / right |
 | `Space` / `Shift` | climb / descend |
 | `Q` / `E` | yaw left / right |
-| `X` | neutralize all commands |
-| `P` | pause / resume |
-| `C` | toggle follow / world camera |
-| `-` / `=` | zoom the follow camera out / in |
-| `H` | hide the on-screen help |
-| `Esc` | exit |
+
+**Fixed wing** — RC-plane-style controls (no rudder, so `Q`/`E` biases
+differential thrust rather than yawing directly):
+
+| Key | Action |
+| --- | --- |
+| `W` / `S` or `Up` / `Down` | pitch: dive / climb |
+| `A` / `D` or `Left` / `Right` | bank: turn right / left |
+| `Space` / `Shift` | throttle up / down |
+| `Q` / `E` | differential-thrust yaw nudge |
+
+Shared: `X` neutralize, `P` pause, `C` toggle follow/world camera, `-`/`=`
+zoom, `H` hide help, `Esc` exit.
 
 Controls are body-relative, so yawing with `Q`/`E` changes where `W` takes you.
 Click the plot window first; the HUD shows `NO FOCUS` when keystrokes are not
-reaching it, and held keys are released whenever focus is lost.
+reaching it, and held keys are released whenever focus is lost. The follow
+camera is a third-person chase view that stays behind the vehicle and turns
+with its heading.
 
-The equivalent simulator command is `aerial-kit-sim --teleop`. Without installing
-the package, run `python -m aerial_kit.sim.teleop` from the repository root, or
-`python examples/quadrotor/teleop.py` from anywhere (which is also what an IDE
-Run button does). Teleop needs an interactive Matplotlib backend and fails with
-an explanatory message if the active backend can only write files.
+The equivalent simulator commands are `aerial-kit-sim --teleop` and
+`aerial-kit-sim --example fixed-wing --teleop`. Without installing the
+package, run `python -m aerial_kit.sim.teleop` (add `--airframe fixed-wing`
+for the wing) from the repository root, or `python examples/quadrotor/teleop.py`
+/ `python examples/fixed_wing/teleop.py` from anywhere (which is also what an
+IDE Run button does). Teleop needs an interactive Matplotlib backend and fails
+with an explanatory message if the active backend can only write files.
 
 The public Python API accepts a YAML path, a mapping, or a normalized config:
 

@@ -150,28 +150,51 @@ Simulator implementation modules currently retained behind the public
   wrappers around `aerial_kit.dynamics.*`)
 - `sim_py/backends/rotorpy_backend.py` (external optional dependency, not in `aerial_kit`)
 
-Interactive teleop (`sim_py/teleop/`, entered via `aerial-kit-teleop`,
-`aerial-kit-sim --teleop`, or `examples/quadrotor/teleop.py`):
+Interactive teleop (`sim_py/teleop/`, entered via `aerial-kit-teleop` /
+`aerial-kit-teleop --airframe fixed-wing`, `aerial-kit-sim --teleop` /
+`aerial-kit-sim --example fixed-wing --teleop`, or `examples/quadrotor/teleop.py` /
+`examples/fixed_wing/teleop.py`). Two airframes share this whole stack; where a
+piece differs per-airframe it's noted below.
 
 - `input_state.py`: `KeyboardState` latches key-down/key-up into held actions, so
   continuous control never depends on OS key-repeat. Focus loss releases everything.
-- `commands.py`: pure mapping from held keys to `InputAxes` to a `TeleopCommand`
-  (world-frame `accel_cmd` + `yaw_rate_cmd`). No Matplotlib import, so the whole
-  pilot-input path is unit-testable headlessly.
+  `control_help_lines`/`control_help_bar` pick airframe-appropriate wording (a wing
+  banks and pitches, it doesn't strafe).
+- `commands.py`: pure mapping from held keys to `InputAxes`, then to a
+  `TeleopCommand`. Multirotor: world-frame `accel_cmd` + `yaw_rate_cmd`
+  (`TeleopTuning`/`command_from_keys`). Fixed wing: direct
+  `[throttle_L, throttle_R, elevon_L, elevon_R]` actuator command
+  (`FixedWingTeleopTuning`/`fixedwing_command_from_keys`) -- the wing's backend
+  refuses an acceleration setpoint outright, it has no way to realize one. No
+  Matplotlib import in this file, so the whole pilot-input path is
+  unit-testable headlessly.
 - `loop.py`: `FixedStepScheduler` turns wall-clock deltas from `time.monotonic()` into a
   bounded number of fixed `dt` steps, and reports achieved FPS / real-time factor.
 - `engine.py`: `TeleopEngine` is the headless simulation half -- keys in, `SimState` out,
-  including terrain/obstacle collision state and telemetry.
-- `model.py` / `renderer.py`: X-configuration quad geometry (body, four arms, four motor
-  housings, propeller discs, nose) transformed by `SimState.attitude_quat`, plus the HUD.
-- `camera.py`: `CameraController` switches between a follow camera at a configurable local
-  radius and the full world view.
+  including terrain/obstacle collision state and telemetry. Also the last line of
+  defence against a diverging dynamics model: if a step produces non-finite state
+  (the fixed wing's small-angle aero model has no rate limiter of its own and can
+  diverge under a sustained extreme command), the engine freezes at the last good
+  state and sets `crashed` rather than handing Matplotlib a NaN axis limit, which
+  raises outright instead of merely rendering oddly.
+- `model.py` / `renderer.py`: `QuadGeometry`/`QuadArtist` (X-configuration: body, four
+  arms, four motor housings, propeller discs, nose) and `WingGeometry`/`WingArtist`
+  (fuselage, spar, two thrust-tinted propellers), both transformed by
+  `SimState.attitude_quat`, plus the HUD.
+- `camera.py`: `CameraController` switches between a follow camera and the full world
+  view. Follow mode defaults to a third-person chase behaviour (`chase=True`): with a
+  heading passed to `apply()`, azimuth is recomputed from it every frame instead of
+  staying fixed in world space, so the camera stays behind the vehicle through a turn.
 - `telemetry.py`: `TelemetryRecorder` keeps the flight trail and can dump a CSV.
 - `session.py`: wires the above to the GUI timer, guards against non-interactive backends
-  (`TeleopBackendError`), and restores Matplotlib's own key bindings on exit.
+  (`TeleopBackendError`), and restores Matplotlib's own key bindings on exit. Seeds a
+  fixed wing's initial velocity/attitude from `initial_state` config (it cannot start
+  at rest without stalling on the first step).
 
-Tuning lives under `controller.teleop.*` (accelerations, damping, speed and yaw-rate
-limits) and `visual.teleop_*` (camera radius, model scale, grid spacing, trail width).
+Tuning lives under `controller.teleop.*` (multirotor: accelerations, damping, speed
+and yaw-rate limits) / `controller.teleop_fixedwing.*` (wing: throttle and elevon
+authority) and `visual.teleop_*` (camera radius, elevation, model scale, grid
+spacing, trail width).
 
 ## Built-in registry keys
 
