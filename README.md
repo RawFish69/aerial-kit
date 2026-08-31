@@ -43,8 +43,7 @@ Autonomous flight — plan a path, then fly it:
   </tr>
   <tr>
     <td valign="top"><em>RRT* through forest terrain on the RotorPy backend.</em></td>
-    <td valign="top"><em>RRT* over mountains — the planner climbs a 47 m ridge to reach the goal.
-    Planned path dashed in orange, flown trajectory in cyan.</em></td>
+    <td valign="top"><em>RRT* over mountains — the planner climbs a 47 m ridge to reach the goal. Planned path dashed in orange, flown trajectory in cyan.</em></td>
   </tr>
 </table>
 
@@ -56,10 +55,8 @@ Standalone Python sim (Matplotlib 3D, follow camera):
     <td width="50%" align="center"><img src="docs/fixed_wing.png" alt="Matplotlib 3D follow camera: banked twin-wing following its flown path" width="100%"></td>
   </tr>
   <tr>
-    <td valign="top"><em>Native multirotor backend — a 56 m climbing turn, teal trail showing where
-    it has flown. Each propeller is coloured by thrust (grey idle → yellow → orange → red).</em></td>
-    <td valign="top"><em><a href="examples/fixed_wing">Twin-wing example</a> on the same renderer —
-    banked 50° through the turn, flown path behind it, motors on the same colour map.</em></td>
+    <td valign="top"><em>Native multirotor backend — a 56 m climbing turn, teal trail showing where it has flown. Each propeller is coloured by thrust (grey idle → yellow → orange → red).</em></td>
+    <td valign="top"><em><a href="examples/fixed_wing">Twin-wing example</a> on the same renderer — banked 50° through the turn, flown path behind it, motors on the same colour map.</em></td>
   </tr>
 </table>
 

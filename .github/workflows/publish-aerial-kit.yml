@@ -2,7 +2,8 @@ name: Publish aerial-kit to PyPI
 
 # Version-triggered publishing: push to main as normal, and if the version in
 # pyproject.toml is one PyPI has never seen, this workflow tests it, builds it,
-# and releases it. No tag to remember, no second command.
+# and releases it. No tag to remember, no second command. Tags and GitHub
+# Releases are not created here -- those stay manual.
 #
 # The gate is "does this version already exist on PyPI", not "did the last
 # commit change pyproject.toml". That is deliberate -- it stays correct across
@@ -78,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write # PyPI Trusted Publishing
-      contents: write # push the release tag
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -123,14 +124,11 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-      # Tag after the upload succeeds, so the tag always means "this is on
-      # PyPI" rather than "we intended to publish this".
-      - name: Tag the release
+      # Tagging and GitHub Releases are left to the maintainer on purpose: the
+      # workflow's job is to get the package onto PyPI, and release notes are
+      # written by hand.
+      - name: Record the release
         env:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "aerial-kit-v$VERSION" -m "aerial-kit $VERSION"
-          git push origin "aerial-kit-v$VERSION"
-          echo "Published \`$VERSION\` and tagged \`aerial-kit-v$VERSION\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Published \`$VERSION\` to PyPI: https://pypi.org/project/aerial-kit/$VERSION/" >> "$GITHUB_STEP_SUMMARY"
