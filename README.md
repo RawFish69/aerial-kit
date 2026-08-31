@@ -42,10 +42,6 @@ for what else is in progress.
   <img src="docs/sim_demo_1.png" alt="ROS2 Gazebo simulation demo" width="98%">
 </p>
 
-### ROS2 Gazebo
-
-<img src="docs/sim_demo_2.png" alt="ROS2 Gazebo demo screenshot (additional)" width="900">
-
 ### Hovering & Landing (IMU + Barometer + GPS)
 
 https://github.com/user-attachments/assets/44837663-b281-45db-9803-5aaa9812833d
