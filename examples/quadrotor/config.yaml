@@ -1,0 +1,65 @@
+terrain: plains
+
+vehicle:
+  airframe: quad
+
+simulation:
+  backend: multirotor
+  duration: 20.0
+  dt: 0.02
+  seed: 7
+  multirotor:
+    mass: 1.2
+    kv_drag: 0.12
+    attitude_kp: 5.0
+    max_body_rate_rps: 4.0
+
+controller:
+  type: pid
+  acc_max: 12.0
+  pid:
+    kp: 1.4
+    kd: 2.2
+  # Interactive teleop only (python examples/quadrotor/teleop.py).
+  teleop:
+    target_fps: 30.0
+    accel_xy: 6.0        # m/s^2 demanded by a held pitch/roll key
+    accel_z: 5.0         # m/s^2 demanded by Space / Shift
+    vel_damp: 1.2        # settles the vehicle when keys are released
+    max_speed_xy: 9.0
+    max_speed_z: 5.0
+    acc_max: 14.0
+    yaw_rate: 1.4        # rad/s commanded by Q / E
+    max_yaw_rate: 2.5
+
+path:
+  planner_type: straight
+  waypoint_acceptance_m: 2.5
+  lookahead_waypoints: 8
+  start_relative_x: 0.08
+  start_relative_y: 0.10
+  start_relative_z: 0.20
+  teleop_start_relative_z: 0.25
+  end_relative_x: 0.82
+  end_relative_y: 0.72
+  end_relative_z: 0.55
+  collision_inflation: 1.0
+  terrain_clearance: 2.0
+
+visual:
+  path_color: deepskyblue
+  path_linewidth: 2.5
+  planned_linewidth: 2.0
+  marker_size: 45
+  # Teleop viewer. The follow camera radius is what makes metre-scale motion
+  # visible inside a 120 m map; model_scale only exaggerates the drawing.
+  teleop_view_radius_m: 12.0
+  teleop_view_radius_min_m: 5.0
+  teleop_view_elevation_deg: 22.0
+  teleop_view_azimuth_deg: -60.0
+  teleop_view_zoom: 1.45
+  teleop_quad_arm_m: 0.9
+  teleop_model_scale: 3.0
+  teleop_show_body_axes: true
+  teleop_grid_spacing_m: 10.0
+  teleop_trail_linewidth: 1.2

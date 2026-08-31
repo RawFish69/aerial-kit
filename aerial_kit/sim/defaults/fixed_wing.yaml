@@ -1,0 +1,59 @@
+terrain: plains
+
+vehicle:
+  airframe: twin_wing
+
+initial_state:
+  # A fixed wing needs launch/cruise airspeed; it cannot start in a hover.
+  velocity_mps: [12.48, 8.32, 0.0]
+  heading_deg: 33.69
+  body_rates_rps: [0.0, 0.0, 0.0]
+
+simulation:
+  backend: fixedwing
+  duration: 12.0
+  dt: 0.02
+  seed: 11
+  fixedwing:
+    mass_kg: 1.5
+    wing_area_m2: 0.35
+    wingspan_m: 1.4
+    mean_chord_m: 0.25
+    inertia_kg_m2: [0.05, 0.03, 0.06]
+    wind_mps: [0.0, 0.0, 0.0]
+
+controller:
+  type: l1_tecs
+  l1_tecs:
+    cruise_airspeed_mps: 15.0
+    l1_distance_m: 40.0
+    max_bank_rad: 0.7854
+    trim_throttle_n: 3.0
+    tecs_kp_throttle: 0.15
+    tecs_kp_pitch: 0.08
+    kp_roll: 0.6
+    kd_roll: 0.15
+    kp_pitch: 0.8
+    kd_pitch: 0.2
+
+path:
+  planner_type: dubins
+  waypoint_acceptance_m: 6.0
+  lookahead_waypoints: 5
+  start_relative_x: 0.08
+  start_relative_y: 0.12
+  start_relative_z: 0.50
+  end_relative_x: 0.82
+  end_relative_y: 0.78
+  end_relative_z: 0.50
+  start_heading_rad: 0.588
+  goal_heading_rad: 0.588
+  dubins_step_size_m: 5.0
+  collision_inflation: 1.0
+  terrain_clearance: 2.0
+
+visual:
+  path_color: royalblue
+  path_linewidth: 2.5
+  planned_linewidth: 2.0
+  marker_size: 45

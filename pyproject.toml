@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aerial-kit"
-version = "0.1.4"
-description = "Control Stack for aerial robots, no ROS & matplotlib dependency."
+version = "0.2.0"
+description = "Aerial-robot control stack with optional simulation and visualization."
 readme = "aerial_kit/README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -28,8 +28,19 @@ classifiers = [
 Homepage = "https://github.com/RawFish69/aerial-kit"
 Repository = "https://github.com/RawFish69/aerial-kit"
 
+[project.optional-dependencies]
+viz = ["matplotlib>=3.5"]
+sim = ["matplotlib>=3.5", "pyyaml>=6.0"]
+rotorpy = ["matplotlib>=3.5", "pyyaml>=6.0", "rotorpy>=2.0.0"]
+
+[project.scripts]
+aerial-kit-sim = "aerial_kit.sim.cli:main"
+aerial-kit-teleop = "aerial_kit.sim.teleop:main"
+
 [tool.setuptools.packages.find]
-include = ["aerial_kit*"]
+include = ["aerial_kit*", "sim_py*"]
+exclude = ["sim_py.tests*"]
 
 [tool.setuptools.package-data]
-aerial_kit = ["py.typed"]
+aerial_kit = ["py.typed", "sim/defaults/*.yaml"]
+sim_py = ["sim_config.yaml"]

@@ -117,8 +117,8 @@ class TestRunnerIntegration(unittest.TestCase):
         """CommandKind.AIRSPEED_NAV dispatch: runner.py must route the l1_tecs
         controller's Wrench through TwinWingAirframe.allocate() into
         FixedWingBackend's actuator_cmd path, not the ACCEL/accel_cmd path.
-        Not a flight-quality check (run_simulation() always starts at zero
-        velocity, so there is no runway/launch model) -- purely a wiring
+        Not a flight-quality check (this test config starts at zero velocity)
+        -- purely a wiring
         smoke test that the new dispatch branch executes without error."""
         cfg = self._base_cfg("l1_tecs", airframe_name="twin_wing")
         cfg = NormalizedSimConfig(

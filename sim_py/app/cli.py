@@ -21,6 +21,13 @@ def parse_args() -> argparse.Namespace:
         help="Path to terrain_params.yaml (defaults to ROS2 config).",
     )
     parser.add_argument(
+        "--planner",
+        type=str,
+        choices=["straight", "astar", "rrt", "rrtstar", "rrt*", "dubins"],
+        default=None,
+        help="Override path.planner_type from YAML.",
+    )
+    parser.add_argument(
         "--controller",
         type=str,
         choices=["pid", "lqr", "mpc", "teleop", "l1_tecs"],
@@ -31,11 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--backend",
         type=str,
-        # fixedwing missions always start at zero velocity (run_simulation() has no
-        # runway/launch model), so a CLI run belly-flops before gaining lift rather
-        # than demonstrating cruise flight -- exercise it directly in tests instead
-        # (sim_py/tests/test_fixed_wing_guidance.py starts at cruise trim).
-        choices=["pointmass", "rotorpy", "fixedwing"],
+        choices=["pointmass", "multirotor", "rotorpy", "fixedwing"],
         default=None,
         help="Dynamics backend to use (default: pointmass or simulation.backend).",
     )

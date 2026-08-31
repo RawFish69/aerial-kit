@@ -103,8 +103,7 @@ simulation:
     aero: true
     enable_ground: false
 
-  # FixedWingBackend params (workstream 04). Not CLI-selectable yet -- see the
-  # comment on --backend in sim_py/app/cli.py. Aero/inertia coefficients are a
+  # FixedWingBackend parameters. Aero/inertia coefficients are a
   # plausible default set for a ~1.5 kg foam flying wing, not a fitted model of
   # any real airframe; override per-field as real airframe data becomes available.
   fixedwing:

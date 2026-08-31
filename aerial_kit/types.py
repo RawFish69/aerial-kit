@@ -70,7 +70,11 @@ class Waypoint:
 
 @dataclass
 class TrajectoryLog:
-    """Simulation outputs and diagnostics used for plotting/reporting."""
+    """Legacy simulation result type.
+
+    New code should use :class:`aerial_kit.sim.SimulationResult`. This class is
+    retained so existing integrations importing ``aerial_kit.types`` do not break.
+    """
 
     trajectory: np.ndarray
     planned_waypoints: np.ndarray

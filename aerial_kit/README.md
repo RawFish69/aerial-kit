@@ -1,6 +1,7 @@
 # aerial-kit
 
-Control Stack for aerial robots, no ROS & matplotlib dependency.
+Control stack for aerial robots. The core has no ROS or Matplotlib dependency;
+simulation and visualization are available as optional extras.
 
 For firmware, hardware integration, and the full ROS 2 / simulation stack, visit the repo:
 [github.com/RawFish69/aerial-kit](https://github.com/RawFish69/aerial-kit).
@@ -38,6 +39,74 @@ itself (airframes, controllers) - it has no ROS or matplotlib dependency and doe
 know about any host application's own dynamics backends or planners. A host application
 (like `sim_py` in the parent repo) registers its own backends/planners into the same
 registry alongside this.
+
+## Simulation and visualization
+
+Install the optional simulator and Matplotlib viewer:
+
+```bash
+python -m pip install "aerial-kit[sim]"
+```
+
+Run the bundled default quadrotor scenario:
+
+```bash
+aerial-kit-sim
+aerial-kit-sim --example fixed-wing
+aerial-kit-sim --no-show --save result.png
+```
+
+### Quadrotor teleop
+
+Launch real-time keyboard teleoperation with one command:
+
+```bash
+aerial-kit-teleop
+```
+
+| Key | Action |
+| --- | --- |
+| `W` / `S` or `Up` / `Down` | forward / backward |
+| `A` / `D` or `Left` / `Right` | strafe left / right |
+| `Space` / `Shift` | climb / descend |
+| `Q` / `E` | yaw left / right |
+| `X` | neutralize all commands |
+| `P` | pause / resume |
+| `C` | toggle follow / world camera |
+| `-` / `=` | zoom the follow camera out / in |
+| `H` | hide the on-screen help |
+| `Esc` | exit |
+
+Controls are body-relative, so yawing with `Q`/`E` changes where `W` takes you.
+Click the plot window first; the HUD shows `NO FOCUS` when keystrokes are not
+reaching it, and held keys are released whenever focus is lost.
+
+The equivalent simulator command is `aerial-kit-sim --teleop`. Without installing
+the package, run `python -m aerial_kit.sim.teleop` from the repository root, or
+`python examples/quadrotor/teleop.py` from anywhere (which is also what an IDE
+Run button does). Teleop needs an interactive Matplotlib backend and fails with
+an explanatory message if the active backend can only write files.
+
+The public Python API accepts a YAML path, a mapping, or a normalized config:
+
+```python
+from aerial_kit.sim import load_config, run_simulation
+from aerial_kit.visualization import plot_simulation
+
+config = load_config("examples/quadrotor/config.yaml")
+result = run_simulation(config)
+print(f"goal error: {result.distance_to_goal:.2f} m")
+plot_simulation(result)
+```
+
+Complete configurable examples are included in the repository:
+
+- `examples/quadrotor`: quad airframe, PID control, and native multirotor dynamics.
+- `examples/fixed_wing`: twin-motor flying wing, Dubins planning, native 6-DOF
+  dynamics, and L1/TECS control.
+
+The fixed-wing example starts at cruise airspeed to represent a hand launch. A
+fixed wing cannot be initialized at zero velocity like a hovering multirotor.
 
 ## Status
 

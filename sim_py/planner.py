@@ -16,7 +16,12 @@ import heapq
 import math
 import numpy as np
 
-from .terrain_wrapper import BoxObstacle, CylinderObstacle, HeightFieldTerrain, is_point_in_collision
+from aerial_kit.sim.terrain import (
+    BoxObstacle,
+    CylinderObstacle,
+    HeightFieldTerrain,
+    is_point_in_collision,
+)
 
 logger = logging.getLogger(__name__)
 

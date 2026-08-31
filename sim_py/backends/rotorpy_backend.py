@@ -18,7 +18,8 @@ def _missing_rotorpy_error(exc: Exception) -> RuntimeError:
     err = RuntimeError(
         "RotorPy backend requested but RotorPy is not available. "
         "Install optional dependencies with: "
-        "python3 -m pip install -r sim_py/requirements-rotorpy.txt"
+        'python -m pip install "aerial-kit[rotorpy]" '
+        "(legacy source checkout: sim_py/requirements-rotorpy.txt)"
     )
     err.__cause__ = exc
     return err

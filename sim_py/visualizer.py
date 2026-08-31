@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-from .terrain_wrapper import BoxObstacle, CylinderObstacle, HeightFieldTerrain
+from aerial_kit.sim.terrain import BoxObstacle, CylinderObstacle, HeightFieldTerrain
 
 
 def _quat_wxyz_to_rotmat(quat_wxyz: np.ndarray) -> np.ndarray:
@@ -144,8 +144,12 @@ def plot_simulation(
                 zorder=4,
             )
 
-    # Optional rotorcraft pose overlay from quaternion trajectory.
+    # Optional aircraft pose overlay from quaternion trajectory.
     if attitude_quats is not None:
+        is_fixed_wing = str(backend_name).lower() == "fixedwing"
+        pose_label = "Fixed-wing pose" if is_fixed_wing else "Multirotor pose"
+        body_half_length = quad_arm_length * (0.9 if is_fixed_wing else 0.5)
+        wing_half_span = quad_arm_length * (1.3 if is_fixed_wing else 0.5)
         q_traj = np.asarray(attitude_quats, dtype=float)
         if q_traj.ndim == 2 and q_traj.shape[1] == 4:
             n = min(len(traj), len(q_traj))
@@ -164,11 +168,12 @@ def plot_simulation(
                     ey = R[:, 1]
                     ez = R[:, 2]
 
-                    # Draw a simple quad "X"/"+" body from x/y axes.
-                    arm_x0 = p - ex * quad_arm_length * 0.5
-                    arm_x1 = p + ex * quad_arm_length * 0.5
-                    arm_y0 = p - ey * quad_arm_length * 0.5
-                    arm_y1 = p + ey * quad_arm_length * 0.5
+                    # A long fuselage + broad wing for fixed wing, or equal
+                    # crossed arms for a multirotor.
+                    arm_x0 = p - ex * body_half_length
+                    arm_x1 = p + ex * body_half_length
+                    arm_y0 = p - ey * wing_half_span
+                    arm_y1 = p + ey * wing_half_span
 
                     ax.plot(
                         [arm_x0[0], arm_x1[0]],
@@ -177,7 +182,7 @@ def plot_simulation(
                         color="black",
                         linewidth=2.4,
                         alpha=0.95,
-                        label="Quad pose" if first_label else None,
+                        label=pose_label if first_label else None,
                         zorder=6,
                     )
                     ax.plot(
@@ -217,7 +222,7 @@ def plot_simulation(
                     )
                     first_label = False
 
-                # Always highlight the final quad pose to make it easy to spot.
+                # Always highlight the final aircraft pose.
                 qf = q_traj[n - 1]
                 if np.all(np.isfinite(qf)):
                     pf = traj[n - 1]
@@ -227,19 +232,19 @@ def plot_simulation(
                     ezf = Rf[:, 2]
 
                     ax.plot(
-                        [pf[0] - exf[0] * quad_arm_length * 0.8, pf[0] + exf[0] * quad_arm_length * 0.8],
-                        [pf[1] - exf[1] * quad_arm_length * 0.8, pf[1] + exf[1] * quad_arm_length * 0.8],
-                        [pf[2] - exf[2] * quad_arm_length * 0.8, pf[2] + exf[2] * quad_arm_length * 0.8],
+                        [pf[0] - exf[0] * body_half_length * 1.4, pf[0] + exf[0] * body_half_length * 1.4],
+                        [pf[1] - exf[1] * body_half_length * 1.4, pf[1] + exf[1] * body_half_length * 1.4],
+                        [pf[2] - exf[2] * body_half_length * 1.4, pf[2] + exf[2] * body_half_length * 1.4],
                         color="yellow",
                         linewidth=3.0,
                         alpha=1.0,
-                        label="Final quad",
+                        label="Final fixed wing" if is_fixed_wing else "Final multirotor",
                         zorder=8,
                     )
                     ax.plot(
-                        [pf[0] - eyf[0] * quad_arm_length * 0.8, pf[0] + eyf[0] * quad_arm_length * 0.8],
-                        [pf[1] - eyf[1] * quad_arm_length * 0.8, pf[1] + eyf[1] * quad_arm_length * 0.8],
-                        [pf[2] - eyf[2] * quad_arm_length * 0.8, pf[2] + eyf[2] * quad_arm_length * 0.8],
+                        [pf[0] - eyf[0] * wing_half_span * 1.4, pf[0] + eyf[0] * wing_half_span * 1.4],
+                        [pf[1] - eyf[1] * wing_half_span * 1.4, pf[1] + eyf[1] * wing_half_span * 1.4],
+                        [pf[2] - eyf[2] * wing_half_span * 1.4, pf[2] + eyf[2] * wing_half_span * 1.4],
                         color="yellow",
                         linewidth=3.0,
                         alpha=1.0,
@@ -354,4 +359,137 @@ def plot_simulation(
         plt.tight_layout()
         plt.show()
 
+    return fig
+
+
+def _index_of_readable_bank(attitude_quats: np.ndarray, *, target_rad: float = 0.52) -> int:
+    """Mid-flight frame whose bank is closest to ``target_rad`` (about 30 deg)."""
+    from aerial_kit.controllers.fixed_wing import body_axis_pitch_bank
+
+    banks = np.array(
+        [abs(body_axis_pitch_bank(q)[1]) for q in np.asarray(attitude_quats, dtype=float)],
+        dtype=float,
+    )
+    n = len(banks)
+    if n == 0 or not np.any(np.isfinite(banks)):
+        return 0
+    lo, hi = int(0.18 * n), max(int(0.82 * n), int(0.18 * n) + 1)
+    window = banks[lo:hi]
+    return lo + int(np.nanargmin(np.abs(window - float(target_rad))))
+
+
+def plot_follow_view(
+    trajectory: np.ndarray,
+    *,
+    attitude_quats: np.ndarray | None = None,
+    planned_waypoints: np.ndarray | None = None,
+    space_dim: np.ndarray | None = None,
+    follow_index: int | None = None,
+    follow_radius: float = 12.0,
+    elevation_deg: float = 30.0,
+    azimuth_offset_deg: float = -115.0,
+    backend_name: str | None = None,
+    planner_type: str | None = None,
+    motor_thrust: np.ndarray | None = None,
+    show: bool = True,
+) -> plt.Figure:
+    """Local chase camera of the aircraft, not a whole-map overview.
+
+    Used for README stills where the vehicle's pitch/roll/yaw has to be readable.
+
+    ``elevation_deg`` and ``azimuth_offset_deg`` (the latter measured from the
+    aircraft's heading) place the camera. A low elevation sights along the
+    flown path and foreshortens a turn into a straight line, so a still meant
+    to show the aircraft following a curve wants to look down on it.
+    """
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+    from .teleop.camera import CameraController
+    from .teleop.model import (
+        WingGeometry,
+        quat_to_euler_rpy,
+        quat_to_rotation_matrix,
+        transform_points,
+    )
+
+    traj = np.asarray(trajectory, dtype=float).reshape(-1, 3)
+    if traj.shape[0] < 2:
+        raise ValueError("plot_follow_view needs at least two trajectory samples")
+
+    quats = None if attitude_quats is None else np.asarray(attitude_quats, dtype=float)
+    if follow_index is None:
+        follow_index = _index_of_readable_bank(quats) if quats is not None else (len(traj) * 2) // 3
+    follow_index = int(np.clip(follow_index, 0, len(traj) - 1))
+    position = traj[follow_index]
+    quat = None if quats is None else quats[min(follow_index, len(quats) - 1)]
+
+    if space_dim is None:
+        hi = np.max(traj, axis=0) + follow_radius
+        bounds = np.vstack([np.zeros(3), np.maximum(hi, position + follow_radius)])
+    else:
+        bounds = np.vstack([np.zeros(3), np.asarray(space_dim, dtype=float).reshape(3)])
+
+    _, _, yaw = quat_to_euler_rpy(quat)
+    camera = CameraController(
+        world_bounds=bounds,
+        radius=float(follow_radius),
+        min_radius=4.0,
+        max_radius=80.0,
+        elevation_deg=float(elevation_deg),
+        azimuth_deg=float(np.degrees(yaw) + float(azimuth_offset_deg)),
+        canvas_fill=1.45,
+    )
+
+    background = "#10131a"
+    fig = plt.figure(figsize=(11.0, 7.5), facecolor=background)
+    ax = fig.add_subplot(111, projection="3d", facecolor=background)
+    ax.tick_params(colors="#8b93a7", labelsize=7)
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        axis.set_pane_color((0.06, 0.07, 0.10, 1.0))
+        axis._axinfo["grid"]["color"] = "#2b3242"
+        axis._axinfo["grid"]["linewidth"] = 0.5
+    ax.grid(True)
+
+    ax.plot(
+        traj[:, 0], traj[:, 1], traj[:, 2],
+        color="#2f8fa8", linewidth=2.2, alpha=0.95, zorder=6,
+    )
+
+    geometry = WingGeometry()
+    parts = geometry.segments_body()
+    colors, widths = geometry.segment_styles(motor_thrust=motor_thrust)
+    rotation = quat_to_rotation_matrix(quat)
+    world_parts = [transform_points(part, rotation, position) for part in parts]
+    ax.add_collection3d(Line3DCollection(world_parts, colors=colors, linewidths=widths, zorder=12))
+
+    camera.apply(ax, position)
+    fig.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.04)
+
+    roll, pitch, yaw = quat_to_euler_rpy(quat)
+    bank = roll
+    try:
+        from aerial_kit.controllers.fixed_wing import body_axis_pitch_bank
+
+        pitch, bank = body_axis_pitch_bank(quat)
+    except Exception:
+        pass
+    title = "twin-wing" if str(backend_name or "").lower() == "fixedwing" else (backend_name or "aircraft")
+    planner = f" | {planner_type}" if planner_type else ""
+    ax.text2D(
+        0.02,
+        0.96,
+        (
+            f"{title}{planner}  follow r={follow_radius:.0f}m\n"
+            f"bank {np.degrees(bank):6.1f}  pitch {np.degrees(pitch):6.1f}  yaw {np.degrees(yaw):6.1f} deg"
+        ),
+        transform=ax.transAxes,
+        fontsize=9.5,
+        family="monospace",
+        color="#e6e9f0",
+        va="top",
+        bbox={"facecolor": "#171b25", "alpha": 0.9, "edgecolor": "#2b3242", "pad": 4.0},
+    )
+
+    if show:
+        plt.show()
     return fig

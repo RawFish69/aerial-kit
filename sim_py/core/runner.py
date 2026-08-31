@@ -15,8 +15,9 @@ from ..core.registry import (
     create_planner,
     register_builtin_components,
 )
-from ..core.types import CommandKind, ControlTarget, SimState, TrajectoryLog, Waypoint, Wrench
-from ..terrain_wrapper import (
+from ..core.types import CommandKind, ControlTarget, SimState, Waypoint, Wrench
+from aerial_kit.sim.result import SimulationResult
+from aerial_kit.sim.terrain import (
     TerrainConfig,
     generate_terrain,
     is_point_in_collision,
@@ -26,7 +27,7 @@ from ..terrain_wrapper import (
 logger = logging.getLogger(__name__)
 
 
-def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
+def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
     """Run one simulation and return collected outputs/diagnostics."""
     if cfg_norm.seed is not None:
         np.random.seed(cfg_norm.seed)
@@ -83,7 +84,8 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
             f"(ratio {height_ratio:.2f} * {label})"
         )
 
-    max_z_allowed = min(max_tree_top, float(cfg.space_dim[2]))
+    # Sparse obstacles do not define the flight ceiling; the configured world does.
+    max_z_allowed = float(cfg.space_dim[2])
     logger.info(f"Max allowed altitude: {max_z_allowed:.2f} m (tallest obstacle: {max_tree_top:.2f} m)")
 
     # Compute nominal start/goal positions from config
@@ -221,10 +223,31 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
             f"with matching command kinds."
         )
 
+    initial_cfg = dict(cfg_norm.initial_state_cfg)
+    initial_velocity = np.asarray(initial_cfg.get("velocity_mps", [0.0, 0.0, 0.0]), dtype=float)
+    if initial_velocity.shape != (3,):
+        raise ValueError("initial_state.velocity_mps must contain exactly 3 values")
+
+    initial_attitude = None
+    if "attitude_quat_wxyz" in initial_cfg:
+        initial_attitude = np.asarray(initial_cfg["attitude_quat_wxyz"], dtype=float)
+        if initial_attitude.shape != (4,):
+            raise ValueError("initial_state.attitude_quat_wxyz must contain exactly 4 values")
+    elif "heading_deg" in initial_cfg:
+        from aerial_kit.dynamics.fixed_wing import level_attitude_quat
+
+        initial_attitude = level_attitude_quat(np.radians(float(initial_cfg["heading_deg"])))
+
+    initial_body_rates = np.asarray(initial_cfg.get("body_rates_rps", [0.0, 0.0, 0.0]), dtype=float)
+    if initial_body_rates.shape != (3,):
+        raise ValueError("initial_state.body_rates_rps must contain exactly 3 values")
+
     initial_state = SimState(
         position=path_start.copy(),
-        velocity=np.zeros(3, dtype=float),
+        velocity=initial_velocity,
         t=0.0,
+        attitude_quat=initial_attitude,
+        body_rates=initial_body_rates,
     )
     backend.reset(
         initial_state=initial_state,
@@ -262,6 +285,8 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
         traj_attitudes.append(np.asarray(state0.attitude_quat, dtype=float).reshape(4))
 
     wp_idx = 0
+    waypoint_acceptance_m = float(path_cfg.get("waypoint_acceptance_m", 1.0))
+    lookahead_waypoints = max(0, int(path_cfg.get("lookahead_waypoints", 0)))
     t = 0.0
     last_log_time = 0.0
     log_interval = 5.0
@@ -274,8 +299,8 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
     # allocate() here is exercised for validation/logging only -- its output does not
     # feed back into the physics. This keeps the quad trajectory unchanged regardless
     # of which airframe is selected (CommandKind dispatch lands in phase 3).
-    pm_cfg = dict(cfg_norm.simulation_cfg.get("pointmass", {}) or {})
-    airframe_mass_kg = float(pm_cfg.get("mass", 1.0))
+    backend_dynamics_cfg = dict(cfg_norm.simulation_cfg.get(backend_name, {}) or {})
+    airframe_mass_kg = float(backend_dynamics_cfg.get("mass", 1.0))
     gravity_mps2 = 9.81
 
     while t < max_t and wp_idx < len(waypoints):
@@ -283,12 +308,25 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
         pos = state.position
         vel = state.velocity
 
+        # Advance to the nearest upcoming sample before applying the acceptance
+        # radius. This prevents a fast aircraft from getting stuck forever on a
+        # waypoint it crossed between integration steps.
+        search_end = min(len(waypoints), wp_idx + max(6, lookahead_waypoints * 2 + 1))
+        upcoming = waypoints[wp_idx:search_end]
+        nearest_offset = int(
+            np.argmin([np.linalg.norm(candidate.position - pos) for candidate in upcoming])
+        )
+        wp_idx += nearest_offset
         target_wp = waypoints[wp_idx]
         dist_to_target = np.linalg.norm(target_wp.position - pos)
-        if dist_to_target < 1.0 and wp_idx < len(waypoints) - 1:
+        if dist_to_target < waypoint_acceptance_m:
+            if wp_idx == len(waypoints) - 1:
+                logger.info(f"t={t:.2f}s: Reached final waypoint")
+                break
             wp_idx += 1
-            target_wp = waypoints[wp_idx]
             logger.info(f"t={t:.2f}s: Reached waypoint {wp_idx-1}/{len(waypoints)-1}, advancing")
+        target_idx = min(wp_idx + lookahead_waypoints, len(waypoints) - 1)
+        target_wp = waypoints[target_idx]
 
         if is_point_in_collision(pos, obstacles, inflation=0.0):
             collisions_detected += 1
@@ -366,7 +404,7 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> TrajectoryLog:
     logger.info(f"Final waypoint reached: {wp_idx}/{len(waypoints)-1}")
     logger.info(f"Distance to goal: {dist_to_goal:.2f} m")
 
-    return TrajectoryLog(
+    return SimulationResult(
         trajectory=trajectory,
         planned_waypoints=planned_waypoints,
         obstacles=list(obstacles),

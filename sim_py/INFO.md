@@ -49,9 +49,9 @@ now dispatches on `airframe.capabilities.command_kind`: ACCEL keeps driving `acc
 exactly as before (bit-identical, verified via the existing quad/hex/octo tests), AIRSPEED_NAV
 pulls a `Wrench` from `ControlTarget.metadata["wrench"]`, allocates it, and hands the backend
 `ControlTarget.metadata["actuator_cmd"]` instead. `--airframe twin_wing --backend fixedwing
---controller l1_tecs` is therefore wired end-to-end, though `run_simulation()` always starts
-missions at zero velocity (no runway/launch model), so it's exercised directly at cruise trim
-in tests rather than through a full CLI mission -- see
+--controller l1_tecs` is therefore wired end-to-end. Fixed-wing missions must configure
+`initial_state.velocity_mps` (and normally `heading_deg`) to represent a hand launch or
+airborne start; see `examples/fixed_wing/config.yaml` and
 `sim_py/tests/test_fixed_wing_guidance.py` (including a 30 s straight-and-level stability
 check) and `test_runner_integration.py`'s dispatch smoke test. Full coordinated turns
 (bank-to-turn-rate coupling, not just this model's weak weathervaning aero) remain open --
@@ -123,8 +123,9 @@ Entry + app:
 - `sim_py/app/cli.py`
 - `sim_py/app/main.py`
 
-`aerial_kit` is the standalone, publishable package (no ROS, no matplotlib) -- it holds
-everything reusable by anything that isn't `sim_py`'s own orchestration/plotting:
+`aerial_kit` is the standalone, publishable package. Its core has no ROS or Matplotlib
+dependency. Installing the `sim` extra adds `aerial_kit.sim` and
+`aerial_kit.visualization`; `sim_py` remains as a backward-compatible namespace:
 
 - `aerial_kit/types.py` (`SimState`, `ControlTarget`, `Capabilities`, `Wrench`, `CommandKind`, ...)
 - `aerial_kit/interfaces.py` (`Planner`, `Controller`, `DynamicsBackend`)
@@ -141,12 +142,36 @@ Core orchestration (sim_py-specific, thin shims into `aerial_kit` for `core.{typ
 - `sim_py/core/config.py`
 - `sim_py/core/runner.py`
 
-Built-in plugins that stay in `sim_py` (matplotlib-adjacent, ROS-adjacent, or external-optional-dependency):
+Simulator implementation modules currently retained behind the public
+`aerial_kit.sim` API for backward compatibility:
 
 - `sim_py/planners/basic.py`, `dubins.py` (steering geometry, not yet wired into a planner)
 - `sim_py/backends/pointmass_backend.py`, `fixedwing_backend.py` (thin `DynamicsBackend`
   wrappers around `aerial_kit.dynamics.*`)
 - `sim_py/backends/rotorpy_backend.py` (external optional dependency, not in `aerial_kit`)
+
+Interactive teleop (`sim_py/teleop/`, entered via `aerial-kit-teleop`,
+`aerial-kit-sim --teleop`, or `examples/quadrotor/teleop.py`):
+
+- `input_state.py`: `KeyboardState` latches key-down/key-up into held actions, so
+  continuous control never depends on OS key-repeat. Focus loss releases everything.
+- `commands.py`: pure mapping from held keys to `InputAxes` to a `TeleopCommand`
+  (world-frame `accel_cmd` + `yaw_rate_cmd`). No Matplotlib import, so the whole
+  pilot-input path is unit-testable headlessly.
+- `loop.py`: `FixedStepScheduler` turns wall-clock deltas from `time.monotonic()` into a
+  bounded number of fixed `dt` steps, and reports achieved FPS / real-time factor.
+- `engine.py`: `TeleopEngine` is the headless simulation half -- keys in, `SimState` out,
+  including terrain/obstacle collision state and telemetry.
+- `model.py` / `renderer.py`: X-configuration quad geometry (body, four arms, four motor
+  housings, propeller discs, nose) transformed by `SimState.attitude_quat`, plus the HUD.
+- `camera.py`: `CameraController` switches between a follow camera at a configurable local
+  radius and the full world view.
+- `telemetry.py`: `TelemetryRecorder` keeps the flight trail and can dump a CSV.
+- `session.py`: wires the above to the GUI timer, guards against non-interactive backends
+  (`TeleopBackendError`), and restores Matplotlib's own key bindings on exit.
+
+Tuning lives under `controller.teleop.*` (accelerations, damping, speed and yaw-rate
+limits) and `visual.teleop_*` (camera radius, model scale, grid spacing, trail width).
 
 ## Built-in registry keys
 
@@ -170,6 +195,9 @@ Controllers:
 Backends:
 
 - `pointmass`
+- `multirotor` (`MultirotorBackend` -- attitude-aware quad model; the accel command is
+  converted into a tilt setpoint, so `SimState.attitude_quat` reflects real roll/pitch, and
+  `ControlTarget.metadata["yaw_rate_cmd"]` drives yaw)
 - `rotorpy`
 - `fixedwing` (`FixedWingBackend` -- see Airframe scope above for the zero-velocity-launch caveat)
 

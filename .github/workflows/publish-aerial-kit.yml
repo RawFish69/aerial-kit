@@ -1,21 +1,38 @@
 name: Publish aerial-kit to PyPI
 
-# Runs only when a tag like "aerial-kit-v0.1.1" is pushed -- publishing stays a
-# deliberate act (bump pyproject.toml, tag, push the tag), not something that
-# fires on every commit to main. Uses PyPI Trusted Publishing (OIDC): no API
-# token stored in GitHub. See aerial_kit/PUBLISHING.md for the one-time setup
-# this workflow depends on, and the release steps.
+# Version-triggered publishing: push to main as normal, and if the version in
+# pyproject.toml is one PyPI has never seen, this workflow tests it, builds it,
+# and releases it. No tag to remember, no second command.
+#
+# The gate is "does this version already exist on PyPI", not "did the last
+# commit change pyproject.toml". That is deliberate -- it stays correct across
+# squash merges, pushes carrying several commits, force-pushes, and re-runs of
+# this workflow, none of which a HEAD~1 diff survives. Re-running a successful
+# release is a no-op instead of an error.
+#
+# The filename matters: PyPI Trusted Publishing (OIDC) is registered against
+# "publish-aerial-kit.yml" specifically. Renaming this file breaks publishing
+# until the trusted publisher is re-registered at
+# https://pypi.org/manage/project/aerial-kit/settings/publishing/
 
 on:
   push:
-    tags:
-      - "aerial-kit-v*"
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two releases race; a half-finished publish is not recoverable
+# because PyPI forbids reusing a version number, even a yanked one.
+concurrency:
+  group: publish-aerial-kit
+  cancel-in-progress: false
 
 jobs:
-  build-and-publish:
+  check:
+    name: Check whether this version is new
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write # required for PyPI Trusted Publishing
+    outputs:
+      version: ${{ steps.decide.outputs.version }}
+      should_publish: ${{ steps.decide.outputs.should_publish }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,19 +40,97 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verify tag matches pyproject.toml version
+      - name: Compare pyproject version against PyPI
+        id: decide
         run: |
-          tag_version="${GITHUB_REF_NAME#aerial-kit-v}"
-          pkg_version="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
-          if [ "$tag_version" != "$pkg_version" ]; then
-            echo "Tag aerial-kit-v$tag_version does not match pyproject.toml version $pkg_version" >&2
-            exit 1
-          fi
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, tomllib, urllib.error, urllib.request
+
+          version = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          print(f"version={version}")
+
+          try:
+              with urllib.request.urlopen(
+                  "https://pypi.org/pypi/aerial-kit/json", timeout=30
+              ) as response:
+                  released = set(json.load(response)["releases"])
+          except urllib.error.HTTPError as exc:
+              if exc.code != 404:
+                  raise
+              released = set()  # project has never been published
+
+          new = version not in released
+          print(f"should_publish={str(new).lower()}")
+          summary = (
+              f"Version `{version}` is new -- publishing."
+              if new
+              else f"Version `{version}` is already on PyPI -- nothing to do. "
+                   "Bump `[project] version` in pyproject.toml to release."
+          )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write(summary + "\n")
+          PY
+
+  publish:
+    name: Test, build and publish
+    needs: check
+    if: needs.check.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # PyPI Trusted Publishing
+      contents: write # push the release tag
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Tests gate the release. A version number can never be reused on PyPI,
+      # so a broken upload is permanent -- catch it here, not afterwards.
+      - name: Run the test suite
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[sim]" pytest
+          python -m pytest sim_py/tests -q
 
       - name: Build sdist and wheel
         run: |
-          python -m pip install --upgrade pip build
+          python -m pip install --upgrade build
           python -m build
+
+      # Passing tests do not prove the packaged artifact is usable: the wheel
+      # can still be missing the bundled scenario YAML or the sim_py package,
+      # neither of which an in-repo test run would notice.
+      - name: Smoke-test the built wheel in a clean environment
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/python -m pip install --quiet "$(ls dist/*.whl)[sim]"
+          cd /tmp # leave the repo so the install, not the source tree, is imported
+          /tmp/smoke/bin/python -c "
+          import matplotlib; matplotlib.use('Agg')
+          from dataclasses import replace
+          from aerial_kit.sim import run_simulation
+          from aerial_kit.sim.teleop import teleop_config
+          from aerial_kit.visualization import plot_follow_view, plot_simulation
+          result = run_simulation(replace(teleop_config(), sim_time=2.0))
+          assert len(result.trajectory) > 1, 'simulation produced no trajectory'
+          print('wheel OK:', len(result.trajectory), 'samples')
+          "
+          /tmp/smoke/bin/aerial-kit-sim --help > /dev/null
+          echo "console script OK"
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      # Tag after the upload succeeds, so the tag always means "this is on
+      # PyPI" rather than "we intended to publish this".
+      - name: Tag the release
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "aerial-kit-v$VERSION" -m "aerial-kit $VERSION"
+          git push origin "aerial-kit-v$VERSION"
+          echo "Published \`$VERSION\` and tagged \`aerial-kit-v$VERSION\`." >> "$GITHUB_STEP_SUMMARY"

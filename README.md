@@ -6,6 +6,8 @@ repo carries fully custom ESP32 flight-link firmware (ESP-NOW, ELRS, LoRa, GPS) 
 multirotor firmware is being added here too, alongside the existing links. The shared,
 ROS-free control layer is also published standalone on PyPI as
 [`aerial-kit`](https://pypi.org/project/aerial-kit/) (`pip install aerial-kit`).
+Optional standalone simulation and visualization are available with
+`pip install "aerial-kit[sim]"`.
 
 - **Controller**: ROS 2 control + safety pipeline (hardware + Gazebo Sim / fast sim), plus
   a standalone `aerial_kit` package (PID / LQR / MPC, L1 + TECS for fixed wing)
@@ -28,15 +30,38 @@ ROS-free control layer is also published standalone on PyPI as
 
 ## Demo
 
-All demos below are **quadcopter** flights — see [Supported airframes](#supported-airframes)
-for what else is in progress.
+See [Supported airframes](#supported-airframes) for what else is in progress.
 
 ### Python Sim & ROS2 Gazebo Sim
 
-<p>
-  <img src="docs/forest_rotor.png" alt="Forest RotorPy demo with quad pose overlay" width="49%">
-  <img src="docs/mountain_rrt_star_1.png" alt="Mountain path planner with RRT*" width="49%">
-</p>
+Autonomous flight — plan a path, then fly it:
+
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/forest_rotor.png" alt="Forest RRT* path with the RotorPy backend" width="100%"></td>
+    <td width="50%" align="center"><img src="docs/py_sim_planner.png" alt="RRT* path planned over mountain terrain" width="100%"></td>
+  </tr>
+  <tr>
+    <td valign="top"><em>RRT* through forest terrain on the RotorPy backend.</em></td>
+    <td valign="top"><em>RRT* over mountains — the planner climbs a 47 m ridge to reach the goal.
+    Planned path dashed in orange, flown trajectory in cyan.</em></td>
+  </tr>
+</table>
+
+Standalone Python sim (Matplotlib 3D, follow camera):
+
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/teleop_follow.png" alt="Matplotlib 3D follow camera: quadrotor mid-turn with its 56 m flown path behind it" width="100%"></td>
+    <td width="50%" align="center"><img src="docs/fixed_wing.png" alt="Matplotlib 3D follow camera: banked twin-wing following its flown path" width="100%"></td>
+  </tr>
+  <tr>
+    <td valign="top"><em>Native multirotor backend — a 56 m climbing turn, teal trail showing where
+    it has flown. Each propeller is coloured by thrust (grey idle → yellow → orange → red).</em></td>
+    <td valign="top"><em><a href="examples/fixed_wing">Twin-wing example</a> on the same renderer —
+    banked 50° through the turn, flown path behind it, motors on the same colour map.</em></td>
+  </tr>
+</table>
 
 <p>
   <img src="docs/sim_demo_1.png" alt="ROS2 Gazebo simulation demo" width="98%">
@@ -61,11 +86,11 @@ attitude, barometric altitude, and GPS position.*
 | Monocopter | ⏳ To be added | ⏳ To be added |
 | TVC (thrust-vectored) | ⏳ To be added | ⏳ To be added |
 
-Quadcopter is the reference airframe and everything in the demos above is a quad. The
-pieces that are still quad-shaped today are the `rotorpy` dynamics backend, the
-`hover_throttle` / velocity-to-stick mapping in `hw_bridge`, and the Gazebo `x3` /
-`lr_drone` models. Lifting those into a shared airframe layer is the active line of work;
-see [Roadmap](#roadmap).
+Quadcopter is the reference airframe. The twin-wing example in the demos uses the native
+6-DOF fixed-wing backend. Pieces that are still quad-shaped today are the `rotorpy`
+dynamics backend, the `hover_throttle` / velocity-to-stick mapping in `hw_bridge`, and
+the Gazebo `x3` / `lr_drone` models. Lifting those into a shared airframe layer is the
+active line of work; see [Roadmap](#roadmap).
 
 ## Autopilot & firmware support
 
@@ -118,6 +143,25 @@ Planner -> Controller -> Dynamics backend (pointmass/rotorpy) -> Matplotlib 3D
 
 ## Quick start (Python-only simulator)
 
+Published-package API and examples:
+
+```bash
+python -m pip install -e ".[sim]"
+python examples/quadrotor/run.py
+python examples/fixed_wing/run.py
+
+# Real-time keyboard control of the quadrotor
+# W/S A/D or arrows to move, Space/Shift to climb, Q/E to yaw, Esc to exit
+aerial-kit-teleop
+
+# Headless runs that save plots
+python examples/quadrotor/run.py --no-show --save quadrotor-result.png
+python examples/fixed_wing/run.py --no-show --save fixed-wing-result.png
+```
+
+The example YAML files document vehicle, dynamics, controller, path, initial-state,
+and visualization parameters. The legacy source-tree entry point remains available:
+
 ```bash
 ./scripts/setup_sim_py_venv.sh
 source sim_py/.venv/bin/activate
@@ -138,6 +182,9 @@ Useful overrides:
 # Switch controller
 python -m sim_py.run_sim --controller mpc
 
+# Switch path planner (straight | astar | rrt | rrtstar | dubins)
+python -m sim_py.run_sim --planner rrtstar --terrain mountains
+
 # Change terrain type (still uses the terrain config YAML unless overridden)
 python -m sim_py.run_sim --terrain forest
 
@@ -150,30 +197,64 @@ python -m sim_py.run_sim --terrain-config ros2_ws/src/terrain_generator/config/t
 # Select dynamics backend (default: pointmass)
 python -m sim_py.run_sim --backend rotorpy
 
-# Interactive teleop (Matplotlib, best with RotorPy backend)
-python -m sim_py.run_sim --controller teleop --backend rotorpy --terrain forest
+# Interactive teleop from the legacy entry point
+python -m sim_py.run_sim --controller teleop --backend multirotor --terrain forest
 ```
 
-### Python sim teleop (Matplotlib)
+### Quadrotor teleop (real-time keyboard control)
 
-`sim_py` now includes an interactive teleop mode for quick manual flying in the Matplotlib 3D viewer.
+One command from the repository root:
 
-- Launch: `python -m sim_py.run_sim --controller teleop --backend rotorpy`
-- Controls (focus the plot window first):
-  - `W/S`: +/- X
-  - `A/D`: +/- Y
-  - `R/F`: +/- Z
-  - `P`: pause/resume
-  - `Esc`: close
+```bash
+aerial-kit-teleop
+```
 
-Teleop is acceleration-command based and works best with the RotorPy backend.
+| Key | Action |
+| --- | --- |
+| `W` / `S` or `Up` / `Down` | forward / backward |
+| `A` / `D` or `Left` / `Right` | strafe left / right |
+| `Space` / `Shift` | climb / descend |
+| `Q` / `E` | yaw left / right |
+| `X` | neutralize all commands |
+| `P` | pause / resume |
+| `C` | toggle follow / world camera |
+| `-` / `=` | zoom the follow camera out / in |
+| `H` | hide the on-screen help |
+| `Esc` | exit |
+
+Controls are body-relative: forward follows the nose, so yawing with `Q`/`E`
+changes where `W` takes you. Click the plot window first — the HUD says
+`NO FOCUS` when keystrokes are not reaching it, and held keys are dropped
+whenever the window loses focus.
+
+Equivalent launchers:
+
+```bash
+aerial-kit-sim --teleop                 # same viewer through the simulator CLI
+python examples/quadrotor/teleop.py     # or click Run in VS Code, any directory
+python -m aerial_kit.sim.teleop         # from the repo root, no install needed
+```
+
+The viewer opens in follow-camera mode with a ~12 m local radius, which is what
+makes metre-scale motion visible inside the 120 m map; press `C` for the whole
+world. The HUD reports simulation time, frame count, render rate, real-time
+factor, position, velocity, roll/pitch/yaw, the current control inputs, per-rotor
+thrust, backend, run state, focus state and collision state. Propellers tint from
+cool idle to hot full thrust. Physics runs at a fixed step against
+`time.monotonic()`, so the simulation stays at 1.0x real time regardless of the
+achieved frame rate.
+
+Tuning lives under `controller.teleop` (accelerations, damping, speed and yaw-rate
+limits) and `visual.teleop_*` (view radius, model scale, grid spacing) in
+`examples/quadrotor/config.yaml`.
 
 ### Python sim configuration
 
 - **Main config**: `sim_py/sim_config.yaml`
   - **Start/goal**: `path.start_relative_*`, `path.end_relative_*`
     - `end_relative_z: "auto"` picks a random goal altitude in \([0, \text{tallest tree}]\)
-  - **Planner**: `path.planner_type` = `straight` | `astar` | `rrt` | `rrt*`
+  - **Planner**: `path.planner_type` = `straight` | `astar` | `rrt` | `rrtstar` | `dubins`
+    (CLI `--planner` overrides)
   - **Runtime**: `controller.sim_time`, `controller.dt`
   - **Backend**: `simulation.backend` = `pointmass` | `rotorpy` (CLI `--backend` overrides)
   - **Terrain appearance / scaling**:

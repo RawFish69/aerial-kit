@@ -1,0 +1,19 @@
+terrain:
+  terrain_type: plains
+  space_dim: [120.0, 120.0, 60.0]
+  start_pos: [0.0, 0.0, 0.0]
+  forest:
+    grid_size: 10
+    radius_range: [0.5, 1.2]
+    height_range: [5.0, 14.0]
+    density: 0.55
+  mountains:
+    num_peaks: 10
+    base_size_range: [10.0, 22.0]
+    height_range: [10.0, 28.0]
+    grid_resolution: 4.0
+    pit_count: 3
+    steepness: 1.5
+  plains:
+    num_obstacles: 12
+    obstacle_types: [bush, rock]

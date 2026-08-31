@@ -2,13 +2,10 @@
 
 Unlike ``PointMassBackend``, this backend needs actuator-level commands
 (``[throttle_L, throttle_R, elevon_L, elevon_R]``, i.e. ``TwinWingAirframe.
-allocate()``'s output) rather than an acceleration vector -- there is no
-AIRSPEED_NAV controller yet (L1/TECS, workstream 04's next phase) to produce
-those through the generic ``runner.py`` loop, which today only drives
-ACCEL-kind ``ControlTarget.accel_cmd``. Until that guidance loop exists, the
-actuator command is passed via ``ControlTarget.metadata["actuator_cmd"]`` --
-documented here rather than silently defaulting, since there is no safe
-default actuator command to fall back to.
+allocate()``'s output) rather than an acceleration vector. The runner routes
+the L1/TECS controller's Wrench through the airframe allocator and passes the
+result via ``ControlTarget.metadata["actuator_cmd"]``. There is deliberately
+no silent default actuator command.
 """
 
 from __future__ import annotations

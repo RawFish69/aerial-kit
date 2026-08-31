@@ -47,6 +47,7 @@ def register_builtin_components() -> None:
         return
 
     from sim_py.backends.fixedwing_backend import FixedWingBackend
+    from sim_py.backends.multirotor_backend import MultirotorBackend
     from sim_py.backends.pointmass_backend import PointMassBackend
     from sim_py.backends.rotorpy_backend import RotorPyBackend
     from sim_py.planners.basic import AStarPlanner, RRTPlanner, RRTStarPlanner, StraightPlanner
@@ -59,6 +60,7 @@ def register_builtin_components() -> None:
     register_planner("dubins", DubinsPlanner)
 
     register_backend("pointmass", PointMassBackend)
+    register_backend("multirotor", MultirotorBackend)
     register_backend("rotorpy", RotorPyBackend)
     register_backend("fixedwing", FixedWingBackend)
 
