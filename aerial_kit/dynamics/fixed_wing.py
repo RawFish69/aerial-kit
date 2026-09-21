@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .rotations import quat_to_rotmat as _quat_to_rotmat
+
 #: Body-rate magnitude bound applied every step -- see the comment at its use
 #: in FixedWingDynamics.step(). ~4x anything seen in a hard sustained
 #: maneuver during normal (even aggressive) flight; a real airframe never
@@ -89,14 +91,14 @@ def level_attitude_quat(heading_rad: float = 0.0) -> np.ndarray:
 
 
 def quat_to_rotmat(quat: np.ndarray) -> np.ndarray:
-    w, x, y, z = quat
-    return np.array(
-        [
-            [1 - 2 * (y**2 + z**2), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-            [2 * (x * y + z * w), 1 - 2 * (x**2 + z**2), 2 * (y * z - x * w)],
-            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x**2 + y**2)],
-        ]
-    )
+    """Re-exported from `aerial_kit.dynamics.rotations`.
+
+    Kept under this name because this is where every existing import site found
+    it. The body of it lives there now, with `rotmat_to_quat` and `yaw_of`,
+    because the actuator loop needed all three and a third package defining its
+    own was how the conventions would have drifted.
+    """
+    return _quat_to_rotmat(quat)
 
 
 def _integrate_quaternion(quat: np.ndarray, body_rates: np.ndarray, dt: float) -> np.ndarray:

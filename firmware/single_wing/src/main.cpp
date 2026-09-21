@@ -8,14 +8,18 @@
 #include "navigation.h"
 #include "rc_input.h"
 
-// Single Motor Flying Wing scaffold.
+// Single Motor Flying Wing bench demonstration.
 //
 // Mixing model:
 //   throttle_cmd -> single motor
 //   pitch_cmd    -> symmetric elevon deflection
 //   roll_cmd     -> asymmetric elevon deflection
 //
-// This is a control-surface placeholder, not a flight-ready implementation.
+// This is a control-surface placeholder, not a flight-ready implementation, and
+// the same warnings as twin_wings/src/main.cpp apply: an unbounded loop period
+// against a hardcoded 0.02f dt, stick demands passed straight to the mixer when
+// the IMU read fails, no arming state, and a wrong CRSF length/CRC span. Do not
+// flash this to an aircraft. See ../../README.md.
 
 static void applySingleWingMix(const ControlInput& in) {
   float motor = constrain(in.throttle, MOTOR_MIN, MOTOR_MAX);

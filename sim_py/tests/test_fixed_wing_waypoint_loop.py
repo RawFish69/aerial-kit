@@ -83,7 +83,7 @@ def test_dubins_waypoint_loop_bounded_cross_track_error():
             body_rates=dyn.body_rates.copy(),
         )
         control_target = controller.compute(state, target, cfg=cfg)
-        wrench = control_target.metadata["wrench"]
+        wrench = control_target.wrench
         throttle = float(np.clip(wrench.force_body[0], 0.0, 10.0))
         roll_m, pitch_m, _yaw_m = wrench.moment_body
         max_elevon = np.radians(25.0)

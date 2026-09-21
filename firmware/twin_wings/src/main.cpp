@@ -8,7 +8,7 @@
 #include "navigation.h"
 #include "rc_input.h"
 
-// Twin Motor Flying Wing scaffold.
+// Twin Motor Flying Wing bench demonstration.
 //
 // Mixing model:
 //   throttle_cmd      -> common thrust on both motors
@@ -16,8 +16,15 @@
 //   pitch_cmd         -> symmetric elevon deflection
 //   roll_cmd          -> asymmetric elevon deflection
 //
-// For now this only demonstrates the actuator mapping and a neutral trim. The
-// fixed-wing controller and sensor drivers are intentionally left as TODOs.
+// NOT A FLIGHT CONTROLLER. This is a bench sketch for checking wiring, PWM
+// rates, servo directions and mixer signs. An earlier revision of this comment
+// said the controller and sensor drivers were "intentionally left as TODOs";
+// they were since written, and were unvalidated when they were, so that
+// sentence was removed rather than left to age. What is true now: the loop
+// period is `delay(20)` plus execution time while the controller is handed a
+// hardcoded 0.02f, a failed IMU silently passes stick demands straight to the
+// mixer, there is no arming state, and the CRSF length/CRC span is wrong. Do
+// not flash this to an aircraft. See ../../README.md.
 
 static void applyTwinWingMix(const ControlInput& in) {
   float motorL = in.throttle + in.yaw * YAW_DIFFERENTIAL_GAIN;

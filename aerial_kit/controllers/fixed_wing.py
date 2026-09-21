@@ -1,9 +1,10 @@
 """AIRSPEED_NAV controller for the twin wing: L1 lateral + TECS-lite + attitude PID.
 
-Produces a body ``Wrench`` (in ``ControlTarget.metadata["wrench"]``, since the
-shared ``ControlTarget.accel_cmd`` field is an ACCEL-kind concept this
-controller doesn't use) for ``TwinWingAirframe.allocate()`` to turn into
-actuator commands. Three loops, outer to inner, per plan 04:
+Produces a body ``Wrench`` in ``ControlTarget.wrench``, for
+``TwinWingAirframe.allocate()`` to turn into actuator commands. The shared
+``ControlTarget.accel_cmd`` field is an ACCEL-kind concept this controller
+doesn't use, and it fills that field with zeros as the statement of that. Three
+loops, outer to inner, per plan 04:
 
 1. L1 picks a bank command from the vehicle's position/velocity toward the
    target waypoint (see ``aerial_kit.guidance.l1`` for why this is the
@@ -137,9 +138,9 @@ class FixedWingL1TECSController(Controller):
         )
         return ControlTarget(
             accel_cmd=np.zeros(3, dtype=float),
+            wrench=wrench,
             metadata={
                 "controller": "l1_tecs",
-                "wrench": wrench,
                 "bank_cmd": bank_cmd,
                 "pitch_cmd": pitch_cmd,
                 "throttle_cmd_n": throttle_cmd_n,

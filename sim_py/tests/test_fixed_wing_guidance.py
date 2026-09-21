@@ -109,7 +109,7 @@ def test_controller_produces_finite_wrench():
     )
     target = Waypoint(position=np.array([200.0, 20.0, 110.0]))
     control_target = controller.compute(state, target, cfg={})
-    wrench = control_target.metadata["wrench"]
+    wrench = control_target.wrench
     assert np.all(np.isfinite(wrench.force_body))
     assert np.all(np.isfinite(wrench.moment_body))
     assert wrench.force_body[0] >= 0.0  # throttle_cmd_n is clipped non-negative
@@ -123,7 +123,7 @@ def _step_with_controller(dyn: FixedWingDynamics, controller, target: Waypoint, 
         body_rates=dyn.body_rates.copy(),
     )
     control_target = controller.compute(state, target, cfg=cfg)
-    wrench = control_target.metadata["wrench"]
+    wrench = control_target.wrench
     # Bypass TwinWingAirframe.allocate() saturation nuance for this groundwork
     # check -- feed the wrench's moment components directly as elevon
     # deflections (its own documented placeholder mapping) and split throttle
@@ -361,7 +361,7 @@ def test_stall_guard_impossible_climb_clamps_and_does_not_stall():
         )
         control_target = controller.compute(state, target, cfg=cfg)
         max_pitch_cmd_seen = max(max_pitch_cmd_seen, abs(control_target.metadata["pitch_cmd"]))
-        wrench = control_target.metadata["wrench"]
+        wrench = control_target.wrench
         throttle = float(np.clip(wrench.force_body[0], 0.0, 10.0))
         roll_m, pitch_m, _yaw_m = wrench.moment_body
         max_elevon = np.radians(25.0)
@@ -414,7 +414,7 @@ def test_motor_out_stays_controllable_in_roll_pitch():
             body_rates=dyn.body_rates.copy(),
         )
         control_target = controller.compute(state, target, cfg=cfg)
-        wrench = control_target.metadata["wrench"]
+        wrench = control_target.wrench
         throttle = float(np.clip(wrench.force_body[0], 0.0, 10.0))
         roll_m, pitch_m, _yaw_m = wrench.moment_body
         max_elevon = np.radians(25.0)

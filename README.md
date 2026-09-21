@@ -96,7 +96,12 @@ active line of work; see [Roadmap](#roadmap).
 | Betaflight | CRSF over ESP-NOW/UDP relay | `ros2_ws/src/hw_bridge` (`crsf_backend_adapter_node`) | ✅ Working |
 | PX4 | MAVLink over USB / UART / telemetry radio | `ros2_ws/src/mavlink_bridge` | ✅ Working |
 | ArduPilot | MAVLink, same node (`flight_stack: ardupilot`) | `ros2_ws/src/mavlink_bridge` | 🚧 Supported, in testing |
-| Custom firmware (this repo) | ESP-NOW + CRSF, 2.4 GHz SX1280 ELRS, LoRa telemetry | `firmware/` | ✅ Working |
+| Custom firmware (this repo) | ESP-NOW + CRSF, 2.4 GHz SX1280 ELRS, LoRa telemetry | `firmware/` (link projects) | ✅ Working |
+
+The row above covers the link and telemetry projects. `firmware/twin_wings` and
+`firmware/single_wing` are **not** part of it: they are bench demonstrations with
+their own controllers, not supported flight configurations — see
+[`firmware/README.md`](firmware/README.md#airframe-demonstrations--not-flight-controllers).
 
 All autopilot backends implement the same `/uav/backend/*` contract as the simulation
 adapters, so the mission and control stack above them is unchanged between sim, Betaflight,
@@ -435,6 +440,8 @@ The host-side live dashboard is `tools/gps_dashboard.py` (see `tools/GPS_DASHBOA
 | `firmware/elrs` | ESP32 | ExpressLRS-compatible SX1280 TX/RX (CRSF over the air) |
 | `firmware/lora` | ESP32 | LoRa point-to-point template (long-range telemetry) |
 | `firmware/gps` | ESP32 | GPS telemetry module (Adafruit_GPS / NMEA + PMTK + UBX) |
+| `firmware/twin_wings` | Arduino / STM32 | Twin-motor wing bench demonstration — **not a flight controller**, see [`firmware/README.md`](firmware/README.md) |
+| `firmware/single_wing` | Arduino / STM32 | Single-motor wing bench demonstration — **not a flight controller**, see [`firmware/README.md`](firmware/README.md) |
 | `tools` | Python | RC protocol decoders/monitors, 3D visualizer, GPS dashboard |
 | `assets/urdf` | URDF/SDF | Airframe descriptions, one folder per airframe family |
 
@@ -469,7 +476,8 @@ See `ros2_ws/README.md` for the full topic/node diagram and troubleshooting note
 - **`sim_py/INFO.md`**: standalone simulator architecture + usage
 - **`docker/README.md`**: Docker build/run commands by workflow
 - **`docs/HARDWARE.md`**: TX integration for autonomous mode
-- **`firmware/README.md`**: firmware project index (ESP-NOW / ELRS / LoRa / GPS)
+- **`firmware/README.md`**: firmware project index (ESP-NOW / ELRS / LoRa / GPS, plus the two
+  wing bench demonstrations and what they lack)
 - **`firmware/espnow/README.md`**: TX/RX firmware details
 - **`firmware/elrs/README.md`**: ExpressLRS-compatible link details
 - **`ros2_ws/src/mavlink_bridge/README.md`**: PX4 / ArduPilot wiring and setup
@@ -506,4 +514,9 @@ The repo is moving from a quadcopter stack to a general aerial-robotics stack. I
 - **ROS 2 Humble** is required for ROS-based control + RViz simulation
 - The **Python-only sim** (`sim_py`) is designed for fast iteration (no ROS needed)
 - Airframe-specific behavior belongs in the control stack, not the firmware — the ESP32
-  projects in `firmware/` carry RC channels and telemetry and are airframe-agnostic
+  link projects in `firmware/` (`espnow`, `elrs`, `lora`, `gps`) carry RC channels and
+  telemetry and are airframe-agnostic. `firmware/twin_wings` and `firmware/single_wing`
+  are the exception and are not covered by this: they contain their own mixers,
+  controllers and guidance, they are bench demonstrations rather than flight
+  configurations, and flight-control development for those airframes is not part of this
+  repository. See [`firmware/README.md`](firmware/README.md) for what they lack.

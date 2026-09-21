@@ -1,14 +1,35 @@
 # twin_wings
 
-Independent PlatformIO firmware for a **Twin Motor Flying Wing**:
+> **Bench demonstration. Not a flight controller, and not a supported flight
+> configuration.** This sketch exists to check wiring, PWM rates, servo
+> directions and mixer signs on a bench. Do not flash it to an aircraft. See
+> [`../README.md`](../README.md#airframe-demonstrations--not-flight-controllers)
+> for what it lacks, with file and line.
+
+PlatformIO firmware for a **Twin Motor Flying Wing**:
 
 - 2 motors through ESCs
 - 2 elevon servos
-- Optional IMU and GPS support
+- MPU6050 IMU over I2C, NMEA GPS over UART
 
-This is a scaffold. The mixing skeleton is intentionally small and board-agnostic; the
-control loop and sensor drivers are the next layer to add, using PX4 / ArduPilot /
-Betaflight as references for fixed-wing control performance.
+`single_wing/` is a near-duplicate of this project; it differs only by the yaw
+terms a single motor has no authority for.
+
+## What this is not
+
+An earlier revision of this file called the project a scaffold whose control loop
+and sensor drivers were "the next layer to add". Those layers were added, so the
+sentences that said so have been removed rather than left to age. What replaced
+them is the honest version of the same warning: the layers are present, they are
+unvalidated, and nothing here is a path to a flight-capable vehicle. The
+attitude controller, the guidance and the CRSF/SBUS parsers are this project's
+own and are shared with nothing; flight-control development for these airframes
+is not part of this repository.
+
+The gains in `src/controller.cpp` and `src/guidance.cpp` are placeholders, not
+tuned values. The comments there say "tune before flight" because that is the
+conventional phrasing; read it as "these numbers are unmeasured", not as an
+indication that tuning them here would produce a flight-capable vehicle.
 
 ## Targets
 
@@ -43,7 +64,8 @@ placeholders until the real flight controller board is chosen.
 - STM32: `analogWrite` with 50 Hz / 400 Hz setup via `analogWriteFrequency`.
 
 The servo neutral, travel, and ESC arming/calibration values still need to be tuned for
-your actual hardware before flight.
+your actual hardware before the sketch moves a real control surface. Tuning them makes the
+servos move correctly; it does not make this a flight controller.
 
 ## Bench control input
 
@@ -53,8 +75,11 @@ your actual hardware before flight.
 roll,pitch,yaw,throttle
 ```
 
-Example: `0.2,-0.1,0.0,0.35` followed by Enter. This is not a flight input; replace it
-with CRSF/SBUS/PPM or an autopilot command parser before flying.
+Example: `0.2,-0.1,0.0,0.35` followed by Enter. This is the input the sketch is
+built to exercise on a bench, and it is the only one whose behaviour has been
+observed. CRSF and SBUS parsers exist alongside it (`src/rc_input.cpp`), but the
+CRSF length and CRC span are wrong and SBUS ignores the receiver failsafe flags —
+so they are not a route to flight, and neither is this.
 
 ## CRSF RC input
 
@@ -78,9 +103,12 @@ populates `ImuData`, plus a minimal NMEA parser for GPS (`$GPGGA` fix/lat/lon/al
 ## Controller
 
 `src/controller.cpp` contains a proportional attitude/rate controller. It maps
-roll/pitch/yaw errors to normalized actuator commands with gyro-rate damping and integral
-trim (`kp*`/`kd*`/`ki*` gains) before `applyTwinWingMix()` converts them to motor/elevon
-outputs. Tune those gains before flight, then wire L1/TECS guidance.
+roll/pitch/yaw errors to normalized actuator commands with gyro-rate damping and
+integral trim (`kp*`/`kd*`/`ki*` gains) before `applyTwinWingMix()` converts them to
+motor/elevon outputs. The gains are placeholders. Attitude comes from
+accelerometer `atan2` (`src/sensors.cpp:128`), so it is invalid under
+acceleration, and the loop runs on a hardcoded `0.02f` dt while the real period
+is set by `delay(20)` in `main.cpp`. Neither is a tuning problem.
 
 ## GPS guidance
 
