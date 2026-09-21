@@ -15,7 +15,8 @@ from ..core.registry import (
     create_planner,
     register_builtin_components,
 )
-from ..core.types import CommandKind, ControlTarget, SimState, Waypoint, Wrench
+from ..core.types import (CommandKind, ControlMode, ControlTarget, SimState,
+                          Waypoint, Wrench)
 from aerial_kit.sim.result import SimulationResult
 from aerial_kit.sim.terrain import (
     TerrainConfig,
@@ -354,25 +355,74 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
             # has no accel_cmd concept), allocate() turns it into actuator
             # commands, and the backend consumes those via metadata rather than
             # accel_cmd -- see FixedWingBackend's docstring for why.
-            wrench = control_target.metadata["wrench"]
+            #
+            # Read from the field, not from `metadata["wrench"]`: the wrench is
+            # part of what a ControlTarget *is* now, and a dict lookup was a
+            # KeyError with no type behind it.
+            wrench = control_target.wrench
+            if wrench is None:
+                raise ValueError(
+                    f"controller '{controller_name}' produced no wrench, but "
+                    f"airframe '{airframe.name}' is {CommandKind.AIRSPEED_NAV.name} "
+                    "and this path has no accel_cmd concept to fall back on"
+                )
             actuator_cmd = airframe.allocate(wrench, state)
             step_metadata = dict(control_target.metadata)
             step_metadata["actuator_cmd"] = actuator_cmd
+            step_metadata["control_mode"] = ControlMode.ACTUATOR
             backend.step(ControlTarget(accel_cmd=np.zeros(3, dtype=float), metadata=step_metadata), dt)
         else:
+            # IDEAL ACCELERATION MODE. The controller's accel_cmd is handed to
+            # the backend as the aircraft's acceleration, so there is no motor
+            # lag, no saturation, no allocation error and no attitude dynamics
+            # in the loop. That is deliberate and it is labelled, because a
+            # trajectory from this path is not comparable with one from the
+            # actuator path above and used to be indistinguishable from it.
             acc_cmd = np.asarray(control_target.accel_cmd, dtype=float)
             acc_mag = np.linalg.norm(acc_cmd)
             acc_max = float(ctrl_cfg.get("acc_max", 20.0))
             if acc_mag > acc_max:
                 acc_cmd = acc_cmd * (acc_max / (acc_mag + 1e-6))
 
+            # What the airframe *would* have to produce, kept on the record and
+            # deliberately not applied. The return value used to be dropped
+            # without comment, which read as a mistake.
+            #
+            # It is not usable *here* because this backend has no actuator
+            # concept - it integrates `accel_cmd` directly - and that is the
+            # whole of the reason. It used to say the reason was "three
+            # unwritten convention differences between this repository and the
+            # firmware (frames, units, and which quad-X motor pair turns which
+            # way)". Two of those are now written down and converted:
+            # `aerial_kit/dynamics/quad_x_seam.py` carries the frame rotation and
+            # the newtons-to-fraction division, and
+            # `sim_py/tests/test_quad_x_seam.py` measures an allocator driving an
+            # `ActuatorPlant` to the demanded moment on every axis to 1e-12. The
+            # third never existed - see trap 76's correction and trap 80.
+            #
+            # So the conventions are no longer the obstacle, and the remaining
+            # one is bigger than a backend. Every multirotor controller here
+            # returns `accel_cmd` and nothing else - no wrench, no attitude
+            # loop (`aerial_kit/controllers/basic.py`: pid, lqr, mpc and mppi all
+            # return `ControlTarget(accel_cmd=...)`; only the wing's L1/TECS
+            # builds a Wrench). A quadrotor on an actuator-level plant needs a
+            # cascade - accel demand -> attitude -> body rates -> wrench - or it
+            # has no moment demand at all and tumbles, because this path's
+            # contract is that acceleration is instantaneous and exact. That
+            # cascade is why the ideal-acceleration mode exists and why it is
+            # kept, labelled, rather than replaced.
+            #
+            # Recording the demand rather than discarding it is what lets a
+            # later actuator-level run be compared against it.
             wrench = Wrench(
                 force_body=airframe_mass_kg * (acc_cmd + np.array([0.0, 0.0, gravity_mps2])),
                 moment_body=np.zeros(3, dtype=float),
             )
-            airframe.allocate(wrench, state)
+            step_metadata = dict(control_target.metadata)
+            step_metadata["control_mode"] = ControlMode.IDEAL_ACCEL
+            step_metadata["demanded_actuator_cmd"] = airframe.allocate(wrench, state)
 
-            backend.step(ControlTarget(accel_cmd=acc_cmd, metadata=control_target.metadata), dt)
+            backend.step(ControlTarget(accel_cmd=acc_cmd, metadata=step_metadata), dt)
         backend.apply_constraints(
             min_bounds=min_bounds,
             max_bounds=max_bounds,

@@ -10,6 +10,7 @@ from __future__ import annotations
 from aerial_kit.types import (
     Capabilities,
     CommandKind,
+    ControlMode,
     ControlTarget,
     SimState,
     TrajectoryLog,
@@ -20,6 +21,7 @@ from aerial_kit.types import (
 __all__ = [
     "Capabilities",
     "CommandKind",
+    "ControlMode",
     "ControlTarget",
     "SimState",
     "TrajectoryLog",

@@ -40,6 +40,7 @@ class MujocoBackend(DynamicsBackend):
         self._body_id = -1
         self._mass = 1.0
         self._t = 0.0
+        self._nominal_timestep = 0.002
 
     def reset(
         self,
@@ -59,6 +60,12 @@ class MujocoBackend(DynamicsBackend):
         sim_cfg = dict(cfg.get("simulation", {}) or {})
         mj_cfg = dict(sim_cfg.get("mujoco", {}) or {})
         self._mass = float(mj_cfg.get("mass", 1.0))
+        self._nominal_timestep = float(mj_cfg.get("timestep", 0.002))
+        if not np.isfinite(self._nominal_timestep) or self._nominal_timestep <= 0.0:
+            raise ValueError(
+                "simulation.mujoco.timestep must be finite and positive, got "
+                f"{self._nominal_timestep!r}"
+            )
 
         pos = np.asarray(initial_state.position, dtype=float).reshape(3)
         xml = _MJOCO_XML_TEMPLATE.format(x=pos[0], y=pos[1], z=pos[2], mass=self._mass)
@@ -74,6 +81,10 @@ class MujocoBackend(DynamicsBackend):
         if self._model is None or self._data is None:
             raise RuntimeError("MujocoBackend.reset() must be called before step().")
 
+        dt = float(dt)
+        if not np.isfinite(dt) or dt <= 0.0:
+            raise ValueError(f"dt must be finite and positive, got {dt!r}")
+
         accel = np.asarray(control_target.accel_cmd, dtype=float).reshape(3)
         gravity_up = float(-self._model.opt.gravity[2])
         force = self._mass * (accel + np.array([0.0, 0.0, gravity_up], dtype=float))
@@ -83,8 +94,19 @@ class MujocoBackend(DynamicsBackend):
 
         import mujoco
 
-        mujoco.mj_step(self._model, self._data)
-        self._t += float(dt)
+        # ``mj_step`` integrates for ``model.opt.timestep``, not for the ``dt``
+        # this method was handed. Stepping once and advancing ``self._t`` by
+        # ``dt`` therefore runs the physics and the clock at different rates -
+        # with MuJoCo's 2 ms default and a 10 ms caller, the simulation advanced
+        # a fifth of the interval it reported. Sub-stepping makes the physics
+        # advance exactly ``dt``: ``n`` whole steps of ``dt / n`` each, so
+        # ``n * timestep == dt`` to the last bit and neither the clock nor the
+        # integration is asked to approximate.
+        substeps = max(1, int(np.ceil(dt / self._nominal_timestep - 1e-12)))
+        self._model.opt.timestep = dt / substeps
+        for _ in range(substeps):
+            mujoco.mj_step(self._model, self._data)
+        self._t += dt
 
     def state(self) -> SimState:
         if self._data is None:

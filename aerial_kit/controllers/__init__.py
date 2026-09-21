@@ -1,6 +1,7 @@
 """Controller implementations (numpy/scipy-only, no ROS/matplotlib)."""
 
 from .basic import LQRController, MPCController, PIDController
+from .cascade import CascadeController, CascadeGains
 from .fixed_wing import AttitudeGains, FixedWingL1TECSController, body_axis_pitch_bank
 from .minimum_snap import minimum_snap_trajectory
 from .position import (
@@ -15,6 +16,8 @@ __all__ = [
     "PIDController",
     "LQRController",
     "MPCController",
+    "CascadeController",
+    "CascadeGains",
     "FixedWingL1TECSController",
     "AttitudeGains",
     "body_axis_pitch_bank",
