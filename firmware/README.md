@@ -25,40 +25,39 @@ here.
 
 | Project | Purpose | Output |
 |---------|---------|--------|
-| [`twin_wings/`](twin_wings/) | Twin Motor Flying Wing bench sketch: 2 motors through ESCs, 2 elevon servos, MPU6050 + NMEA GPS | ESC/servo PWM |
-| [`single_wing/`](single_wing/) | Single Motor Flying Wing bench sketch: 1 motor through ESC, elevon/aileron/elevator servos, MPU6050 + NMEA GPS | ESC/servo PWM |
+| [`wing/`](wing/) | Flying wing bench sketch in two profiles — `single_wing` (1 motor) and `twin_wings` (2 motors, differential thrust) — 2 elevon servos, MPU6050 + NMEA GPS | ESC/servo PWM |
 
-**These two are not supported flight configurations and must not become the
-baseline for the airframes they are named after.** Board names in their
-`platformio.ini` files are build targets, not qualified hardware. Each one
-contains its own mixer, attitude controller and GPS guidance — so unlike the
-projects above, they *do* assume a vehicle, and they duplicate safety-relevant
-logic that is not shared with anything else.
+**This is not a supported flight configuration and must not become the baseline
+for the airframes its profiles are named after.** Board names in its
+`platformio.ini` are build targets, not qualified hardware. It contains its own
+mixer, attitude controller and GPS guidance — so unlike the projects above, it
+*does* assume a vehicle. Its two profiles now share that logic instead of
+duplicating it, which is why they are one project: the duplication is gone, the
+safety problem is not.
 
-What each one lacks, with the line that shows it:
+What it lacks, with the line that shows it:
 
 | Missing | Where it shows |
 |---------|----------------|
-| A bounded loop period. `loop()` ends in `delay(20)`, so the real period is 20 ms *plus* execution time, while the controller is handed a hardcoded `0.02f` dt | `twin_wings/src/main.cpp:99`, `:91` |
-| Any handling of IMU failure beyond silence: the raw stick demands go straight to the mixer with no attitude limit and no annunciation | `twin_wings/src/main.cpp:93` |
-| An arming state machine. `grep -rn 'arm' firmware/twin_wings/src/ \| grep -v '//'` produces no output | whole project |
-| Bounded input buffering. The serial line and the NMEA line both accumulate into an Arduino `String` with no length cap | `twin_wings/src/control_input.cpp:37`, `sensors.cpp:151` |
-| Integrated attitude. Roll and pitch are `atan2` of accelerometer axes, so they are invalid under acceleration | `twin_wings/src/sensors.cpp:128` |
-| A correct CRSF length/CRC span. The length byte is read as excluding the CRC (`2 + frameLength + 1`) and the check covers `frameLength` bytes | `twin_wings/src/rc_input.cpp:81`, `:89` |
-| Receiver failsafe inspection before SBUS channels are taken | `twin_wings/src/rc_input.cpp` |
+| A bounded loop period. `loop()` ends in `delay(20)`, so the real period is 20 ms *plus* execution time, while the controller is handed a hardcoded `0.02f` dt | `wing/src/main.cpp:82`, `:74` |
+| Any handling of IMU failure beyond silence: the raw stick demands go straight to the mixer with no attitude limit and no annunciation | `wing/src/main.cpp:75` |
+| An arming state machine. `grep -rn 'arm' firmware/wing/src/ \| grep -v '//'` produces no output | whole project |
+| Bounded input buffering. The serial line and the NMEA line both accumulate into an Arduino `String` with no length cap | `wing/src/control_input.cpp:49`, `sensors.cpp:151` |
+| Integrated attitude. Roll and pitch are `atan2` of accelerometer axes, so they are invalid under acceleration | `wing/src/sensors.cpp:128` |
+| A correct CRSF length/CRC span. The length byte is read as excluding the CRC (`2 + frameLength + 1`) and the check covers `frameLength` bytes | `wing/src/rc_input.cpp:81`, `:89` |
+| Receiver failsafe inspection before SBUS channels are taken | `wing/src/rc_input.cpp` |
 
 These are meant to be checked rather than believed. Each is one command away —
-for the first row, `grep -n '0.02f\|delay(20)' firmware/twin_wings/src/main.cpp`
-prints four lines: the two code lines (`:91`, `:99`) and the two header-comment
-lines that name them. The `main.cpp` line numbers are from the revision that
-carries this table, which is `57e1811` plus the header-comment correction in
-`main.cpp`; the header grew by nine lines, so any earlier citation of `:92`/`:84`
-refers to the same two statements at `57e1811`. `sensors.cpp`, `rc_input.cpp` and
-`control_input.cpp` are unchanged from `57e1811`, so those numbers hold there too.
+for the first row, `grep -n '0.02f\|delay(20)' firmware/wing/src/main.cpp` prints
+four lines: the two code lines (`:74`, `:82`) and the two header-comment lines
+that name them (`:27`, `:28`). The numbers are from the consolidation revision,
+which renumbered `main.cpp` and `control_input.cpp`; an earlier citation of
+`twin_wings/src/main.cpp:99`/`:91` or `control_input.cpp:37` refers to the same
+statements before the merge. `sensors.cpp` and `rc_input.cpp` were not touched by
+it, so their numbers are unchanged.
 
-`single_wing/` is a near-duplicate of the same implementation — its
-`controller.cpp` differs only by the yaw terms a single motor cannot use — so
-every row above applies to it at the line numbers in its own `src/`.
+Both profiles compile from these same files, so every row above applies to
+`single_wing` and `twin_wings` alike, at one set of line numbers rather than two.
 
 They are kept because a bench sketch that moves a servo is genuinely useful for
 wiring and mixer-sign checks. Nothing here should be flashed to an aircraft.
@@ -94,8 +93,7 @@ The current firmware target matrix is:
 
 | Project | Environments | Kind |
 |---------|--------------|------|
-| `twin_wings` | `twin_wings_esp32c3`, `twin_wings_esp32`, `twin_wings_f411`, `twin_wings_f405` | bench demonstration |
-| `single_wing` | `single_wing_esp32c3`, `single_wing_esp32`, `single_wing_f411`, `single_wing_f405` | bench demonstration |
+| `wing` | `wing_single_esp32c3`, `wing_twin_esp32c3`, `wing_single_esp32`, `wing_twin_esp32`, `wing_single_f411`, `wing_twin_f411`, `wing_single_f405`, `wing_twin_f405` — four board ports × two vehicle profiles | bench demonstration |
 | `elrs` | `elrs_tx`, `elrs_rx` | link |
 | `lora` | `lora_433`, `lora_868`, `lora_915` | link |
 | `espnow` | `transmitter`, `receiver` | link |
@@ -106,9 +104,9 @@ The link and telemetry projects above are airframe-agnostic. Airframe-specific
 behavior (mixing, allocation, control laws) is not part of them — see the
 airframe table in the [root README](../README.md#supported-airframes).
 
-`twin_wings/` and `single_wing/` are the exception, and are the only projects
-here that are not covered by that statement: they carry their own mixer,
-attitude controller and guidance, they are bench demonstrations, and they are
-not a supported flight configuration for any airframe. See
+`wing/` is the exception, and is the only project here that is not covered by
+that statement: it carries its own mixer, attitude controller and guidance, it is
+a bench demonstration, and it is not a supported flight configuration for any
+airframe. See
 [Airframe demonstrations](#airframe-demonstrations--not-flight-controllers)
 above.

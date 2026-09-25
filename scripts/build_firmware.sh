@@ -16,15 +16,15 @@ build_env() {
   pio run -d "firmware/${project}" -e "${env}"
 }
 
-build_env twin_wings twin_wings_esp32c3
-build_env twin_wings twin_wings_esp32
-build_env twin_wings twin_wings_f411
-build_env twin_wings twin_wings_f405
-
-build_env single_wing single_wing_esp32c3
-build_env single_wing single_wing_esp32
-build_env single_wing single_wing_f411
-build_env single_wing single_wing_f405
+# One runtime, four board ports, two vehicle profiles.
+build_env wing wing_single_esp32c3
+build_env wing wing_twin_esp32c3
+build_env wing wing_single_esp32
+build_env wing wing_twin_esp32
+build_env wing wing_single_f411
+build_env wing wing_twin_f411
+build_env wing wing_single_f405
+build_env wing wing_twin_f405
 
 build_env elrs elrs_tx
 build_env elrs elrs_rx
