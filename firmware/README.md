@@ -89,6 +89,12 @@ To build every firmware environment in one pass:
 bash scripts/build_firmware.sh
 ```
 
+That script also runs the firmware's host tests at the end, after the last board
+build. Today that is one test — the wing mixer's arithmetic, compiled for the
+machine rather than for a board (see [`wing/README.md`](wing/README.md#host-test))
+— and it is invoked there so that it runs whenever anyone builds the firmware
+rather than only when someone remembers to.
+
 The current firmware target matrix is:
 
 | Project | Environments | Kind |

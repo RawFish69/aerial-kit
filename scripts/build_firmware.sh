@@ -36,4 +36,16 @@ build_env lora lora_915
 build_env espnow transmitter
 build_env espnow receiver
 
+# Host tests. There is one: the wing mixer's arithmetic, compiled for this
+# machine rather than for a board, so it needs a host C++ compiler and not
+# PlatformIO's toolchains. It runs here because this script is the one command
+# that builds every firmware target, and a test nobody invokes is a test that
+# stops being true.
+if command -v g++ >/dev/null 2>&1; then
+  echo "==> firmware/wing/host_test/run.sh"
+  bash firmware/wing/host_test/run.sh
+else
+  echo "==> skipped firmware/wing/host_test/run.sh: no g++ on PATH" >&2
+fi
+
 echo "All firmware environments built successfully."

@@ -122,6 +122,11 @@ same functions the firmware compiles can be compiled and checked on the host:
 firmware/wing/host_test/run.sh      # 430 checks, 0 failures on this revision
 ```
 
+[`scripts/build_firmware.sh`](../../scripts/build_firmware.sh) runs it too, after
+the last board build, so the one command that builds every target also runs the
+one test there is. It needs a host C++ compiler, which the board builds do not;
+without one the script says so rather than passing quietly.
+
 It checks the shape of the mix — which way each surface moves, that the elevons
 mirror in roll, that nothing escapes its limits — and not the tuning. Three
 seeded mixer bugs were planted to confirm it fails when it should: swapping the
