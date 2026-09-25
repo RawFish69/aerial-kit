@@ -64,6 +64,40 @@ names in `platformio.ini` are build targets, not qualified hardware. The pin
 names were unified in the merge: the old `MOTOR_PIN` / `SERVO_L_PIN` /
 `SERVO_R_PIN` are now `AK_MOTOR_PIN` / `AK_ELEVON_L_PIN` / `AK_ELEVON_R_PIN`.
 
+### What the merge picked, and what it did not
+
+Where the two copies differed, the merge kept the twin-motor one and made the
+difference a compile-time one. Three files carry a yaw difference, and under
+`single_wing` all three now compute a yaw the mixer discards:
+
+| File | What `single_wing` gained |
+|------|---------------------------|
+| `src/controller.cpp` | `kMaxYawRateDegPerSec`, `kpYaw`/`kdYaw`/`kiYaw`, `yawIntegral`, `yawError`, and the `out.yaw` line |
+| `src/rc_input.cpp` | CRSF and SBUS now decode CH4 into `out.yaw`; the single-motor copy left it unset |
+| `src/navigation.cpp` | `guidanceToTarget()` now writes `out.yaw = 0.0f`; the single-motor copy did not write it |
+| `src/guidance.cpp` | nothing — two comment lines, no code |
+
+The actuator outputs are unchanged, and that is by inspection rather than by
+hope. In `controller.cpp`, `yawError` and `yawIntegral` feed `out.yaw` and
+nothing else, and the roll and pitch lines are byte-identical to the
+single-motor file's; in `mixer.cpp` the single-motor path never reads `in.yaw`;
+and the navigation write is a zero. Each file is one diff away:
+
+```bash
+for f in controller.cpp rc_input.cpp navigation.cpp guidance.cpp; do
+  diff -u <(git show <base>:firmware/single_wing/src/$f) firmware/wing/src/$f
+done
+```
+
+A merge that picked the copy with more channels *and* let one of those channels
+feed a surface would be a different story; this one does not.
+
+`src/control_input.cpp` is the other shape of the same question, and there the
+merge kept both: each profile keeps its old parse, three fields for the
+single-motor wing and four for the twin, chosen by `AK_CONTROL_VALUES`. The
+single-motor field order is unchanged, so `0.2,-0.1,0.35` still means
+roll, pitch, throttle and not roll, pitch, yaw.
+
 ## Mixing
 
 `src/mixer.cpp` holds the one mixer. `akActuatorBegin()` starts every actuator
@@ -78,6 +112,22 @@ the profile uses; `akMix()` maps a `ControlInput` to PWM:
 
 Under `single_wing` the yaw term is compiled out rather than asserted, so the
 single motor profile has no code path that could act on it.
+
+## Host test
+
+The arithmetic lives in `src/mix_math.h`, which has no Arduino dependency, so the
+same functions the firmware compiles can be compiled and checked on the host:
+
+```bash
+firmware/wing/host_test/run.sh      # 430 checks, 0 failures on this revision
+```
+
+It checks the shape of the mix — which way each surface moves, that the elevons
+mirror in roll, that nothing escapes its limits — and not the tuning. Three
+seeded mixer bugs were planted to confirm it fails when it should: swapping the
+roll term on one elevon (154 failures), reversing differential thrust (4), and
+dropping a clamp (40). See [`host_test/README.md`](host_test/README.md) for why
+it is not a `pio test`.
 
 ## Targets
 
