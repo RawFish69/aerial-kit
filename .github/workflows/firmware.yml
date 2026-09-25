@@ -1,0 +1,64 @@
+name: Build the firmware
+
+# Nothing built the firmware in CI. The publish workflow next to this one
+# deliberately excludes `firmware/` from the Python distribution, so the only
+# thing that ever compiled the board targets was somebody running
+# `scripts/build_firmware.sh` on their own machine and reading the output.
+#
+# That is a real gap rather than a theoretical one: the wing projects were two
+# near-duplicate trees until 2026-09-25, and the reason nobody noticed is that a
+# build of either one was a thing a person chose to do.
+#
+# So this runs the same script, unchanged, on the same commit twice -- once for a
+# push to main and once for a pull request -- because the script is the thing
+# that was verified by hand, and a workflow that restated its steps would be a
+# second copy of the list to keep in step. `scripts/build_firmware.sh` builds all
+# fifteen environments and then runs the firmware's host tests, so the arithmetic
+# checks in `firmware/wing/host_test/` are covered here too.
+#
+# Not in this workflow: flashing anything. There is no board on a runner, and
+# `pio run` without `-t upload` does not need one.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build every environment
+    runs-on: ubuntu-latest
+    # The first run downloads two platforms and the toolchains for four MCU
+    # families; the cache makes later runs much shorter. Well under the default
+    # job timeout either way, but stated so a hang is a failure and not a wait.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Keyed on the manifests, so a dependency change misses the cache and a
+      # source-only change hits it. The restore-key keeps the platforms, which
+      # are the slow part, even when a manifest moved.
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: |
+            platformio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build the firmware and run its host tests
+        run: bash scripts/build_firmware.sh

@@ -95,6 +95,11 @@ machine rather than for a board (see [`wing/README.md`](wing/README.md#host-test
 — and it is invoked there so that it runs whenever anyone builds the firmware
 rather than only when someone remembers to.
 
+[`.github/workflows/firmware.yml`](../.github/workflows/firmware.yml) runs that
+script on every push to `main` and every pull request, so the board builds no
+longer depend on someone choosing to run them. Nothing in it flashes a board:
+`pio run` without `-t upload` needs no hardware attached.
+
 The current firmware target matrix is:
 
 | Project | Environments | Kind |
