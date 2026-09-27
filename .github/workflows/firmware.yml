@@ -9,20 +9,22 @@ name: Build the firmware
 # near-duplicate trees until 2026-09-25, and the reason nobody noticed is that a
 # build of either one was a thing a person chose to do.
 #
-# So this runs the same script, unchanged, on the same commit twice -- once for a
-# push to main and once for a pull request -- because the script is the thing
-# that was verified by hand, and a workflow that restated its steps would be a
-# second copy of the list to keep in step. `scripts/build_firmware.sh` builds all
+# It runs that same script, unchanged, rather than restating its steps, so there
+# is one list to keep in step and not two. `scripts/build_firmware.sh` builds all
 # fifteen environments and then runs the firmware's host tests, so the arithmetic
 # checks in `firmware/wing/host_test/` are covered here too.
+#
+# Manual only: `workflow_dispatch` and nothing else. It does not run on pushes and
+# it does not run on pull requests. Start it from the Actions tab when a firmware
+# change wants a full board build. It is not a gate on merging -- nothing waits on
+# it -- and a commit that does not touch firmware does not pay for it. For scale,
+# the run on fa29b3f took 3m54s with a warm cache and downloads about 4.7 GB of
+# platforms and toolchains when the cache is cold.
 #
 # Not in this workflow: flashing anything. There is no board on a runner, and
 # `pio run` without `-t upload` does not need one.
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
