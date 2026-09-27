@@ -96,9 +96,11 @@ machine rather than for a board (see [`wing/README.md`](wing/README.md#host-test
 rather than only when someone remembers to.
 
 [`.github/workflows/firmware.yml`](../.github/workflows/firmware.yml) runs that
-script on every push to `main` and every pull request, so the board builds no
-longer depend on someone choosing to run them. Nothing in it flashes a board:
-`pio run` without `-t upload` needs no hardware attached.
+script on GitHub. It is **manual**: `workflow_dispatch` only, no push trigger and
+no pull-request trigger, so it is started from the Actions tab when a firmware
+change wants a full board build rather than on every commit. Nothing waits on it
+and nothing in it flashes a board — `pio run` without `-t upload` needs no
+hardware attached.
 
 The current firmware target matrix is:
 
