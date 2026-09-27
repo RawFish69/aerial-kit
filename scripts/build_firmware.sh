@@ -16,15 +16,15 @@ build_env() {
   pio run -d "firmware/${project}" -e "${env}"
 }
 
-build_env twin_wings twin_wings_esp32c3
-build_env twin_wings twin_wings_esp32
-build_env twin_wings twin_wings_f411
-build_env twin_wings twin_wings_f405
-
-build_env single_wing single_wing_esp32c3
-build_env single_wing single_wing_esp32
-build_env single_wing single_wing_f411
-build_env single_wing single_wing_f405
+# One runtime, four board ports, two vehicle profiles.
+build_env wing wing_single_esp32c3
+build_env wing wing_twin_esp32c3
+build_env wing wing_single_esp32
+build_env wing wing_twin_esp32
+build_env wing wing_single_f411
+build_env wing wing_twin_f411
+build_env wing wing_single_f405
+build_env wing wing_twin_f405
 
 build_env elrs elrs_tx
 build_env elrs elrs_rx
@@ -35,5 +35,17 @@ build_env lora lora_915
 
 build_env espnow transmitter
 build_env espnow receiver
+
+# Host tests. There is one: the wing mixer's arithmetic, compiled for this
+# machine rather than for a board, so it needs a host C++ compiler and not
+# PlatformIO's toolchains. It runs here because this script is the one command
+# that builds every firmware target, and a test nobody invokes is a test that
+# stops being true.
+if command -v g++ >/dev/null 2>&1; then
+  echo "==> firmware/wing/host_test/run.sh"
+  bash firmware/wing/host_test/run.sh
+else
+  echo "==> skipped firmware/wing/host_test/run.sh: no g++ on PATH" >&2
+fi
 
 echo "All firmware environments built successfully."

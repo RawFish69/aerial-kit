@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "config.h"
+#include "mixer.h"
 #include "pwm_output.h"
 #include "control_input.h"
 #include "sensors.h"
@@ -8,13 +9,15 @@
 #include "navigation.h"
 #include "rc_input.h"
 
-// Twin Motor Flying Wing bench demonstration.
+// Fixed-wing bench demonstration. One loop for both wings; the vehicle profile
+// (AK_AIRFRAME_NAME) supplies the pins and the actuator count, and mixer.cpp
+// supplies the mixing model. See ../README.md for the profile build flags.
 //
 // Mixing model:
-//   throttle_cmd      -> common thrust on both motors
-//   yaw_cmd           -> differential thrust (motorL - motorR)
-//   pitch_cmd         -> symmetric elevon deflection
-//   roll_cmd          -> asymmetric elevon deflection
+//   throttle_cmd -> thrust (one motor, or two in common)
+//   yaw_cmd      -> differential thrust, twin-motor profile only
+//   pitch_cmd    -> symmetric elevon deflection
+//   roll_cmd     -> asymmetric elevon deflection
 //
 // NOT A FLIGHT CONTROLLER. This is a bench sketch for checking wiring, PWM
 // rates, servo directions and mixer signs. An earlier revision of this comment
@@ -26,32 +29,12 @@
 // mixer, there is no arming state, and the CRSF length/CRC span is wrong. Do
 // not flash this to an aircraft. See ../../README.md.
 
-static void applyTwinWingMix(const ControlInput& in) {
-  float motorL = in.throttle + in.yaw * YAW_DIFFERENTIAL_GAIN;
-  float motorR = in.throttle - in.yaw * YAW_DIFFERENTIAL_GAIN;
-  motorL = constrain(motorL, MOTOR_MIN, MOTOR_MAX);
-  motorR = constrain(motorR, MOTOR_MIN, MOTOR_MAX);
-
-  float elevonL = SERVO_NEUTRAL + (in.pitch * ELEVON_PITCH_GAIN) - (in.roll * ELEVON_ROLL_GAIN);
-  float elevonR = SERVO_NEUTRAL + (in.pitch * ELEVON_PITCH_GAIN) + (in.roll * ELEVON_ROLL_GAIN);
-  elevonL = constrain(elevonL, SERVO_MIN, SERVO_MAX);
-  elevonR = constrain(elevonR, SERVO_MIN, SERVO_MAX);
-
-  pwmWriteMotor(MOTOR_L_PIN, motorL);
-  pwmWriteMotor(MOTOR_R_PIN, motorR);
-  pwmWriteServo(ELEVON_L_PIN, elevonL);
-  pwmWriteServo(ELEVON_R_PIN, elevonR);
-}
-
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("twin_wings scaffold");
+  Serial.println(AK_AIRFRAME_NAME " scaffold");
 
-  pwmBeginMotor(MOTOR_L_PIN);
-  pwmBeginMotor(MOTOR_R_PIN);
-  pwmBeginServo(ELEVON_L_PIN);
-  pwmBeginServo(ELEVON_R_PIN);
+  akActuatorBegin();
   sensorsInit();
   wingControllerReset();
   navigationReset();
@@ -61,7 +44,7 @@ void setup() {
 
   // Initialize all actuators to safe neutral.
   ControlInput neutral;
-  applyTwinWingMix(neutral);
+  akMix(neutral);
 }
 
 void loop() {
@@ -95,6 +78,6 @@ void loop() {
     act.yaw = cmd.yaw;
     act.throttle = cmd.throttle;
   }
-  applyTwinWingMix(ControlInput{act.roll, act.pitch, act.yaw, act.throttle});
+  akMix(ControlInput{act.roll, act.pitch, act.yaw, act.throttle});
   delay(20);
 }

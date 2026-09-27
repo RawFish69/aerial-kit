@@ -2,23 +2,9 @@
 
 #include <Arduino.h>
 
-// Board-specific default pins. Adjust for your actual wiring.
-#if defined(ARDUINO_ARCH_ESP32)
-  #define MOTOR_L_PIN 12
-  #define MOTOR_R_PIN 13
-  #define ELEVON_L_PIN 14
-  #define ELEVON_R_PIN 15
-#elif defined(ARDUINO_ARCH_STM32)
-  #define MOTOR_L_PIN PA0
-  #define MOTOR_R_PIN PA1
-  #define ELEVON_L_PIN PA2
-  #define ELEVON_R_PIN PA3
-#else
-  #define MOTOR_L_PIN 3
-  #define MOTOR_R_PIN 5
-  #define ELEVON_L_PIN 6
-  #define ELEVON_R_PIN 9
-#endif
+// The vehicle profile supplies the airframe pins and any profile-only gains.
+// It is selected by the build; see src/profiles/airframe.h.
+#include "profiles/airframe.h"
 
 // Optional IMU I2C pins. Adjust for your board/wiring.
 #if defined(ARDUINO_ARCH_ESP32)
@@ -90,7 +76,7 @@
 #define MOTOR_MIN 0.0f
 #define MOTOR_MAX 1.0f
 
-// Mixing gains. Tune after the real control loop and sensor drivers exist.
-#define YAW_DIFFERENTIAL_GAIN 0.5f
+// Mixing gains shared by every profile. Tune after the real control loop and
+// sensor drivers exist.
 #define ELEVON_ROLL_GAIN 0.5f
 #define ELEVON_PITCH_GAIN 0.5f

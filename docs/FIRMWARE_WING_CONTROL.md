@@ -1,15 +1,15 @@
 # Fixed-wing firmware control notes
 
 > **These notes describe bench demonstrations, not a flight controller.** They
-> document the control/mixing conventions used by `firmware/twin_wings` and
-> `firmware/single_wing`, with PX4, ArduPilot and Betaflight as references rather
-> than as code to copy. Nothing here is a supported flight configuration. See
+> document the control/mixing conventions used by `firmware/wing`, with PX4,
+> ArduPilot and Betaflight as references rather than as code to copy. Nothing
+> here is a supported flight configuration. See
 > [`../firmware/README.md`](../firmware/README.md#airframe-demonstrations--not-flight-controllers)
-> for what the two projects lack, with file and line.
+> for what that project lacks, with file and line.
 
-This is the working reference for `firmware/twin_wings` and
-`firmware/single_wing`. It documents the control/mixing conventions to use, with
-PX4, ArduPilot, and Betaflight as references rather than as code to copy.
+This is the working reference for `firmware/wing`. It documents the control/mixing
+conventions to use, with PX4, ArduPilot, and Betaflight as references rather than
+as code to copy.
 
 ## Conventions
 
@@ -22,7 +22,7 @@ PX4, ArduPilot, and Betaflight as references rather than as code to copy.
 - Servo outputs are normalized 0..1 with 0.5 neutral until a real PWM driver is
   added.
 
-## Twin Motor Flying Wing (`twin_wings`)
+## Twin Motor Flying Wing — profile `twin_wings`
 
 Reference mixing:
 
@@ -39,38 +39,44 @@ mixers in ArduPilot/PX4: yaw is produced by asymmetric thrust, while elevons
 handle pitch and roll. Keep the elevon sign convention consistent with the
 servo installation before the sketch moves a real control surface.
 
-## Single Motor Flying Wing (`single_wing`)
+## Single Motor Flying Wing — profile `single_wing`
 
 Reference mixing:
 
 ```
 motor = throttle
 
-servo_left  = neutral + pitch * pitch_gain - roll * roll_gain
-servo_right = neutral + pitch * pitch_gain + roll * roll_gain
+elevon_left  = neutral + pitch * pitch_gain - roll * roll_gain
+elevon_right = neutral + pitch * pitch_gain + roll * roll_gain
 ```
 
 Single-motor wings have no differential-thrust yaw authority, so yaw is
-produced by bank-and-pull (coordinated turns) rather than a mixer term.
+produced by bank-and-pull (coordinated turns) rather than a mixer term. Both
+blocks above are `akMix()` in `src/mixer.cpp`, selected by `AK_MOTOR_COUNT`; the
+single-motor profile compiles the yaw term out rather than passing it a zero.
 
 ## What was built, and what that does not mean
 
-This list is a record of what was added to the two sketches, not a plan whose
+This list is a record of what was added to the sketch, not a plan whose
 completion would produce a flight-capable vehicle. Each item is marked with what
 actually exists, at the line numbers of `57e1811` in files that revision still
-matches. None of the four is a claim of flight readiness: what is present is
-present and unvalidated, and the items that remain are not the reason the
-sketches cannot fly.
+matches — a revision that predates the consolidation of `single_wing/` and
+`twin_wings/` into `wing/`, so a citation below that names one of those
+directories is a historical pointer to where the code came from, not a path that
+exists now. None of the four is a claim of flight readiness: what is present is
+present and unvalidated, and the items that remain are not the reason the sketch
+cannot fly.
 
 1. Replace `analogWrite` with a proper PWM driver: 50 Hz for servos, an
    ESC-safe rate for motors, with correct neutral pulse widths. *(Done in
    `src/pwm_output.*`. The neutral and travel values are still placeholders.)*
 2. Add RC input (CRSF/SBUS/PPM) or autopilot command input. *(Bench serial input
    exists in `src/control_input.*`; CRSF and SBUS parsers exist in
-   `src/rc_input.*`. The CRSF length and CRC span are wrong — in `twin_wings` at
-   `src/rc_input.cpp:81` and `:89`, in `single_wing` at `:80` and `:88` — and
-   SBUS does not inspect the receiver failsafe flags, so neither parser is a
-   route to flight.)*
+   `src/rc_input.*`. The CRSF length and CRC span are wrong — at
+   `src/rc_input.cpp:81` and `:89` since the two projects were consolidated, and
+   at `:80` and `:88` in the `single_wing` copy that no longer exists — and SBUS
+   does not inspect the receiver failsafe flags, so neither parser is a route to
+   flight.)*
 3. Add an attitude/rate controller. *(A proportional-plus-rate-damping-plus-integral
    controller exists in `src/controller.*`; L1/TECS-lite helpers exist in
    `src/guidance.*`; a GPS course/waypoint navigation module exists in
