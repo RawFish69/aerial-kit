@@ -85,7 +85,7 @@ def documented(text: str) -> list[tuple[str, bool]]:
 
 def find_root() -> Path | None:
     for parent in Path(__file__).resolve().parents:
-        if (parent / "aerialkit" / "src").is_dir():
+        if (parent / "firmware" / "src").is_dir():
             return parent
     return None
 

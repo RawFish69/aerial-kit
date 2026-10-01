@@ -1,6 +1,6 @@
 # AerialKit web configurator
 
-[App source](../apps/configurator/) · [Full build/deployment guide](../apps/configurator/docs/BUILD-AND-DEPLOY.md) · [Firmware](flight-controller-firmware.md)
+[App source](../apps/configurator) · [Full build/deployment guide](../apps/configurator/docs/BUILD-AND-DEPLOY.md) · [Firmware](flight-controller-firmware.md)
 
 A standalone React/TypeScript app for board identity, attitude, live diagnostics and parameter configuration. It detects supported firmware and exposes capabilities reported by the connected board. The built app is static files; the optional local bridge is a separate helper.
 
@@ -51,7 +51,7 @@ AK_BASE=/aerialkit/configurator/ npm run build
 npm run verify:deploy
 ```
 
-`dist/` is the static site. `AK_BASE` sets an optional hosting subpath and also covers logo/favicon URLs. Live SITL tests require the simulator specified by `AERIALKIT_SITL`; without it those cases are skipped. The drift checks compare source citations, demo metadata and MAVLink dialect generation against the firmware in `../../aerialkit/`.
+`dist/` is the static site. `AK_BASE` sets an optional hosting subpath and also covers logo/favicon URLs. Live SITL tests require the simulator specified by `AERIALKIT_SITL`; without it those cases are skipped. The drift checks compare source citations, demo metadata and MAVLink dialect generation against `../../firmware/`. The public tree does not include the large C host simulator; Local bridge and live SITL workflows require an externally built simulator or a real serial bridge.
 
 Publishing source in this repo does not deploy a hosted configurator. See the deployment guide for serving it over HTTPS and running the loopback bridge.
 

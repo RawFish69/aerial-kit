@@ -16,7 +16,7 @@
     "verify:drift": "bash tools/verify-drift.sh",
     "verify:browser": "bash tools/verify-browser.sh",
     "bridge": "node bridge/index.js",
-    "bridge:sim": "node bridge/index.js --sim ../../aerialkit/build-host/aerialkit-sim",
+    "bridge:sim": "node bridge/index.js --sim",
     "bridge:setup": "npm --prefix bridge install --no-audit --no-fund"
   },
   "dependencies": {

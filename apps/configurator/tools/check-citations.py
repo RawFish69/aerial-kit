@@ -12,7 +12,7 @@ nothing failed. `ak_proto_io_t.on_change` cannot rot that way.
 
 What this checks, stated plainly so nobody reads more into it than is there:
 
-  1. The cited file exists under `aerialkit/`.
+  1. The cited file exists under `firmware/`.
   2. The named symbol appears in that file as a whole word.
 
 It does *not* check that the symbol is a definition rather than a mention, and
@@ -125,7 +125,7 @@ def resolve(root: Path, citation: str) -> str | None:
 
 def find_root() -> Path | None:
     for parent in Path(__file__).resolve().parents:
-        if (parent / "aerialkit" / "src").is_dir():
+        if (parent / "firmware" / "src").is_dir():
             return parent
     return None
 
@@ -135,14 +135,14 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--repo-root",
         default=None,
-        help="the checkout to resolve citations against (default: walk up for aerialkit/)",
+        help="the checkout to resolve citations against (default: walk up for firmware/)",
     )
     parser.add_argument("files", nargs="*", help="TypeScript files to scan")
     args = parser.parse_args(argv)
 
     root = Path(args.repo_root).resolve() if args.repo_root else find_root()
     if root is None:
-        print("check-citations: no repository root found (no aerialkit/src above this file)")
+        print("check-citations: no repository root found (no firmware/src above this file)")
         return 1
 
     files = source_files(root, args.files)
@@ -172,7 +172,7 @@ def main(argv: list[str]) -> int:
             print(f"  {failure}")
         return 1
 
-    print(f"check-citations: {total} citation(s) resolved against {root}/aerialkit")
+    print(f"check-citations: {total} citation(s) resolved against {root}/firmware")
     return 0
 
 

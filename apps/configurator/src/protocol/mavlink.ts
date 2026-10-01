@@ -6,7 +6,7 @@
  *
  * Everything below is written from the wire format and from the published
  * message definitions, and every decoder is pinned against frames captured from
- * `aerialkit/tools/mavlink_fake_vehicle.py` (`tools/capture-mavlink-fixtures.py`),
+ * `firmware/tools/mavlink_fake_vehicle.py` (`tools/capture-mavlink-fixtures.py`),
  * whose frames are built by **pymavlink** — the reference implementation behind
  * Mission Planner, QGroundControl and MAVProxy. So a fixture in
  * `tests/fixtures/mavlink.json` has been agreed on by two independent readers,

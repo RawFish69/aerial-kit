@@ -42,7 +42,7 @@ DT = 0.002  # 500 Hz, the rate the firmware's control loop runs at
 G = 9.81
 
 # The firmware's `ak_mixer_quad_x` coefficient table, transcribed from
-# `aerialkit/src/core/flight/ak_mixer.c`. Columns: throttle, roll, pitch, yaw.
+# `firmware/src/core/flight/ak_mixer.c`. Columns: throttle, roll, pitch, yaw.
 # Rows: rear right, front right, rear left, front left.
 #
 # The pitch column is the *negative* of Betaflight's, and that is a convention

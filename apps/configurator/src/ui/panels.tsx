@@ -618,7 +618,7 @@ function RcReport({ state, age }: { state: RcState; age: number | null }) {
         has no such thing says so above rather than reading as a clean measurement. Centring the
         sticks — writing a new <span className="mono">rc_mid</span> — is the console's{' '}
         <span className="mono">calibrate rc</span> (<span className="mono">ak_rc_cal_apply</span>,
-        in <span className="mono">aerialkit/src/core/flight/ak_rc.c</span>); this app has no
+        in <span className="mono">firmware/src/core/flight/ak_rc.c</span>); this app has no
         calibration page yet, and the Receiver tab is where you would notice you need one.
       </p>
     </>

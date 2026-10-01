@@ -215,7 +215,7 @@ export function App() {
       <Navbar className="topbar">
         <Navbar.Group className="brand">
           <BrandMark />
-          <Navbar.Heading>AerialKit configurator</Navbar.Heading>
+          <Navbar.Heading>Aerial Kit configurator</Navbar.Heading>
         </Navbar.Group>
 
         {session !== null && snapshot !== null && mav === null && foreign === null && (

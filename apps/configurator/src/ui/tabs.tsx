@@ -35,7 +35,7 @@ import {
  *    word. That is a reading, and `reasonFor` is the one place that knows the
  *    difference between an absent word and an absent bit.
  *  - **This app cannot yet.** The opcode is specified in
- *    `aerialkit/docs/16-protocol.md` and this view was never written. A tab
+ *    `firmware/docs/16-protocol.md` and this view was never written. A tab
  *    enabled by a board capability whose view does not exist would be worse
  *    than a disabled one: it would open onto nothing and read as a firmware
  *    fault.
@@ -117,7 +117,7 @@ export interface Tab {
  */
 function notBuilt(opcode: string, feature?: Feature) {
   return (snapshot: SessionSnapshot): string => {
-    const base = `this app has no view for \`${opcode}\` yet, and neither does the firmware — the opcode is written down in aerialkit/docs/16-protocol.md`;
+    const base = `this app has no view for \`${opcode}\` yet, and neither does the firmware — the opcode is written down in firmware/docs/16-protocol.md`;
     if (feature === undefined) return base;
     const board = reasonFor(snapshot.identity?.features ?? null, feature, opcode);
     // `reasonFor` returns null when the board *does* answer it. Then the app is

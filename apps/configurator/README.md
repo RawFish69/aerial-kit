@@ -1,6 +1,4 @@
-# AerialKit configurator
-
-![AerialKit Rotor A](public/brand/aerialkit-selected.svg)
+# Web configurator
 
 [Branding and logo assets](docs/BRANDING.md) · [Build and deployment](docs/BUILD-AND-DEPLOY.md)
 
@@ -145,7 +143,7 @@ reason.** There are two ways that happens, and they are different facts:
   and search the firmware for. `reasonFor()` produces it, and it is the one
   place that distinguishes *predates the field* from *does not answer*.
 - **This app cannot yet.** The opcode is specified in
-  `aerialkit/docs/16-protocol.md` and the view was never written. The sentence
+  `firmware/docs/16-protocol.md` and the view was never written. The sentence
   says which half is missing, and appends the board's own answer when there is
   one, so a person with old firmware is not told to wait for a release that
   would not help them.
@@ -172,7 +170,7 @@ would be typing at its own console.
 | --- | --- | --- | --- | --- | --- |
 | **AerialKit** | yes | yes, streamed | yes, the whole table | yes, gated | the firmware's own simulator, over the bridge |
 | **Betaflight / INAV** | yes | yes, polled | **by name only** | **no — read-only** | captured frames from this repo's Betaflight stand-in; *no physical board* |
-| **ArduPilot / PX4** | yes | yes, streamed | yes, the whole table | **no — read-only, one exception** | `aerialkit/tools/mavlink_fake_vehicle.py`, which encodes and decodes every frame with pymavlink; *no physical vehicle, and not ArduPilot SITL* |
+| **ArduPilot / PX4** | yes | yes, streamed | yes, the whole table | **no — read-only, one exception** | `firmware/tools/mavlink_fake_vehicle.py`, which encodes and decodes every frame with pymavlink; *no physical vehicle, and not ArduPilot SITL* |
 
 **A link is called MAVLink only when a frame on it passed its checksum.** A
 MAVLink checksum needs a constant per message id that is not on the wire, so
@@ -221,12 +219,14 @@ loaded.
 
 ### The bridge
 
+The trimmed public firmware does not ship the C host simulator. Supply an externally built simulator for this optional workflow; USB and the in-browser demo need none.
+
 A browser cannot open a TCP socket or spawn a process. The bridge is a helper
 that does both and relays bytes:
 
 ```sh
 npm run bridge:setup                       # once; installs ws
-npm run bridge:sim                         # the firmware simulator
+npm run bridge:sim -- /path/to/aerialkit-sim  # an externally built simulator
 npm run bridge -- --serial /dev/ttyACM0    # a port something else holds
 npm run bridge -- --tcp 192.168.1.50:5760  # a board on the network
 ```
@@ -277,7 +277,7 @@ A real board's description is read the same way. **The range, help text, decimal
 count and group of every parameter are carried by the protocol**, in
 `AK_PROTO_CMD_PARAM_INFO` (0x0A) and `AK_PROTO_CMD_PARAM_HELP` (0x0B), added
 2026-09-30 under the `AK_PROTO_FEATURE_PARAM_INFO` capability bit
-(`aerialkit/docs/16-protocol.md`). An entry is a name, a type, a group, a
+(`firmware/docs/16-protocol.md`). An entry is a name, a type, a group, a
 decimal count and a flags byte, then either two bounds spelled as text or a
 maximum text length, then the default — nine fields with no room in them for a
 unit, which is why there is no unit column. `AerialKitSession.refresh()` walks
@@ -330,7 +330,7 @@ and is pinned the same way and more strongly. Every message definition in it —
 field order, field type, array length, and the `crc_extra` constant that is not
 on the wire — is compared against **pymavlink**, the reference implementation
 that Mission Planner, QGroundControl and MAVProxy are built on, by
-`aerialkit/tools/mavlink_check.py`. The frames it builds are compared byte for
+`firmware/tools/mavlink_check.py`. The frames it builds are compared byte for
 byte against pymavlink's, apart from v2's trailing-zero truncation, which is
 pymavlink's own behaviour.
 
@@ -343,7 +343,7 @@ this machine** (`./waf configure --board sitl` and the build both succeeded), so
 are skipped by name unless `AERIALKIT_SITL` names a vehicle — so they report as
 *skipped*, never as *passing*. **Nothing in this repository is verified against
 real ArduPilot firmware.** The stand-in used instead is
-`aerialkit/tools/mavlink_fake_vehicle.py`, which encodes every frame
+`firmware/tools/mavlink_fake_vehicle.py`, which encodes every frame
 it sends with pymavlink and decodes every byte it receives with pymavlink — so
 the client is still being checked against the reference implementation's bytes,
 but against a simulated vehicle rather than against ArduPilot's own firmware.

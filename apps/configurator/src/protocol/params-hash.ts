@@ -13,7 +13,7 @@
  * same FNV-1a over the same bytes.
  *
  * What keeps it from becoming a second authority is that it is *checked*
- * against the first one: `aerialkit/tools/akproto_firmware_check.py` reads the
+ * against the first one: `firmware/tools/akproto_firmware_check.py` reads the
  * real board's table over `hello` and `param get`, recomputes this same hash in
  * Python, and compares it with the number the firmware sent. Two
  * implementations, one number, asserted on every `make test`. A change to

@@ -1,13 +1,13 @@
 # Fixed-wing firmware control notes
 
 > **These notes describe bench demonstrations, not a flight controller.** They
-> document the control/mixing conventions used by `firmware/wing`, with PX4,
+> document the control/mixing conventions used by `firmware/legacy/wing`, with PX4,
 > ArduPilot and Betaflight as references rather than as code to copy. Nothing
 > here is a supported flight configuration. See
-> [`../firmware/README.md`](../firmware/README.md#airframe-demonstrations--not-flight-controllers)
+> [`../firmware/README.md`](../firmware/legacy/README.md#airframe-demonstrations--not-flight-controllers)
 > for what that project lacks, with file and line.
 
-This is the working reference for `firmware/wing`. It documents the control/mixing
+This is the working reference for `firmware/legacy/wing`. It documents the control/mixing
 conventions to use, with PX4, ArduPilot, and Betaflight as references rather than
 as code to copy.
 

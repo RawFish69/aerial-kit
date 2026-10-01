@@ -50,7 +50,7 @@ HERE = Path(__file__).resolve().parent
 
 def find_root() -> Path | None:
     for parent in Path(__file__).resolve().parents:
-        if (parent / "aerialkit" / "src").is_dir():
+        if (parent / "firmware" / "src").is_dir():
             return parent
     return None
 
@@ -73,8 +73,8 @@ def main(argv: list[str]) -> int:
 
     try:
         firmware = ak_table.extract(
-            root / "aerialkit" / "src" / "core" / "flight" / "ak_flight.c",
-            root / "aerialkit" / "src",
+            root / "firmware" / "src" / "core" / "flight" / "ak_flight.c",
+            root / "firmware" / "src",
         )
     except ak_table.TableError as error:
         print(f"check-table-drift: could not read the firmware's table: {error}")
@@ -123,7 +123,7 @@ def main(argv: list[str]) -> int:
         # by the person who wrote it. ak_flight.c is the flight table; the board
         # registers the rest in main.c, and the gap against a real board is far
         # larger than the one this script can see. 92 is measured, not
-        # estimated: `python3 aerialkit/tools/akproto_firmware_check.py` prints
+        # estimated: `python3 firmware/tools/akproto_firmware_check.py` prints
         # "and says how many parameters it has 92 parameters" against
         # `aerialkit-fw-sim 0 console`, 2026-09-30.
         #

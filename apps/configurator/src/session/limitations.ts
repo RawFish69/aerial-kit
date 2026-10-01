@@ -59,9 +59,9 @@ const NO_APPLICATION_CONFIRMATION: Limitation = {
     'establish (echoed) and marks application "not established" rather than ' +
     'reading it out of a byte that does not hold it.',
   citations: [
-    'aerialkit/src/core/ak_proto.h:ak_proto_io_t',
-    'aerialkit/src/core/ak_proto.h:AK_PROTO_FEATURE_APPLIES_ON_WRITE',
-    'aerialkit/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_SET',
+    'firmware/src/core/ak_proto.h:ak_proto_io_t',
+    'firmware/src/core/ak_proto.h:AK_PROTO_FEATURE_APPLIES_ON_WRITE',
+    'firmware/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_SET',
   ],
 };
 
@@ -88,9 +88,9 @@ const NO_APPLICATION_CONFIRMATION_UNKNOWN: Limitation = {
     'establish (echoed) and marks application "not established" rather than ' +
     'guessing which revision answered.',
   citations: [
-    'aerialkit/src/core/ak_proto.h:ak_proto_io_t',
-    'aerialkit/src/core/ak_proto.h:AK_PROTO_FEATURE_APPLIES_ON_WRITE',
-    'aerialkit/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_SET',
+    'firmware/src/core/ak_proto.h:ak_proto_io_t',
+    'firmware/src/core/ak_proto.h:AK_PROTO_FEATURE_APPLIES_ON_WRITE',
+    'firmware/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_SET',
   ],
 };
 
@@ -133,9 +133,9 @@ const NO_ARMED_GUARD_ON_SET: Limitation = {
     'note rather than a block. The gate you are seeing is in this app: a ' +
     'different client would not have it.',
   citations: [
-    'aerialkit/src/core/ak_proto.h:AK_PROTO_FEATURE_GATES_ON_ARMED',
-    'aerialkit/src/core/main.c:save_parameters',
-    'aerialkit/src/core/flight/ak_flight.c:ak_flight_config_writable',
+    'firmware/src/core/ak_proto.h:AK_PROTO_FEATURE_GATES_ON_ARMED',
+    'firmware/src/core/main.c:save_parameters',
+    'firmware/src/core/flight/ak_flight.c:ak_flight_config_writable',
   ],
 };
 
@@ -155,9 +155,9 @@ const NO_ARMED_GUARD_ON_SET_UNKNOWN: Limitation = {
     'this app gates it, and the gate you are seeing is in this app: a different ' +
     'client would not have it.',
   citations: [
-    'aerialkit/src/core/ak_proto.h:AK_PROTO_FEATURE_GATES_ON_ARMED',
-    'aerialkit/src/core/main.c:save_parameters',
-    'aerialkit/src/core/flight/ak_flight.c:ak_flight_config_writable',
+    'firmware/src/core/ak_proto.h:AK_PROTO_FEATURE_GATES_ON_ARMED',
+    'firmware/src/core/main.c:save_parameters',
+    'firmware/src/core/flight/ak_flight.c:ak_flight_config_writable',
   ],
 };
 
@@ -198,9 +198,9 @@ const RANGES_FROM_A_BUILD_TIME_READ: Limitation = {
     'ranges shown beside a board that did not send them is a second authority, ' +
     'and it was wrong for a whole release.',
   citations: [
-    'aerialkit/src/core/ak_proto.h:AK_PROTO_FEATURE_PARAM_INFO',
-    'aerialkit/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_INFO',
-    'aerialkit/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_HELP',
+    'firmware/src/core/ak_proto.h:AK_PROTO_FEATURE_PARAM_INFO',
+    'firmware/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_INFO',
+    'firmware/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_HELP',
   ],
 };
 
@@ -218,9 +218,9 @@ const RANGES_FROM_A_BUILD_TIME_READ_UNKNOWN: Limitation = {
     'command, which is why every row here is named and valued but not described. ' +
     'A reflash to a firmware that answers it fills all of this in.',
   citations: [
-    'aerialkit/src/core/ak_proto.h:AK_PROTO_FEATURE_PARAM_INFO',
-    'aerialkit/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_INFO',
-    'aerialkit/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_HELP',
+    'firmware/src/core/ak_proto.h:AK_PROTO_FEATURE_PARAM_INFO',
+    'firmware/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_INFO',
+    'firmware/src/core/ak_proto.c:AK_PROTO_CMD_PARAM_HELP',
   ],
 };
 
@@ -238,9 +238,9 @@ const ARMED_STATE_GATES_WRITES: Limitation = {
     'that armed since the last frame would look identical to one that had ' +
     'not, so no write is enabled until a fresh frame arrives.',
   citations: [
-    'aerialkit/src/core/ak_proto.h:ak_proto_status_t',
-    'aerialkit/src/core/flight/ak_flight.h:ak_flight_state_t',
-    'aerialkit/src/core/flight/ak_flight.h:AK_FLIGHT_DISARMED',
+    'firmware/src/core/ak_proto.h:ak_proto_status_t',
+    'firmware/src/core/flight/ak_flight.h:ak_flight_state_t',
+    'firmware/src/core/flight/ak_flight.h:AK_FLIGHT_DISARMED',
   ],
 };
 
@@ -254,8 +254,8 @@ const NO_PERSISTENCE: Limitation = {
     'when the board loses power. A device with no config flash says this ' +
     'rather than reporting a successful save.',
   citations: [
-    'aerialkit/src/core/ak_params.h:ak_params_save',
-    'aerialkit/src/core/ak_params.c:ak_params_save',
+    'firmware/src/core/ak_params.h:ak_params_save',
+    'firmware/src/core/ak_params.c:ak_params_save',
   ],
 };
 
@@ -284,9 +284,9 @@ const STREAM_PROMISED_NOT_DELIVERED: Limitation = {
     'the same fact as frames arriving, so the values below come from polling ' +
     'STATUS.',
   citations: [
-    'aerialkit/src/core/ak_proto.h:can_stream',
-    'aerialkit/src/core/ak_proto.c:AK_PROTO_CMD_TELEMETRY',
-    'aerialkit/src/core/main.c:can_stream',
+    'firmware/src/core/ak_proto.h:can_stream',
+    'firmware/src/core/ak_proto.c:AK_PROTO_CMD_TELEMETRY',
+    'firmware/src/core/main.c:can_stream',
   ],
 };
 

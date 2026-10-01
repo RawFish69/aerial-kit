@@ -17,7 +17,7 @@
 #   firefox          attempted, and reported as NOT RUN if it will not launch
 #   mavlink          Chrome against the local bridge with an ArduPilot stand-in
 #                    behind it. The stand-in is
-#                    aerialkit/tools/mavlink_fake_vehicle.py, which encodes and
+#                    firmware/tools/mavlink_fake_vehicle.py, which encodes and
 #                    decodes every byte with pymavlink — the reference
 #                    implementation — so the page under test is reading frames
 #                    this repository did not produce. **It is not ArduPilot

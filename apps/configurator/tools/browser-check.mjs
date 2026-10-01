@@ -75,7 +75,7 @@ const ARM_AFTER_S = 10;
 /** Neither of these is from npm; both are paths in this repository. */
 const BRIDGE_JS = fileURLToPath(new URL('../bridge/index.js', import.meta.url));
 const VEHICLE_PY = fileURLToPath(
-  new URL('../../../aerialkit/tools/mavlink_fake_vehicle.py', import.meta.url),
+  new URL('../../../firmware/tools/mavlink_fake_vehicle.py', import.meta.url),
 );
 const BRIDGE_PORT = Number(process.env.AK_BRIDGE_PORT ?? 8791);
 const BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}/ak`;

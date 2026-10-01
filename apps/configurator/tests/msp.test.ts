@@ -39,7 +39,7 @@ describe('MSP framing', () => {
 
   it('builds requests byte-identical to the ones a real client sent', () => {
     // These are not round-trips through our own decoder: they are compared
-    // against bytes `aerialkit/tools/msp.py` put on the wire and a stand-in
+    // against bytes `firmware/tools/msp.py` put on the wire and a stand-in
     // answered.
     for (const variant of ['betaflight', 'inav'] as const) {
       expect(hex(buildRequest(MspCommand.FC_VARIANT))).toBe(

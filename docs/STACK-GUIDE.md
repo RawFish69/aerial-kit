@@ -29,10 +29,10 @@ active line of work; see [Roadmap](#roadmap).
 | ArduPilot | MAVLink, same node (`flight_stack: ardupilot`) | `ros2_ws/src/mavlink_bridge` | 🚧 Supported, in testing |
 | Custom firmware (this repo) | ESP-NOW + CRSF, 2.4 GHz SX1280 ELRS, LoRa telemetry | `firmware/` (link projects) | ✅ Working |
 
-The row above covers the link and telemetry projects. `firmware/wing` is
+The row above covers the link and telemetry projects. `firmware/legacy/wing` is
 **not** part of it: it is a bench demonstration with its own controller, not a
 supported flight configuration — see
-[`firmware/README.md`](../firmware/README.md#airframe-demonstrations--not-flight-controllers).
+[`firmware/README.md`](../firmware/legacy/README.md#airframe-demonstrations--not-flight-controllers).
 
 All autopilot backends implement the same `/uav/backend/*` contract as the simulation
 adapters, so the mission and control stack above them is unchanged between sim, Betaflight,
@@ -337,15 +337,15 @@ More details: `docker/README.md`.
 
 ## GPS module (ESP32)
 
-The `firmware/gps/` project is an ESP32 GPS bring-up/telemetry module using `Adafruit_GPS`.
+The `firmware/legacy/gps/` project is an ESP32 GPS bring-up/telemetry module using `Adafruit_GPS`.
 
 - Supports PMTK/NMEA modules (Adafruit Ultimate GPS / MTK33xx style)
 - Supports u-blox modules with UBX configuration (while parsing NMEA output)
 - Auto-probes common UART baud rates (9600/38400/115200), parses fix/satellite/SNR metrics, and prints diagnostics over serial
 - Build/flash protocol options:
-  - `pio run -d firmware/gps -e gps_auto -t upload` (AUTO detect PMTK vs UBLOX)
-  - `pio run -d firmware/gps -e gps_pmtk -t upload` (force PMTK mode)
-  - `pio run -d firmware/gps -e gps_ublox -t upload` (force UBLOX mode)
+  - `pio run -d firmware/legacy/gps -e gps_auto -t upload` (AUTO detect PMTK vs UBLOX)
+  - `pio run -d firmware/legacy/gps -e gps_pmtk -t upload` (force PMTK mode)
+  - `pio run -d firmware/legacy/gps -e gps_ublox -t upload` (force UBLOX mode)
 
 The host-side live dashboard is `tools/gps_dashboard.py` (see `tools/GPS_DASHBOARD.md`).
 
@@ -367,11 +367,11 @@ The host-side live dashboard is `tools/gps_dashboard.py` (see `tools/GPS_DASHBOA
 | `ros2_ws/src/uav_msgs` | ROS msgs/srvs | Command, telemetry, mission, planner interfaces |
 | `ros2_ws/src/terrain_generator` | Python | Terrain + obstacles (forest/mountains/plains) |
 | `sim_py` | Python | Standalone planner/controller/dynamics/visualization |
-| `firmware/espnow` | ESP32 | ESP-NOW TX/RX firmware + protocol bridging |
-| `firmware/elrs` | ESP32 | ExpressLRS-compatible SX1280 TX/RX (CRSF over the air) |
-| `firmware/lora` | ESP32 | LoRa point-to-point template (long-range telemetry) |
-| `firmware/gps` | ESP32 | GPS telemetry module (Adafruit_GPS / NMEA + PMTK + UBX) |
-| `firmware/wing` | Arduino / STM32 | Flying-wing bench demonstration, two vehicle profiles (`single_wing`, `twin_wings`) — **not a flight controller**, see [`firmware/README.md`](../firmware/README.md) |
+| `firmware/legacy/espnow` | ESP32 | ESP-NOW TX/RX firmware + protocol bridging |
+| `firmware/legacy/elrs` | ESP32 | ExpressLRS-compatible SX1280 TX/RX (CRSF over the air) |
+| `firmware/legacy/lora` | ESP32 | LoRa point-to-point template (long-range telemetry) |
+| `firmware/legacy/gps` | ESP32 | GPS telemetry module (Adafruit_GPS / NMEA + PMTK + UBX) |
+| `firmware/legacy/wing` | Arduino / STM32 | Flying-wing bench demonstration, two vehicle profiles (`single_wing`, `twin_wings`) — **not a flight controller**, see [`firmware/README.md`](../firmware/legacy/README.md) |
 | `tools` | Python | RC protocol decoders/monitors, 3D visualizer, GPS dashboard |
 | `assets/urdf` | URDF/SDF | Airframe descriptions, one folder per airframe family |
 
@@ -401,15 +401,15 @@ See `ros2_ws/README.md` for the full topic/node diagram and troubleshooting note
 
 ## Docs
 
-- **[docs/SOFTWARE_GUIDE.md](../docs/SOFTWARE_GUIDE.md)**: software guide (start here)
-- **[docs/EXAMPLE_USAGE.md](../docs/EXAMPLE_USAGE.md)**: terrain + controller examples
+- **[docs/SOFTWARE_GUIDE.md](SOFTWARE_GUIDE.md)**: software guide (start here)
+- **[docs/EXAMPLE_USAGE.md](EXAMPLE_USAGE.md)**: terrain + controller examples
 - **`sim_py/INFO.md`**: standalone simulator architecture + usage
 - **`docker/README.md`**: Docker build/run commands by workflow
 - **`docs/HARDWARE.md`**: TX integration for autonomous mode
 - **`firmware/README.md`**: firmware project index (ESP-NOW / ELRS / LoRa / GPS, plus the two
   wing bench demonstrations and what they lack)
-- **`firmware/espnow/README.md`**: TX/RX firmware details
-- **`firmware/elrs/README.md`**: ExpressLRS-compatible link details
+- **`firmware/legacy/espnow/README.md`**: TX/RX firmware details
+- **`firmware/legacy/elrs/README.md`**: ExpressLRS-compatible link details
 - **`ros2_ws/src/mavlink_bridge/README.md`**: PX4 / ArduPilot wiring and setup
 - **`tools/README.md`**: protocol monitor / decoder tooling
 - **`tools/GPS_DASHBOARD.md`**: GPS serial dashboard usage
@@ -445,8 +445,8 @@ The repo is moving from a quadcopter stack to a general aerial-robotics stack. I
 - The **Python-only sim** (`sim_py`) is designed for fast iteration (no ROS needed)
 - Airframe-specific behavior belongs in the control stack, not the firmware — the ESP32
   link projects in `firmware/` (`espnow`, `elrs`, `lora`, `gps`) carry RC channels and
-  telemetry and are airframe-agnostic. `firmware/wing` is the exception and is not
+  telemetry and are airframe-agnostic. `firmware/legacy/wing` is the exception and is not
   covered by this: it contains its own mixer, controller and guidance, it is a bench
   demonstration rather than a flight configuration. The separate AerialKit flight-controller implementation is now in
-  [`aerialkit/`](../aerialkit/README.md). See
-  [`firmware/README.md`](../firmware/README.md) for what it lacks.
+  [`firmware/`](../firmware/README.md). See
+  [`firmware/README.md`](../firmware/legacy/README.md) for what it lacks.

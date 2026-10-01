@@ -1,7 +1,7 @@
 {
   "betaflight": {
     "_captured": {
-      "from": "aerialkit/tools/msp_fake_board.py",
+      "from": "firmware/tools/msp_fake_board.py",
       "note": "betaflight stand-in",
       "protocol": "MSP v1 for state, MSP v2 for settings"
     },
@@ -73,7 +73,7 @@
   },
   "inav": {
     "_captured": {
-      "from": "aerialkit/tools/msp_fake_board.py",
+      "from": "firmware/tools/msp_fake_board.py",
       "note": "inav stand-in",
       "protocol": "MSP v1 for state, MSP v2 for settings"
     },

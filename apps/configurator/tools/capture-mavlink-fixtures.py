@@ -3,13 +3,13 @@
 
 The web configurator's MAVLink support has to be built against something, and
 the something has to be MAVLink's actual bytes rather than a summary of them.
-`aerialkit/tools/mavlink_fake_vehicle.py` is an ArduPilot vehicle that is not
+`firmware/tools/mavlink_fake_vehicle.py` is an ArduPilot vehicle that is not
 there, and **every frame it sends is built by pymavlink**, the reference
 implementation that Mission Planner, QGroundControl and MAVProxy are built on.
 
 This script drives that vehicle with a *third* implementation: the framing
 below is written out longhand from the wire format rather than imported from
-either `aerialkit/tools/mavlink.py` or pymavlink. So a fixture landing in
+either `firmware/tools/mavlink.py` or pymavlink. So a fixture landing in
 `tests/fixtures/mavlink.json` has been agreed on by two independent readers of
 the protocol, and a mistake in the TypeScript decoder shows up as a checksum
 that does not match rather than as a test that passes for the wrong reason.
@@ -29,7 +29,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-DEFAULT_AERIALKIT = os.path.join(ROOT, "aerialkit")
+DEFAULT_AERIALKIT = os.path.join(ROOT, "firmware")
 DEFAULT_PYMAVLINK = os.path.join(ROOT, "upstream", "pymavlink-2.4.49")
 FAKE = os.path.join("tools", "mavlink_fake_vehicle.py")
 
@@ -295,7 +295,7 @@ def main():
         253: "STATUSTEXT",
     }
     out = {
-        "note": "Captured from aerialkit/tools/mavlink_fake_vehicle.py, whose frames "
+        "note": "Captured from firmware/tools/mavlink_fake_vehicle.py, whose frames "
                 "are built by pymavlink. The framing that produced these hex strings "
                 "is this repository's own, written longhand.",
         "crc_extra": {str(k): v for k, v in sorted(CRC_EXTRA.items())},

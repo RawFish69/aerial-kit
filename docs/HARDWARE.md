@@ -48,7 +48,7 @@ ros2 launch mavlink_bridge real_hardware.launch.py
 
 ## TX UDP Receiver Code
 
-In `firmware/espnow/src/main.cpp`, `#ifdef BUILD_TX` section:
+In `firmware/legacy/espnow/src/main.cpp`, `#ifdef BUILD_TX` section:
 
 ```cpp
 // At top with includes
@@ -112,7 +112,7 @@ void loop() {
 
 ```bash
 # Flash TX
-pio run -d firmware/espnow -e transmitter -t upload
+pio run -d firmware/legacy/espnow -e transmitter -t upload
 
 # Connect computer to UAV_TX WiFi (192.168.4.1)
 

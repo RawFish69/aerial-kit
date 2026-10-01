@@ -185,7 +185,7 @@ sudo usermod -a -G dialout $USER
 Your computer's USB port reads **serial data** (UART). PPM is **timed pulses on a GPIO pin** - completely different!
 
 **What you can do:**
-1. **Best solution**: Configure your receiver for CRSF/SBUS/iBus output (edit `firmware/espnow/src/config.h`)
+1. **Best solution**: Configure your receiver for CRSF/SBUS/iBus output (edit `firmware/legacy/espnow/src/config.h`)
 2. **For flight**: Use PPM on your drone
 3. **For debugging**: Reflash receiver with CRSF to monitor, then reflash back to PPM
 
@@ -196,7 +196,7 @@ Your universal receiver supports protocol switching by reflashing - takes 30 sec
 **Step 1:** Connect receiver to computer via USB (not to flight controller)
 
 **Step 2:** Check which protocol your receiver is using:
-- Open `firmware/espnow/src/config.h`
+- Open `firmware/legacy/espnow/src/config.h`
 - Look for: `#define OUTPUT_PROTOCOL PROTOCOL_XXXX`
 
 **Step 3:** Run matching tool:

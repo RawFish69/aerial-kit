@@ -3,8 +3,8 @@
 
 The web configurator's MSP support has to be built against something, and the
 something has to be Betaflight's actual bytes rather than a summary of them.
-`aerialkit/tools/msp_fake_board.py` is a board that is not there, answering with
-Betaflight's own payload layouts, and `aerialkit/tools/msp.py` is a client that
+`firmware/tools/msp_fake_board.py` is a board that is not there, answering with
+Betaflight's own payload layouts, and `firmware/tools/msp.py` is a client that
 already speaks to it. This script drives one with a *third* implementation --
 the framing below is written out longhand rather than imported -- so a fixture
 that lands in `tests/fixtures/msp.json` has been agreed on by two independent
@@ -25,7 +25,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-DEFAULT_FAKE = os.path.join(ROOT, "aerialkit", "tools", "msp_fake_board.py")
+DEFAULT_FAKE = os.path.join(ROOT, "firmware", "tools", "msp_fake_board.py")
 
 # MSP v1, from `msp_protocol.h`. The numbers are the protocol.
 API_VERSION = 1
@@ -202,7 +202,7 @@ def capture(board, note):
         text="a name the board does not have -- a refusal, not an empty answer")
 
     out["_captured"] = {
-        "from": "aerialkit/tools/msp_fake_board.py",
+        "from": "firmware/tools/msp_fake_board.py",
         "note": note,
         "protocol": "MSP v1 for state, MSP v2 for settings",
     }

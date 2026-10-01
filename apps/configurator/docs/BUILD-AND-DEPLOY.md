@@ -1,3 +1,5 @@
+> **Current source scope:** runtime code is in `firmware/`, with Feather F405 and ESP32DEV profiles. The public tree excludes the C host simulator; simulator-based bridge/SITL examples require an external build. See the [current guide](../../../docs/web-configurator.md).
+
 > **Public export verification, 2026-10-01:** the current source passed 285 configurator tests (10 live SITL cases skipped), production/subpath builds, all source/table/dialect drift checks, and HTTPS subpath asset checks. The dated observations below are retained as historical records. See [publication results](../../../docs/PUBLICATION.md).
 
 # Building, testing and deploying the configurator
@@ -136,7 +138,7 @@ of lie the rest of this directory exists to prevent:
   32 rows against **33** in `ak_flight.c`, and **92** on the board — the check
   compares against `ak_flight.c`, which is where the file's `captured_from`
   points and which is the *flight* table only. (The 92 is measured, not
-  assumed: `python3 aerialkit/tools/akproto_firmware_check.py` prints
+  assumed: `python3 firmware/tools/akproto_firmware_check.py` prints
   `and says how many parameters it has 92 parameters` against
   `aerialkit-fw-sim 0 console`.) Against `ak_flight.c` the file is missing
   `arm_accel_lpf_hz` at index 13, so every row from there on is displaced by
@@ -311,7 +313,7 @@ other than this repository. `./tools/verify-browser.sh` now runs a fourth pass:
 ```sh
 # what the script does for this mode, spelled out
 node bridge/index.js --port 8791 --stdio python3 \
-    ../../../aerialkit/tools/mavlink_fake_vehicle.py --arm-after 10
+    ../../../firmware/tools/mavlink_fake_vehicle.py --arm-after 10
 node tools/browser-check.mjs "$URL" mavlink
 ```
 
@@ -439,7 +441,7 @@ not `hardware`.**
 | **parameter reset to build defaults** | yes — `param default` (0x0C), refused while armed, and refused on a board that predates the opcode | no such command | no such message is sent |
 | **armed state** | yes, 2 s staleness bound | yes, 2 s staleness bound | yes, 2 s staleness bound, from the heartbeat |
 | **telemetry rate change** | yes | n/a | **yes — the one write this page can make** |
-| **verified against** | firmware's own simulator, over the bridge | captured frames from this repo's Betaflight stand-in — **no physical board** | pymavlink-encoded frames from `aerialkit/tools/mavlink_fake_vehicle.py`, driven in Chrome over the bridge — **no physical vehicle, and not ArduPilot SITL** |
+| **verified against** | firmware's own simulator, over the bridge | captured frames from this repo's Betaflight stand-in — **no physical board** | pymavlink-encoded frames from `firmware/tools/mavlink_fake_vehicle.py`, driven in Chrome over the bridge — **no physical vehicle, and not ArduPilot SITL** |
 
 Six notes the table cannot carry:
 
@@ -584,7 +586,7 @@ promising more than it does:
    holds the ten semantic tests written for it and they are skipped unless
    `AERIALKIT_SITL` names a vehicle, so they report as *skipped* and never as
    *passing*. Everything the ArduPilot/PX4 column claims is
-   against `aerialkit/tools/mavlink_fake_vehicle.py`, a stand-in that speaks
+   against `firmware/tools/mavlink_fake_vehicle.py`, a stand-in that speaks
    through pymavlink — the same *encoder and decoder*, but a simulated vehicle.
    A real vehicle differs in ways this cannot reach: stream rates it sets for
    itself, message ids this app has no definition for, a signed link, a serial
@@ -595,8 +597,8 @@ promising more than it does:
    different mount point is the same code path, but it was not measured.
 8. **No handset has ever been on the other end of `rc channels` (0x0D).** The
    reply is checked three ways — against the firmware's own dispatch in
-   `aerialkit/tests/test_proto.c`, against the real firmware over its console in
-   `aerialkit/tools/akproto_firmware_check.py`, and against a stand-in and the
+   `firmware/tests/test_proto.c`, against the real firmware over its console in
+   `firmware/tools/akproto_firmware_check.py`, and against a stand-in and the
    demo board in this app's suite — and every one of those is a *synthetic*
    transmitter. The firmware's simulator frames a CRSF receiver with a fixed
    channel set, so what has been established is that the three decoders agree
@@ -605,7 +607,7 @@ promising more than it does:
    whether `count` is eight on a real CRSF handset with sixteen channels
    configured, and whether a stick's raw count at full deflection lands where
    `rc_min`/`rc_max` say it does — which is the same question as whether the
-   `sticks` per-mille figure is calibrated. `aerialkit/tools/akproto.py rc` is
+   `sticks` per-mille figure is calibrated. `firmware/tools/akproto.py rc` is
    the tool: it prints the raw counts and the decoded sticks side by side, and
    the console's own `rc` prints the same numbers for the same instant, so a
    disagreement between a handset and either of them is visible while the stick

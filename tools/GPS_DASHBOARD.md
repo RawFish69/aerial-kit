@@ -1,7 +1,7 @@
 ## GPS Live Dashboard
 
 Streamlit dashboard for the GPS module. Firmware lives in
-[`../firmware/gps/`](../firmware/gps/); this is the host-side viewer.
+[`../firmware/legacy/gps/`](../firmware/legacy/gps); this is the host-side viewer.
 
 ### 1) Install Python deps
 
@@ -15,7 +15,7 @@ python3 -m pip install -r requirements-gps-dashboard.txt
 ### 2) Upload firmware to ESP32
 
 ```bash
-pio run -d firmware/gps -e gps_auto -t upload
+pio run -d firmware/legacy/gps -e gps_auto -t upload
 ```
 
 (from the repo root; or `~/.platformio/penv/bin/pio` if `pio` is not on your PATH)
@@ -32,4 +32,4 @@ Then open the local URL shown by Streamlit (usually `http://localhost:8501`).
 
 - If upload fails with lock errors, close any open monitor first.
 - If no coordinates appear, wait for GPS fix (clear sky helps).
-- Dashboard parses lines printed by `firmware/gps/src/main.cpp` (`Fix`, `Satellites`, `Location`, `Altitude`, `Speed`).
+- Dashboard parses lines printed by `firmware/legacy/gps/src/main.cpp` (`Fix`, `Satellites`, `Location`, `Altitude`, `Speed`).

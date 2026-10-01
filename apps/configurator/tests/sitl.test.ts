@@ -23,7 +23,7 @@ import { UdpLink, type Endpoint } from './udp-link';
  * This is the file the assessment's *"add genuine PX4/ArduPlane SITL semantic
  * tests"* asks for, and the word doing the work is **genuine**. Everything else
  * in this suite is checked against `tests/fixtures/mavlink.json`, whose frames
- * came from `aerialkit/tools/mavlink_fake_vehicle.py` — this repository's own
+ * came from `firmware/tools/mavlink_fake_vehicle.py` — this repository's own
  * stand-in, built with pymavlink. That fixture is a real oracle for the *wire
  * format*: pymavlink packed the bytes and this app has to read them. It is not
  * an oracle for *behaviour*, because the stand-in was written to send what the

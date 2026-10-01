@@ -21,7 +21,7 @@ import {
 
 /**
  * Payload decoders, one per reply, written against the layout in
- * `aerialkit/docs/16-protocol.md` and cross-checked against the firmware's own
+ * `firmware/docs/16-protocol.md` and cross-checked against the firmware's own
  * `tools/akproto.py` in the tests.
  *
  * Two rules run through all of them:

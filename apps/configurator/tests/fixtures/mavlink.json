@@ -174,7 +174,7 @@
       "source": "mavlink-fake-vehicle"
     }
   },
-  "note": "Captured from aerialkit/tools/mavlink_fake_vehicle.py, whose frames are built by pymavlink. The framing that produced these hex strings is this repository's own, written longhand.",
+  "note": "Captured from firmware/tools/mavlink_fake_vehicle.py, whose frames are built by pymavlink. The framing that produced these hex strings is this repository's own, written longhand.",
   "packed": {
     "AUTOPILOT_VERSION": [
       {

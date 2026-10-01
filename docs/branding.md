@@ -1,17 +1,9 @@
-# AerialKit branding
+# Aerial Kit branding
 
-![AerialKit original Rotor A](../apps/configurator/public/brand/aerialkit-selected.svg)
+<img src="../apps/configurator/public/brand/aerialkit-rotor-a.svg" alt="Original Rotor A symbol" width="80">
 
-The selected logo is **01 Rotor A**: an A silhouette with a three-blade rotor in the counter. The original direction is the final choice; the later v2 refinement is retained only as design history.
+The name is **Aerial Kit**, with a space. The selected original **01 Rotor A** symbol combines an A silhouette with a three-blade rotor.
 
-## Assets
+[Download the SVG](../apps/configurator/public/brand/aerialkit-rotor-a.svg). Keep its geometry intact, leave space around it and use the blue `#4c90f0`. The configurator header uses it at 32 px; the favicon uses the same asset.
 
-- [Blue symbol](../apps/configurator/public/brand/aerialkit-rotor-a.svg)
-- [White symbol](../apps/configurator/public/brand/aerialkit-rotor-a-white.svg)
-- [Ink symbol](../apps/configurator/public/brand/aerialkit-rotor-a-ink.svg)
-- [Light-background wordmark](../apps/configurator/public/brand/aerialkit-rotor-a-logo-light.svg)
-- [Dark-background wordmark](../apps/configurator/public/brand/aerialkit-rotor-a-logo-dark.svg)
-
-Use the white mark on dark backgrounds and the ink mark on light backgrounds. Keep the geometry intact and allow space around it. The blue is `#4c90f0`; assets are editable SVGs. The app header uses the mark at 32 px and its favicon uses the same original design.
-
-For sizing, application wiring and retained explorations, see the [component brand guide](../apps/configurator/docs/BRANDING.md).
+Use **AK Firmware** for the flight-controller component in `firmware/` and **web configurator** for the browser app in `apps/configurator/`. Existing board names, protocol identifiers and Python import paths retain their technical names.

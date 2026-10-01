@@ -25,7 +25,7 @@ import fixture from './fixtures/mavlink.json';
  *
  * Two oracles, and they are different in kind, which is the point:
  *
- *  - **`frames`** were sent by `aerialkit/tools/mavlink_fake_vehicle.py`, whose
+ *  - **`frames`** were sent by `firmware/tools/mavlink_fake_vehicle.py`, whose
  *    frames are built by **pymavlink** — the reference implementation. Feeding
  *    those bytes to this app's decoder is a real test: everything has to agree,
  *    the framing, the checksum, the CRC_EXTRA, the field offsets and the

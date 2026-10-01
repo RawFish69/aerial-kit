@@ -326,7 +326,7 @@ The system supports two hardware modes:
 
 **Step 1: Modify TX Firmware**
 
-Add UDP support to `firmware/espnow/src/main.cpp` in the `#ifdef BUILD_TX` section:
+Add UDP support to `firmware/legacy/espnow/src/main.cpp` in the `#ifdef BUILD_TX` section:
 
 ```cpp
 #include <WiFi.h>
@@ -378,7 +378,7 @@ void loop() {
 **Step 2: Flash TX**
 
 ```bash
-cd firmware/espnow
+cd firmware/legacy/espnow
 pio run -e transmitter -t upload
 ```
 
@@ -396,7 +396,7 @@ source ros2_ws/install/setup.bash
 
 ### Protocol Configuration
 
-Edit `firmware/espnow/src/config.h` to select output protocol:
+Edit `firmware/legacy/espnow/src/config.h` to select output protocol:
 
 ```cpp
 #define OUTPUT_PROTOCOL PROTOCOL_CRSF  // or PROTOCOL_SBUS, PROTOCOL_PPM, etc.

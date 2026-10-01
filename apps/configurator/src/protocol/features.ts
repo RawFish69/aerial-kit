@@ -14,7 +14,7 @@
  * missing byte, which is the exact class of thing it exists not to do.
  */
 
-/** The bits, from `AK_PROTO_FEATURE_*` in `aerialkit/src/core/ak_proto.h`. */
+/** The bits, from `AK_PROTO_FEATURE_*` in `firmware/src/core/ak_proto.h`. */
 export const enum Feature {
   PARAM_INFO = 1 << 0,
   PARAM_DEFAULT = 1 << 1,

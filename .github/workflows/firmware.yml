@@ -1,18 +1,18 @@
-name: Build the firmware
+name: Build legacy firmware
 
 # Nothing built the firmware in CI. The publish workflow next to this one
 # deliberately excludes `firmware/` from the Python distribution, so the only
 # thing that ever compiled the board targets was somebody running
-# `scripts/build_firmware.sh` on their own machine and reading the output.
+# `scripts/build_legacy_firmware.sh` on their own machine and reading the output.
 #
 # That is a real gap rather than a theoretical one: the wing projects were two
 # near-duplicate trees until 2026-09-25, and the reason nobody noticed is that a
 # build of either one was a thing a person chose to do.
 #
 # It runs that same script, unchanged, rather than restating its steps, so there
-# is one list to keep in step and not two. `scripts/build_firmware.sh` builds all
+# is one list to keep in step and not two. `scripts/build_legacy_firmware.sh` builds all
 # fifteen environments and then runs the firmware's host tests, so the arithmetic
-# checks in `firmware/wing/host_test/` are covered here too.
+# checks in `firmware/legacy/wing/host_test/` are covered here too.
 #
 # Manual only: `workflow_dispatch` and nothing else. It does not run on pushes and
 # it does not run on pull requests. Start it from the Actions tab when a firmware
@@ -62,5 +62,5 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
 
-      - name: Build the firmware and run its host tests
-        run: bash scripts/build_firmware.sh
+      - name: Build legacy firmware and run its host tests
+        run: bash scripts/build_legacy_firmware.sh

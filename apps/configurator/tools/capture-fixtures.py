@@ -8,8 +8,8 @@ evidence rather than a second copy of my own assumptions.
 
     python3 apps/configurator/tools/capture-fixtures.py
 
-It looks for the simulator at `$AK_SIM`, else `aerialkit/build-host/aerialkit-sim`
-relative to the workspace root. Run `make host` in `aerialkit/` first.
+It looks for the simulator at `$AK_SIM`, else `firmware/build-host/aerialkit-sim`
+relative to the workspace root. Supply an externally built simulator with `AK_SIM`.
 
 Three files come out of one run:
 
@@ -50,7 +50,7 @@ import sys
 HERE = pathlib.Path(__file__).resolve().parent
 APP = HERE.parent
 WORKSPACE = APP.parent.parent
-AERIALKIT = WORKSPACE / "aerialkit"
+AERIALKIT = WORKSPACE / "firmware"
 SIM_CANDIDATES = [
     os.environ.get("AK_SIM"),
     str(AERIALKIT / "build-host" / "aerialkit-sim"),
@@ -65,7 +65,7 @@ def find_simulator() -> str:
         if candidate and pathlib.Path(candidate).is_file():
             return candidate
     sys.exit(
-        "no aerialkit-sim found; run `make host` in aerialkit/ or set AK_SIM.\n"
+        "no aerialkit-sim found; set AK_SIM to an externally built simulator.\n"
         "looked in:\n  " + "\n  ".join(c for c in SIM_CANDIDATES if c)
     )
 
