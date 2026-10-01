@@ -1,0 +1,7 @@
+node_modules/
+dist/
+bridge/node_modules/
+
+# Vite writes its dependency cache here; it is derived and large.
+.vite/
+*.tsbuildinfo

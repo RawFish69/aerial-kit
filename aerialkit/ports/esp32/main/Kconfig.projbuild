@@ -1,0 +1,45 @@
+# AerialKit's own settings for this port.
+#
+# The one thing that cannot be the same on every ESP32 is the network, because
+# there is no such thing as "the network" on a chip: a radio is a choice, and a
+# build that only has one of them cannot tell you which one is missing.
+#
+# QEMU has no radio. Its emulated ESP32 has an OpenCores Ethernet MAC, and that
+# is the only medium anything on this machine can actually talk over, so it is
+# the default and it is the one the automated check uses end to end. A board in
+# a field has the other one: an ESP32 devkit has no PHY at all, so the Wi-Fi
+# choice is what makes this port work on the aircraft rather than only under
+# the emulator.
+#
+# Wi-Fi credentials live here, in the build configuration, rather than in the
+# parameter table. That is partly because the table has no string type and
+# partly because it is the right place for a secret: the parameter table is
+# served over the config protocol, and a password in it would be readable by
+# anything that can reach the aircraft's port. The cost is that changing
+# network means rebuilding, which for a field change is a real cost and is
+# written down in docs/17-esp32-port.md rather than hidden.
+
+menu "AerialKit"
+
+    choice AK_NET_MEDIUM
+        prompt "network medium"
+        default AK_NET_OPENETH
+
+        config AK_NET_OPENETH
+            bool "OpenCores Ethernet MAC (what QEMU emulates)"
+            help
+                The medium this repository can test end to end. It exists in
+                QEMU's ESP32 model and on almost no real devkit.
+
+        config AK_NET_WIFI
+            bool "Wi-Fi"
+            help
+                What a real board has. Which role the radio plays is not a
+                build choice any more: the credentials are parameters
+                (wifi_ssid, wifi_pass, wifi_ap_ssid, wifi_mode), so one image
+                joins a network, carries one, or decides from what was saved.
+                The access point is never open - it needs wifi_pass, because
+                the config protocol has no authentication of its own.
+    endchoice
+
+endmenu

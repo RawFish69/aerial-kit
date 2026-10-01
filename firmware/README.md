@@ -1,3 +1,5 @@
+> **AerialKit flight-controller firmware** is in [`../aerialkit/`](../aerialkit/README.md), with a [web configurator](../apps/configurator/README.md). The projects indexed below are the existing radio/link firmware and wing bench demonstrations.
+
 # Firmware
 
 All ESP32 / PlatformIO projects in this repo live here. Each subfolder is an
@@ -115,7 +117,7 @@ The current firmware target matrix is:
 
 The link and telemetry projects above are airframe-agnostic. Airframe-specific
 behavior (mixing, allocation, control laws) is not part of them — see the
-airframe table in the [root README](../README.md#supported-airframes).
+airframe table in the [root README](../docs/STACK-GUIDE.md#supported-airframes).
 
 `wing/` is the exception, and is the only project here that is not covered by
 that statement: it carries its own mixer, attitude controller and guidance, it is

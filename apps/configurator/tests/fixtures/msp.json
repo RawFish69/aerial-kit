@@ -1,0 +1,146 @@
+{
+  "betaflight": {
+    "_captured": {
+      "from": "aerialkit/tools/msp_fake_board.py",
+      "note": "betaflight stand-in",
+      "protocol": "MSP v1 for state, MSP v2 for settings"
+    },
+    "analog": {
+      "note": "pack voltage and current, in the board's units",
+      "reply": "244d3e0a6e7dd3005a00e204eb0499",
+      "request": "244d3c016e6f"
+    },
+    "api_version": {
+      "note": "what protocol version the board speaks",
+      "reply": "244d3e040100013034",
+      "request": "244d3c010100"
+    },
+    "attitude": {
+      "note": "roll, pitch, yaw in tenths of a degree",
+      "reply": "244d3e076c9900afff960a3e",
+      "request": "244d3c016c6d"
+    },
+    "board_info": {
+      "note": "board identifier and target name",
+      "reply": "244d3e4604533430350000000b0953544d3332463430350d41455249414c4b49542d53494d02414b0000000000000000000000000000000000000000000000000000000000000000000025",
+      "request": "244d3c010405"
+    },
+    "fc_variant": {
+      "note": "BTFL or INAV -- the string that decides which name list applies",
+      "reply": "244d3e05024254464c1b",
+      "request": "244d3c010203"
+    },
+    "fc_version": {
+      "note": "the release, as three bytes",
+      "reply": "244d3e0d031a060108323032362e362e311a",
+      "request": "244d3c010302"
+    },
+    "motor": {
+      "note": "four outputs, in the board's units",
+      "reply": "244d3e1168e9034c04b004140500000000000000007e",
+      "request": "244d3c016869"
+    },
+    "raw_gps": {
+      "note": "fix, satellites and position",
+      "reply": "244d3e116a030b8768111f3f0ef90229000002be0ac7",
+      "request": "244d3c016a6b"
+    },
+    "rc": {
+      "note": "the channel values the board is flying on",
+      "reply": "244d3e1169e003e003e003ac00e0031307e003e003c0",
+      "request": "244d3c016968"
+    },
+    "setting_absent": {
+      "note": "a name the board does not have -- a refusal, not an empty answer",
+      "reply": "245821001030000085",
+      "request": "24583c00103016006e6f5f737563685f73657474696e675f61745f616c6c9b"
+    },
+    "setting_info_known": {
+      "note": "the same name's description: pgn, type, min, max, default",
+      "reply": "24583e0011302a00310070676e3d32310a747970653d75696e7431360a6d696e3d313030300a6d61783d323030300a64656654",
+      "request": "24583c00113012006661696c736166655f7468726f74746c65007b"
+    },
+    "setting_known": {
+      "note": "ask a setting by name; the board answers 'name = value'",
+      "reply": "24583e00103018006661696c736166655f7468726f74746c65203d203130353043",
+      "request": "24583c00103011006661696c736166655f7468726f74746c6597"
+    },
+    "status": {
+      "note": "arming flags, sensor health, the current mode box, and the profile",
+      "reply": "244d3e0e65e80300002b0000000000000000ab",
+      "request": "244d3c016564"
+    }
+  },
+  "inav": {
+    "_captured": {
+      "from": "aerialkit/tools/msp_fake_board.py",
+      "note": "inav stand-in",
+      "protocol": "MSP v1 for state, MSP v2 for settings"
+    },
+    "analog": {
+      "note": "pack voltage and current, in the board's units",
+      "reply": "244d3e0a6e7dd3005a00e204eb0499",
+      "request": "244d3c016e6f"
+    },
+    "api_version": {
+      "note": "what protocol version the board speaks",
+      "reply": "244d3e040100020502",
+      "request": "244d3c010100"
+    },
+    "attitude": {
+      "note": "roll, pitch, yaw in tenths of a degree",
+      "reply": "244d3e076c9900afff960a3e",
+      "request": "244d3c016c6d"
+    },
+    "board_info": {
+      "note": "board identifier and target name",
+      "reply": "244d3e4604463430350000000b0953544d3332463430350d41455249414c4b49542d53494d02414b0000000000000000000000000000000000000000000000000000000000000000000030",
+      "request": "244d3c010405"
+    },
+    "fc_variant": {
+      "note": "BTFL or INAV -- the string that decides which name list applies",
+      "reply": "244d3e0502494e415617",
+      "request": "244d3c010203"
+    },
+    "fc_version": {
+      "note": "the release, as three bytes",
+      "reply": "244d3e0a031a060105392e312e3029",
+      "request": "244d3c010302"
+    },
+    "motor": {
+      "note": "four outputs, in the board's units",
+      "reply": "244d3e1168e9034c04b004140500000000000000007e",
+      "request": "244d3c016869"
+    },
+    "raw_gps": {
+      "note": "fix, satellites and position",
+      "reply": "244d3e116a030b8768111f3f0ef90229000002be0ac7",
+      "request": "244d3c016a6b"
+    },
+    "rc": {
+      "note": "the channel values the board is flying on",
+      "reply": "244d3e1169e003e003e003ac00e0031307e003e003c0",
+      "request": "244d3c016968"
+    },
+    "setting_absent": {
+      "note": "a name the board does not have -- a refusal, not an empty answer",
+      "reply": "245821001030000085",
+      "request": "24583c00103016006e6f5f737563685f73657474696e675f61745f616c6c9b"
+    },
+    "setting_info_known": {
+      "note": "the same name's description: pgn, type, min, max, default",
+      "reply": "24583e0011302a00310070676e3d32310a747970653d75696e7431360a6d696e3d313030300a6d61783d323030300a64656654",
+      "request": "24583c00113012006661696c736166655f7468726f74746c65007b"
+    },
+    "setting_known": {
+      "note": "ask a setting by name; the board answers 'name = value'",
+      "reply": "24583e00103018006661696c736166655f7468726f74746c65203d203130353043",
+      "request": "24583c00103011006661696c736166655f7468726f74746c6597"
+    },
+    "status": {
+      "note": "arming flags, sensor health, the current mode box, and the profile",
+      "reply": "244d3e0e65e80300002b0000000000000000ab",
+      "request": "244d3c016564"
+    }
+  }
+}

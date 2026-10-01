@@ -23,7 +23,7 @@ A comprehensive guide to the aerial-kit system covering simulation, hardware int
 
 aerial-kit is a multi-purpose control system for **aerial robots**. Multirotors are
 implemented and flying today; fixed-wing, monocopter, and TVC airframes are being added — see
-the airframe table in the [root README](../README.md#supported-airframes). Features:
+the airframe table in the [root README](STACK-GUIDE.md#supported-airframes). Features:
 
 - **Airframes**: quadcopter (reference, flying); hexacopter, octacopter, twin-motor wing,
   single-motor wing, monocopter, and TVC are planned

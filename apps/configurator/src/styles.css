@@ -1,0 +1,1324 @@
+/*
+ * AerialKit configurator - layout and the few things Blueprint does not draw.
+ *
+ * Blueprint (@blueprintjs/core, dark theme) owns the controls: buttons, inputs,
+ * tags, callouts, cards, tables, the navbar. This file only lays the page out
+ * and styles the instrument drawings (3D view, horizon, sticks, output map),
+ * using Blueprint's own palette so the page reads as one system. Type is
+ * Blueprint's default system font.
+ */
+
+:root {
+  /* Blueprint 5 palette, dark theme. */
+  --paper: #1c2127;        /* DARK_GRAY1 */
+  --surface: #252a31;      /* DARK_GRAY2 */
+  --sunken: #1c2127;       /* DARK_GRAY1 */
+  --raised: #2f343c;       /* DARK_GRAY3 */
+  --ink: #f6f7f9;          /* LIGHT_GRAY5 */
+  --ink-soft: #abb3bf;     /* GRAY4 */
+  --ink-faint: #8f99a8;    /* GRAY3 */
+  --rule: #383e47;         /* DARK_GRAY4 */
+  --rule-strong: #5f6b7c;  /* GRAY1 */
+
+  --select: #4c90f0;       /* BLUE4 - live and selected values */
+  --target: #bd6bbd;       /* VIOLET4 - commanded values */
+  --caution: #ec9a3c;      /* ORANGE4 */
+  --warning: #e76a6e;      /* RED4 */
+  --normal: #32a467;       /* GREEN4 */
+  --sky: #215db0;          /* BLUE2 */
+  --ground: #77450d;       /* ORANGE1 */
+
+  --ok-ink: #72ca9b;
+  --warn-ink: #fbb360;
+  --danger-ink: #fa999c;
+  --accent: #4c90f0;
+  --accent-soft: rgba(45, 114, 210, 0.2);
+  --warn-bg: rgba(200, 118, 25, 0.15);
+  --danger-bg: rgba(205, 66, 70, 0.15);
+  --ok-bg: rgba(35, 133, 81, 0.15);
+  --mono: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+
+  --gap: 16px;
+  --gap-2: 8px;
+  --radius: 4px;
+  --rail: 210px;
+  --topbar: 50px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+}
+
+body {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+.small {
+  font-size: 12px;
+}
+
+p {
+  margin: 0 0 8px;
+}
+
+p:last-child {
+  margin-bottom: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ---- structure ---------------------------------------------------------- */
+
+.app {
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  margin-top: var(--gap);
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rail {
+    flex-direction: row;
+    overflow-x: auto;
+    position: static;
+  }
+
+  .tab {
+    white-space: nowrap;
+  }
+}
+
+.panel {
+  min-width: 0;
+}
+
+.panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.panel > header .note {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.panel .body {
+  padding: 14px;
+}
+
+.muted {
+  color: var(--ink-faint);
+}
+
+.soft {
+  color: var(--ink-soft);
+}
+
+.small {
+  font-size: 12px;
+}
+
+/* ---- limitations -------------------------------------------------------- */
+
+.limits {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.limit {
+  border-left: 3px solid var(--rule-strong);
+  padding-left: 11px;
+}
+
+.limit.blocks-writes {
+  border-left-color: var(--danger-ink);
+}
+
+.limit.qualifies-writes {
+  border-left-color: var(--warn-ink);
+}
+
+.limit.note {
+  border-left-color: var(--rule-strong);
+}
+
+.limit .summary {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.limit .detail {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+/* Where the claim comes from, so a reader can go and check it. Quiet, but not
+   hidden: a citation nobody can see is a citation nobody follows. */
+.limit .cites {
+  list-style: none;
+  margin: 5px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 12px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+/* ---- key/value tables --------------------------------------------------- */
+
+.kv {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px 16px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.kv dt {
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.kv dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.kv dd,
+.kv dt {
+  padding: 1px 0;
+}
+
+/* ---- parameters --------------------------------------------------------- */
+/*
+ * The centrepiece. Thirty-two parameters in one table, one line per row, so the
+ * whole loop fits on a screen rather than a scroll. The columns are deliberate:
+ *
+ *   name     — the thing, in the wire's own spelling
+ *   notes    — what it is, one line, the whole sentence on hover
+ *   range    — the bounds the source wrote, and nothing wider
+ *   board    — what the board last said it holds
+ *   new      — what the person is about to send
+ *   actions  — read back / send / discard, only when each has a job
+ *
+ * A row that has had a write pushed to it grows a full-width detail line under
+ * itself (the write's story, requested/echoed/applied) rather than inflating
+ * the row — a row's height should not depend on whether a neighbour's help text
+ * wrapped.
+ */
+
+.params {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.params th {
+  text-align: left;
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-weight: 650;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+  /* A fixed-layout header whose text is wider than its column must clip with an
+     ellipsis rather than paint over the next column. This is a safety net: the
+     column widths below are sized to fit every header, but a future rename that
+     outgrows its column should degrade to "ON THE BO…", never to a collision. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.params td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: middle;
+}
+
+/* The last row in a group should not double up with the next group's header,
+   and the very last row should not have a trailing rule. */
+.params tr.group + tr td,
+.params tr:last-child td {
+  border-bottom: none;
+}
+
+.params tr.edited {
+  background: var(--accent-soft);
+}
+
+.params tr.edited td {
+  border-bottom-color: var(--rule);
+}
+
+.params .name {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A fixed-layout cell is clipped rather than stretched: a name or range longer
+   than its column is truncated with an ellipsis, never a wrapped second line. */
+.params td.name,
+.params td.notes,
+.params td.range,
+.params td.board {
+  overflow: hidden;
+}
+
+.params .help {
+  display: block;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.params .range {
+  color: var(--ink-faint);
+  font-size: 12.5px;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.params .range .why {
+  display: block;
+  white-space: normal;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  margin-top: 1px;
+}
+
+.params .value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* A "changed since boot" marker sits beside the board value and says the word
+   in full, because a lone dot would be a colour without a meaning. */
+.params .changed {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--warn-ink);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.params .entry {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.params .entry input {
+  width: 100%;
+  min-width: 60px;
+  padding: 3px 7px;
+}
+
+.params td.actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.params td.actions button {
+  margin-left: 4px;
+}
+
+/* A group is a heading row, not a card: a quiet label with a rule under it,
+   so the table reads as one continuous sheet with chapters. */
+.params tr.group td {
+  padding: 14px 10px 6px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--ink-soft);
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+}
+
+.params tr.group:first-child td {
+  padding-top: 8px;
+}
+
+/* The write's story, under the row it belongs to. Requested / echoed / applied
+   / persisted, kept apart in words because that is the whole point. */
+.params tr.detail td {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--accent-soft);
+}
+
+.params tr.detail + tr.group td,
+.params tr.detail:last-child td {
+  border-bottom: none;
+}
+
+.trace {
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: baseline;
+}
+
+.trace .fact {
+  display: inline-flex;
+  gap: 5px;
+  align-items: baseline;
+}
+
+.trace .fact .label {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.trace .why {
+  flex-basis: 100%;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+/* ---- the parameter table on a narrow screen ----------------------------- */
+/*
+ * Between the phone reflow and the width where "What it is" has room for its
+ * own header, that column is dropped rather than squeezed to nothing. A
+ * fixed-layout table cannot give a column less than its header without
+ * clipping, and a 13px "What it is" is worse than none: the sentence survives
+ * as a hover title on the parameter name either way.
+ */
+@media (max-width: 840px) {
+  .params col.col-notes,
+  .params th.notes,
+  .params td.notes {
+    display: none;
+  }
+}
+
+/*
+ * Below a phone's width a six-column table is a vice, not a table. The rows
+ * reflow into a stacked block: name and board value on one line, the input and
+ * its verbs on the next, the range tucked beside the board value. The notes
+ * column is dropped — the sentence is still there as a hover title, and a phone
+ * that must show both a help sentence and a value for every parameter would be
+ * a manual, not a bench tool.
+ */
+@media (max-width: 760px) {
+  .params,
+  .params tbody {
+    display: block;
+  }
+
+  .params thead {
+    display: none;
+  }
+
+  .params tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px 10px;
+    padding: 7px 0;
+  }
+
+  .params tr:not(.group):not(.detail) {
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .params tr.group,
+  .params tr.detail {
+    display: block;
+    padding: 0;
+  }
+
+  .params td {
+    display: block;
+    padding: 0;
+    border: none;
+  }
+
+  /* Two lines per parameter: name · range · board value on the first, the
+     input and its verbs on the second. The range sits between the name and the
+     board value, muted, so it costs no line of its own. */
+  .params td.name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .params td.notes {
+    display: none;
+  }
+
+  .params td.range {
+    grid-column: 2;
+    grid-row: 1;
+    overflow: hidden;
+  }
+
+  .params td.board {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .params td.value {
+    grid-column: 1 / 3;
+    grid-row: 2;
+  }
+
+  .params td.actions {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+    text-align: right;
+  }
+
+  .params td.actions button {
+    margin-left: 4px;
+  }
+
+  .params tr.edited {
+    background: transparent;
+  }
+
+  .params tr:last-child:not(.group):not(.detail) {
+    border-bottom: none;
+  }
+
+  .params tr.group td,
+  .params tr.group:first-child td {
+    padding: 12px 0 6px;
+    border-bottom: 1px solid var(--rule);
+    background: transparent;
+  }
+
+  .params tr.detail td {
+    padding: 8px 10px;
+    background: var(--accent-soft);
+  }
+}
+
+/* ---- diagnostics -------------------------------------------------------- */
+
+.counters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 10px;
+}
+
+.counter .n {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.counter .k {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12.5px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.events li {
+  display: flex;
+  gap: 9px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.events li:last-child {
+  border-bottom: none;
+}
+
+.events .at {
+  font-family: var(--mono);
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.events .warn .text {
+  color: var(--warn-ink);
+}
+
+.events .error .text {
+  color: var(--danger-ink);
+}
+
+/* ---- the read-only page (a board that is not ours) ---------------------- */
+
+/* A small plain table for the foreign board's settings — nothing here offers a
+   write, so it borrows none of the editor's column language. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  text-align: left;
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-weight: 650;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.data-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table .name {
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+/* A value the board could not give. It is text, not a colour, and the sentence
+   travels with it. */
+.unknown {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+/* Plain lists for the foreign page's limitations and trace, which are a read of
+   a board, not the editor's write story. */
+.list-plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12.5px;
+}
+
+.list-plain li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.list-plain li:last-child {
+  border-bottom: none;
+}
+
+.list-plain .warn {
+  color: var(--warn-ink);
+}
+
+.list-plain .error {
+  color: var(--danger-ink);
+}
+
+/* ---- receiver ----------------------------------------------------------- */
+
+/*
+ * Channel bars, and the reason they are bars of a plain count.
+ *
+ * The fill is the count against the field's own full range, not against the
+ * receiver's calibrated travel. `rc_min`, `rc_mid` and `rc_max` are parameters
+ * the board holds and the `rc channels` reply does not carry, so a bar scaled
+ * by them would be this app's decode wearing the board's authority — and the
+ * number is printed beside every bar so the bar is a reading aid rather than
+ * the fact itself.
+ */
+.rc-channels {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 8px 18px;
+  margin: 0 0 4px;
+}
+
+/* A heading inside a panel body, between one block of readings and the next.
+   `h3` alone has no room above it and the first one in a panel needs none. */
+.panel .body h3.sub-head {
+  margin-top: 18px;
+}
+
+.rc-channel .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.rc-channel .head .n {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A track with one fill, and a centre tick on the ones that have a centre. */
+.rc-track {
+  display: block;
+  position: relative;
+  height: 6px;
+  margin-top: 3px;
+  border-radius: 3px;
+  background: var(--sunken);
+  border: 1px solid var(--rule);
+  overflow: hidden;
+}
+
+.rc-track .fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+}
+
+/* The sticks: left of centre is negative, right is positive, and the tick is
+   zero — so a stick at rest is an empty track with the tick under it rather
+   than a half-full bar that reads as a value. */
+.rc-track .centre {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 1px;
+  background: var(--rule-strong);
+}
+
+.rc-sticks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px 18px;
+  margin: 0 0 4px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+hr.rule {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 14px 0;
+}
+
+
+
+/* ---- page structure ---------------------------------------------------- */
+
+.app {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar.bp5-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  align-items: center;
+  gap: 16px;
+  height: auto;
+  min-height: var(--topbar);
+  padding: 6px 16px;
+}
+
+.topbar .brand {
+  height: auto;
+  white-space: nowrap;
+  gap: 8px;
+  width: calc(var(--rail) - 16px);
+  flex: none;
+}
+
+.brand-mark {
+  display: block;
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+
+.topbar .status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.topbar .actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
+
+.topbar .bp5-tag {
+  flex: none;
+  max-width: none;
+}
+
+.armed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.armed-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.armed .because {
+  max-width: 380px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.page-notice {
+  margin: 12px 16px 0;
+}
+
+.page {
+  padding: 16px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+}
+
+.rail {
+  position: sticky;
+  top: var(--topbar);
+  align-self: start;
+  height: calc(100vh - var(--topbar));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.rail-heading {
+  margin: 14px 10px 4px;
+  font-size: 12px;
+}
+
+.tabbody {
+  min-width: 0;
+  padding: 16px 20px 48px;
+}
+
+.tabfooter {
+  margin-top: 24px;
+}
+
+/* ---- panels (Blueprint cards with a header row) ------------------------ */
+
+.panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -4px 0 10px;
+}
+
+.panel > header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.panel .note {
+  font-size: 12px;
+}
+
+.notice {
+  margin-bottom: 12px;
+}
+
+.limits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.limit .summary {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.limit .cites {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--ink-faint);
+}
+
+.params {
+  width: 100%;
+}
+
+.params .bp5-input {
+  width: 100%;
+}
+
+/* ---- connect ----------------------------------------------------------- */
+
+.connect-page {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px 64px;
+}
+
+.connect-card {
+  width: min(720px, 100%);
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.choice.bp5-card {
+  margin: 0;
+  height: 100%;
+}
+
+.connect-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* ---- attitude ---------------------------------------------------------- */
+
+.attitude {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+  min-height: calc(100vh - var(--topbar) - 120px);
+}
+
+.viewport {
+  position: relative;
+  min-height: 440px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #2f343c; /* DARK_GRAY3 */
+}
+
+.scene {
+  position: absolute;
+  inset: 0;
+}
+
+.scene canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.viewport-hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+
+.viewport-tools {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  gap: 6px;
+}
+
+.instruments {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.horizon,
+.att-trace,
+.readout,
+.sticks,
+.outputs-map,
+.outputs-bars {
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.horizon {
+  padding: 12px;
+}
+
+.horizon svg {
+  display: block;
+  max-width: 280px;
+  margin: 0 auto;
+}
+
+.horizon-num {
+  font-size: 11px;
+  fill: var(--ink);
+}
+
+.readouts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.readout {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+}
+
+.readout-label {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.readout-value {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.readout-value small {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.att-trace {
+  padding: 8px 10px 10px;
+}
+
+.att-trace figcaption {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.att-trace canvas {
+  width: 100%;
+  height: 120px;
+  display: block;
+}
+
+.key::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  margin-right: 5px;
+  vertical-align: middle;
+  background: currentColor;
+}
+
+.key.select { color: var(--select); }
+.key.target { color: var(--target); }
+.key.caution { color: var(--caution); }
+
+/* ---- receiver and outputs ---------------------------------------------- */
+
+.sticks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 16px;
+}
+
+.gimbal {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.outputs {
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.outputs-map,
+.outputs-bars {
+  padding: 14px;
+}
+
+.map-num {
+  font-size: 16px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+
+.map-label {
+  font-size: 11px;
+  fill: var(--ink-faint);
+}
+
+.outputs-bars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.vbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.vbar-track {
+  position: relative;
+  width: 40px;
+  height: 200px;
+  background: var(--sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.vbar-fill {
+  position: absolute;
+  inset: auto 0 0 0;
+  background: var(--select);
+}
+
+.vbar-fill.armed {
+  background: var(--warning);
+}
+
+.vbar-value {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.vbar-label {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.outputs-note {
+  flex-basis: 100%;
+}
+
+/* ---- parameters -------------------------------------------------------- */
+
+.params-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.params-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.params-tools .search {
+  flex: 1 1 300px;
+  max-width: 480px;
+}
+
+.params-tools .spacer {
+  flex: 1;
+}
+
+.empty {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+/* ---- narrow screens ---------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .attitude,
+  .outputs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .attitude {
+    min-height: 0;
+  }
+  .instruments {
+    display: grid;
+    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+    align-items: start;
+  }
+  .instruments .horizon {
+    grid-row: span 2;
+  }
+  .armed-text {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .topbar.bp5-navbar {
+    flex-wrap: wrap;
+  }
+  .topbar .brand {
+    width: auto;
+  }
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rail {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rail .tab {
+    width: auto;
+    flex: none;
+  }
+  .rail-heading {
+    display: none;
+  }
+  .choices {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Configuration workflow: neutral surfaces, one accent, explicit stages. */
+.topbar .brand { width: auto; }
+.topbar .status { flex: 1 1 220px; min-width: 0; flex-wrap: wrap; }
+.topbar .actions { flex-wrap: wrap; }
+.topbar .bp5-tag { max-width: 100%; overflow-wrap: anywhere; }
+.changebar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 16px 40px;
+  padding: 12px 20px; border-bottom: 1px solid var(--rule); background: var(--paper);
+}
+.change-stage { display: flex; align-items: center; gap: 10px; }
+.change-stage strong { display: block; font-size: 12px; font-weight: 600; }
+.change-stage div > span { display: block; color: var(--ink-soft); font-size: 12px; margin-top: 2px; }
+.stage-number {
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border: 1px solid var(--rule-strong); border-radius: 50%; color: var(--ink-soft); font-size: 12px;
+}
+.stage-number.pending { color: var(--warn-ink); border-color: var(--caution); }
+.changebar > button { margin-left: auto; }
+.section-heading { margin-bottom: 16px; }
+.section-heading h1 { font-size: 20px; line-height: 1.2; font-weight: 600; margin: 0; }
+.group-picker { display: flex; gap: 8px; align-items: center; }
+.group-picker select { min-width: 150px; background: var(--surface); color: var(--ink); }
+.group-picker option { background: var(--surface); color: var(--ink); }
+.params-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.unavailable-sections { padding: 8px 10px; font-size: 12px; color: var(--ink-soft); }
+.unavailable-sections summary { cursor: pointer; color: var(--ink); padding: 6px 0; }
+.unavailable-sections dt { font-weight: 600; color: var(--ink); }
+.unavailable-sections dd { margin: 4px 0 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.unavailable-sections summary:focus-visible { outline: 2px solid var(--select); outline-offset: 3px; }
+.params-tools .search { max-width: none; }
+@media (max-width: 860px) {
+  .topbar.bp5-navbar { position: static; gap: 10px; }
+  .topbar .status { flex-basis: 100%; }
+  .topbar .actions { margin-left: 0; flex: 1 1 100%; min-width: 0; }
+  .changebar { padding: 12px 16px; gap: 12px; }
+  .change-stage { flex: 1 1 250px; }
+  .changebar > button { margin-left: 0; }
+  .rail { flex-wrap: wrap; overflow-x: visible; }
+  .unavailable-sections { flex-basis: 100%; }
+  .unavailable-sections dl { max-width: 600px; }
+  .tabbody { padding: 16px 12px 32px; }
+  .params-tools .search { flex-basis: 100%; }
+  .params-view .panel .body { overflow-x: auto; }
+  .params-view .params { min-width: 0; }
+}
+
+.limit .cites li { overflow-wrap: anywhere; }

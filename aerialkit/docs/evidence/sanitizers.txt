@@ -1,0 +1,66 @@
+# AerialKit under -fsanitize=address,undefined - 2026-09-17
+#
+# What this file is: the recording behind docs/21-port-on-the-host.md, "The same
+# suite under the sanitizers". Both halves are here - the findings from the
+# first run, verbatim as the sanitizer printed them, and the run that is green
+# after the fixes - because a check that has only ever passed is a check nobody
+# should trust. No board was involved: this is the host suite and the twenty-six
+# simulated sessions, built with the sanitizers.
+#
+# ---- the first run: `make test` with SAN_FLAGS, on the suite as it stood -----
+#
+# The build and the test binary:
+#
+#   make host HOST_OUT=build-asan \
+#       HOST_CC="cc -fsanitize=address,undefined -fno-omit-frame-pointer \
+#                -fno-sanitize-recover=all"
+#   build-asan/aerialkit-tests
+#
+# The findings. The first two stopped the run; the rest were collected by
+# dropping `-fno-sanitize-recover=all` down to `=address`, so that UBSan
+# reported every site instead of halting at the first:
+
+tests/test_aerialkit.c:651:16: runtime error: index 22 out of bounds for type 'uint8_t [22]'
+tests/crsf_fixture.c:16:16: runtime error: index 22 out of bounds for type 'uint8_t [22]'
+tests/test_arch.c:1096:35: runtime error: load of address 0xaaaac45d27d9 with insufficient space for an object of type 'const char'
+==2186645==ERROR: AddressSanitizer: global-buffer-overflow on address 0xaaaaae9027d9
+    #0 0xaaaaae8eb5a4 in text_sum src/boards/AERIALKIT_F405/board.c:140
+    #1 0xaaaaae8eb5a4 in ak_board_config_write src/boards/AERIALKIT_F405/board.c:187
+    #2 0xaaaaae89ca10 in test_the_flash_controllers_success_path tests/test_arch.c:784
+src/core/sensors/ak_baro_bmp280.c:150:49: runtime error: left shift of negative value -26983040
+src/core/sensors/ak_baro_bmp280.c:153:42: runtime error: left shift of negative value -4509070
+src/core/sensors/ak_baro_bmp388.c:192:26: runtime error: signed integer overflow: 16777215 * 1140850620000 cannot be represented in type 'long int'
+    #0 0xaaaad7bea2b0 in bmp388_compensate_pressure src/core/sensors/ak_baro_bmp388.c:192
+    #1 0xaaaad7bea2b0 in bmp388_read src/core/sensors/ak_baro_bmp388.c:274
+    #2 0xaaaad7be837c in ak_baro_read src/core/sensors/ak_baro.c:97
+    #3 0xaaaad7c4e460 in test_bmp388 tests/test_bmp388.c:220
+tests/test_log.c:312:40: runtime error: index 272 out of bounds for type 'uint8_t [272]'
+tests/test_log.c:338:43: runtime error: index 273 out of bounds for type 'uint8_t [272]'
+tests/test_log.c:644:31: runtime error: index 312 out of bounds for type 'uint8_t [272]'
+tools/fw_sim.c:4868:43: runtime error: index 8192 out of bounds for type 'uint8_t [8192]'
+
+# The BMP280's other three shifts in that function (p4 << 35, p << 31, p7 << 4)
+# are the same shape as the two above and were fixed with them; they were not
+# reported because the test's calibration reaches them with a positive operand.
+# Nor was tools/akproto_sim.c's - it has the same `[0][offset]` shape as
+# fw_sim.c's and the protocol checker is not part of `make test`, so it was
+# found by grepping every flat index of a two-dimensional array in the tree
+# after the first one was reported, not by the sanitizer. Both are fixed; the
+# sanitizer's own report is the fw_sim.c line above.
+# The BMP388's guard and the flat-array accesses are written up in
+# src/core/sensors/ak_baro_bmp388.c, tests/test_log.c and tools/fw_sim.c, each
+# with the reason it was wrong rather than only the fix.
+
+# ---- the run after the fixes: `make sanitize` -------------------------------
+
+$ make sanitize
+...
+1441 checks, 0 failed            <- the sanitized host suite
+sim: ok   ... (twenty-six sessions)
+docs: 26 console commands on the firmware, all of them written down (29 pages read)
+aerialkit: the suite under the sanitizers, green
+
+# Measured on the NAS, 2026-09-17: 4m15s wall, 0 runtime errors, 0 leaks
+# reported, 1441 checks and 26 simulated sessions - the same suite and the same
+# counts as `make test`, which is the point: the sanitizer build must not change
+# what the firmware does, only what the machine can see about it.

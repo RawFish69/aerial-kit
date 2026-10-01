@@ -1,0 +1,251 @@
+
+AerialKit Firmware
+  product:  aerialkit-f405
+  board:    SIM / software in the loop
+  rev:      879086d-dirty
+  built:    Sep 18 2026 / 17:29:14
+  clocks:   simulated, 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+faults: none recorded
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the front pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+  ok       a wing arms the same way
+  ok       a wing that loses its link circles down instead of stopping
+  ok       and a link that comes back does not take it back mid-descent
+  ok       and the ground disarms it
+selftest: passed
+
+imu:       configured for 1 kHz, gyro 2000 dps, accel 16 g
+imu:       icm42688p
+baro:      dps310
+rangefinder: tof10120 at 0x52, up to 2.00 m
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is
+boot: ok
+ak> set airframe 1
+airframe = 1
+ak> sim:    812 ms  roll    0.0  pitch    0.0 deg  alt    0 m     0 m out  course   0.0  motors 0.00 0.00
+home: from the first fix while disarmed, 52.1234540, 4.9876450
+gyro: bias measured while disarmed: 0 -1 2 mdps (500 samples, 0 rejected)
+set rth_enable 1
+rth_enable = 1
+ak> sim:   1501 ms  arm switch on, throttle down
+sim:   1811 ms  roll    0.0  pitch    0.0 deg  alt    0 m     0 m out  course   0.0  motors 0.00 0.00
+sim:   2811 ms  roll   -0.0  pitch   -0.0 deg  alt    0 m     0 m out  course   0.0  motors 0.00 0.00
+sim:   3002 ms  throttle up, climb out
+sim:   3811 ms  roll   -0.0  pitch    7.0 deg  alt    1 m    11 m out  course   0.0  motors 0.56 0.56
+status
+state:     armed
+uptime:    4000 ms
+loops:     3186
+attitude:  roll 0 mrad, pitch 125 mrad, yaw 79 mrad
+attitude:  converged
+motors:    549 549 0 0 per-mille
+servos:    0 0 per-mille
+params:    2 changed since the last save
+fault:     none recorded
+ak> sim:   4811 ms  roll   -0.0  pitch    7.2 deg  alt    3 m    27 m out  course 360.0  motors 0.56 0.56
+sim:   5811 ms  roll    0.0  pitch    7.1 deg  alt    5 m    43 m out  course   0.0  motors 0.56 0.56
+sim:   6811 ms  roll   -0.0  pitch    7.0 deg  alt    7 m    59 m out  course 360.0  motors 0.56 0.56
+sim:   7811 ms  roll    0.0  pitch    7.0 deg  alt    8 m    74 m out  course 360.0  motors 0.56 0.56
+sim:   8811 ms  roll    0.0  pitch    7.0 deg  alt   10 m    90 m out  course 360.0  motors 0.56 0.56
+baro
+baro:      dps310, 290 samples, 0 errors
+pressure:  101188 pa, temperature 20.0 c
+reference: 101323 pa, captured on the ground
+height:    11.31 m above the reference, from the barometer
+fused:     11.36 m above the reference, gps correcting the drift
+           290 baro, 43 gps samples
+ak> status
+state:     armed
+uptime:    9501 ms
+loops:     8681
+attitude:  roll 0 mrad, pitch 121 mrad, yaw 286 mrad
+attitude:  converged
+motors:    550 549 0 0 per-mille
+servos:    0 1 per-mille
+params:    2 changed since the last save
+fault:     none recorded
+ak> sim:   9811 ms  roll    0.0  pitch    7.0 deg  alt   12 m   106 m out  course 360.0  motors 0.56 0.56
+sim:  10811 ms  roll    0.0  pitch    7.0 deg  alt   14 m   122 m out  course 360.0  motors 0.56 0.56
+alive: 10811 ms, 9990 loops
+sim:  11003 ms  receiver unplugged, 125 m out
+sim:  11811 ms  roll  -33.4  pitch    0.4 deg  alt   15 m   137 m out  course 351.5  motors 0.56 0.56
+sim:  12811 ms  roll  -35.9  pitch   -0.5 deg  alt   15 m   150 m out  course 324.1  motors 0.54 0.58
+status
+state:     returning home
+uptime:    13000 ms
+loops:     12177
+attitude:  roll -624 mrad, pitch -7 mrad, yaw -383 mrad
+attitude:  converged
+motors:    527 572 0 0 per-mille
+servos:    1 0 per-mille
+params:    2 changed since the last save
+fault:     none recorded
+ak> sim:  13811 ms  roll  -35.5  pitch   -0.3 deg  alt   15 m   158 m out  course 294.3  motors 0.51 0.61
+sim:  14811 ms  roll  -35.2  pitch   -0.2 deg  alt   15 m   158 m out  course 262.0  motors 0.48 0.64
+sim:  15811 ms  roll  -31.8  pitch   -0.2 deg  alt   15 m   150 m out  course 229.5  motors 0.49 0.63
+sim:  16811 ms  roll  -10.0  pitch   -0.1 deg  alt   15 m   138 m out  course 212.2  motors 0.52 0.60
+gps
+gps:       8100 bytes, 81 messages, 81 NAV-PVT, 0 bad checksums, 0 bad lengths, 0 other
+fix:       type 3 (ok), 11 satellites, pdop 1.23, hacc 1200 mm
+usable:    yes (needs 6 satellites, has 11)
+position:  52.1247117, 4.9878856
+altitude:  134707 mm msl
+motion:    13006 mm/s, course -165.-53268 deg
+uart:      0 bytes dropped by the receive buffer
+fixes:     81, valid now: yes
+configure:  0 attempts
+home:      141 m away, bearing -173.-30 deg
+return:    engaged, 1 engagements, holding 134527 mm (fixed wing: bank and circle profile)
+link:      gone, returning enabled
+ak> sim:  17811 ms  roll   -1.9  pitch   -0.1 deg  alt   15 m   125 m out  course 205.8  motors 0.53 0.59
+sim:  18811 ms  roll    0.9  pitch   -0.1 deg  alt   15 m   112 m out  course 203.7  motors 0.53 0.59
+sim:  19811 ms  roll    2.6  pitch   -0.1 deg  alt   15 m    98 m out  course 203.5  motors 0.54 0.58
+sim:  20811 ms  roll    1.2  pitch   -0.1 deg  alt   15 m    84 m out  course 202.9  motors 0.54 0.58
+alive: 20811 ms, 19979 loops
+status
+state:     returning home
+uptime:    21000 ms
+loops:     20168
+attitude:  roll 39 mrad, pitch -1 mrad, yaw -2985 mrad
+attitude:  converged
+motors:    532 567 0 0 per-mille
+servos:    6 -5 per-mille
+params:    2 changed since the last save
+fault:     none recorded
+ak> sim:  21811 ms  roll    3.0  pitch   -0.1 deg  alt   15 m    70 m out  course 203.3  motors 0.55 0.58
+sim:  22559 ms  home again, 60 m out - loitering
+sim:  22811 ms  roll    7.7  pitch   -0.1 deg  alt   15 m    57 m out  course 203.9  motors 0.55 0.57
+sim:  23811 ms  roll   12.6  pitch   -0.1 deg  alt   15 m    43 m out  course 211.1  motors 0.56 0.57
+sim:  24811 ms  roll   12.4  pitch   -0.1 deg  alt   15 m    31 m out  course 219.3  motors 0.56 0.56
+rc
+receiver:  crsf, 13260 bytes, 510 frames
+crsf:      0 crc errors, 0 rejected
+link:      framing
+channels:  992 1155 1073 992 1811 1811 172 172 
+sticks:    roll 0, pitch 199, yaw 0, throttle 549 per-mille
+switches:  arm on, mode angle
+uart:      0 bytes dropped by the receive buffer
+telemetry: 437 frames out, 0 device replies
+ak> sim:  25811 ms  roll   12.3  pitch   -0.1 deg  alt   14 m    20 m out  course 227.9  motors 0.57 0.55
+sim:  26811 ms  roll   12.3  pitch   -0.0 deg  alt   14 m    15 m out  course 237.0  motors 0.57 0.55
+sim:  27811 ms  roll   12.3  pitch   -0.0 deg  alt   14 m    19 m out  course 246.5  motors 0.58 0.54
+sim:  28811 ms  roll   12.3  pitch   -0.0 deg  alt   14 m    28 m out  course 256.5  motors 0.59 0.53
+status
+state:     returning home
+uptime:    29000 ms
+loops:     28160
+attitude:  roll 213 mrad, pitch 0 mrad, yaw -2021 mrad
+attitude:  converged
+motors:    578 521 0 0 per-mille
+servos:    0 0 per-mille
+params:    2 changed since the last save
+fault:     none recorded
+ak> sim:  29811 ms  roll   12.3  pitch   -0.0 deg  alt   14 m    38 m out  course 266.9  motors 0.59 0.53
+sim:  30560 ms  receiver back, left roll - has the pilot got it?
+sim:  30811 ms  roll   -6.2  pitch   -0.0 deg  alt   14 m    48 m out  course 276.0  motors 0.57 0.55
+alive: 30811 ms, 29969 loops
+sim:  31811 ms  roll  -18.3  pitch    0.0 deg  alt   14 m    57 m out  course 264.3  motors 0.54 0.58
+sim:  32811 ms  roll  -18.0  pitch   -0.0 deg  alt   14 m    67 m out  course 250.2  motors 0.53 0.59
+preflight
+ok    console attached to the board's own port
+ok    clock on the crystal, system 160 MHz, apb1 160 MHz
+ok    tick advanced after 750 spins
+ok    dshot 300 kHz, ARR 279, ccr 98/196, 33001 frames sent
+ok    saved configuration: none stored
+ok    no fault recorded since power on
+ok    airframe 1: the elevon-wing mix and a fixed wing return
+ok    outputs: 4 motors, 2 servos on this board, and the mix needs 2 and 2
+--    gyro bias: measured (500 samples): 0 0 0 mdps
+--    imu: icm42688p
+--    baro: dps310
+--    rangefinder: tof10120, nothing in range
+--    altitude: barometer, gps anchored
+--    battery: 3S, 12.00 V, 4.00 V a cell - ok
+--    receiver: 16432 bytes, 632 frames
+--    gps: 16100 bytes, 161 nav-pvt, 0 configure attempts
+--    fix: type 3, 11 satellites, hacc 1200 mm - usable
+--    return: ready, home set, 11 satellites
+--    blackbox: 384 records (wrapped)
+--    long log: 384 records in retained RAM
+--    flash log: 160 records
+--    link up, armed
+--    launch: off - no channel
+--    arm:       refused - the throttle is at 55 per cent, and arming wants 5
+preflight: the machine is what the firmware thinks it is
+ak> sim:  33811 ms  roll  -17.8  pitch   -0.0 deg  alt   14 m    76 m out  course 236.0  motors 0.53 0.59
+sim:  34811 ms  roll  -17.6  pitch   -0.0 deg  alt   14 m    85 m out  course 221.9  motors 0.53 0.59
+sim:  35811 ms  roll  -17.6  pitch   -0.0 deg  alt   14 m    92 m out  course 208.2  motors 0.54 0.58
+sim:  36811 ms  roll  -17.5  pitch    0.0 deg  alt   14 m    98 m out  course 194.9  motors 0.54 0.58
+status
+state:     armed
+uptime:    37000 ms
+loops:     36150
+attitude:  roll -306 mrad, pitch 0 mrad, yaw -3162 mrad
+attitude:  converged
+motors:    534 564 0 0 per-mille
+servos:    2 1 per-mille
+params:    2 changed since the last save
+fault:     none recorded
+ak> sim:  37811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   104 m out  course 182.1  motors 0.55 0.57
+sim:  38811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   109 m out  course 169.7  motors 0.56 0.56
+sim:  39811 ms  roll  -17.5  pitch    0.0 deg  alt   14 m   114 m out  course 157.8  motors 0.56 0.56
+sim:  40811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   119 m out  course 146.3  motors 0.57 0.55
+alive: 40811 ms, 39957 loops
+sim:  41811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   124 m out  course 135.2  motors 0.57 0.55
+sim:  42811 ms  roll  -17.5  pitch    0.0 deg  alt   14 m   129 m out  course 124.5  motors 0.58 0.54
+sim:  43811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   134 m out  course 114.1  motors 0.58 0.54
+sim:  44811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   139 m out  course 103.9  motors 0.58 0.54
+sim:  45811 ms  roll  -17.5  pitch    0.0 deg  alt   14 m   145 m out  course  94.0  motors 0.59 0.53
+sim:  46811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   150 m out  course  84.3  motors 0.59 0.53
+sim:  47811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   156 m out  course  74.6  motors 0.59 0.53
+sim:  48811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   161 m out  course  65.1  motors 0.59 0.53
+sim:  49811 ms  roll  -17.5  pitch    0.0 deg  alt   14 m   166 m out  course  55.6  motors 0.59 0.53
+sim:  50811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   171 m out  course  46.2  motors 0.59 0.53
+alive: 50811 ms, 49947 loops
+sim:  51811 ms  roll  -17.5  pitch    0.0 deg  alt   14 m   175 m out  course  36.6  motors 0.59 0.53
+sim:  52811 ms  roll  -17.5  pitch    0.0 deg  alt   14 m   179 m out  course  27.0  motors 0.59 0.53
+sim:  53811 ms  roll  -17.5  pitch    0.0 deg  alt   14 m   182 m out  course  17.2  motors 0.58 0.54
+sim:  54811 ms  roll  -17.5  pitch   -0.0 deg  alt   14 m   183 m out  course   7.2  motors 0.58 0.54
+
+sim: ---- 55 s of simulated flight ----
+sim: 55000 ms, 54941 passes of the main loop
+sim: ok   one pass of the loop is one millisecond    1.0011 ms per pass over 54941 passes
+sim: ok   every radio byte reached the parser        45032 of 45032 bytes taken, ring dropped 0
+sim: ok   the radio sent frames throughout           1732 frames of 26 bytes each
+sim: ok   the gps stream reached the parser          271 gps frames, 0 bytes dropped
+sim: ok   the position the gps sent is the position the firmware has the fix is noisy, and the home it captured is within five metres of where it was standing
+sim: ok   the aircraft armed and the mixer drove the motors motors turning 3012..55000 ms, up to 0.64
+sim: ok   the wing flew away from the take-off point 184 m out at its furthest
+sim: ok   return-to-home brought it back inside the arrival radius closest approach 15 m (arrive 60 m)
+sim: ok   and it flew that home in wind, nose off its own track the nose was up to 83 deg off the track it was making, in 5 m/s of wind out of the west
+sim: ok   and it circled there instead of wandering off circled between 15 m and 60 m before the pilot took over
+sim: ok   the altitude it captured is the altitude it kept held 14 m, ended at 14 m (limit 25 m)
+sim: ok   the mixer drove the elevons                elevons moved to 0.78 of full travel
+sim: ok   the navigator says it took over            the console reports the return engaged
+sim: ok   the pilot got it back when the receiver did asked for a left roll, -17.8 deg three seconds later
+sim: ok   the barometer reads the height the aircraft is flying at the barometer says 11.3 m, the airframe is at 11.4 m
+sim: ok   and the height the navigator flies on is that height the fused height is 11.4 m, the airframe is at 11.4 m
+sim: ok   the handset's telemetry arrived intact     every frame passed the crc the receiver checks
+sim: ok   and the battery frame carries the pack it is flying the handset reads 12.00 V, the pack is 12.00 V
+sim: ok   and the attitude frame carries the attitude it has the handset reads -17.5 deg, the airframe is at -17.5 deg
+sim: ok   and the gps frame carries the fix the module sent the handset reads 52.1228695, 4.9901876, 11 satellites
+sim: ok   and the flight mode said ANGLE and then RTH ANGLE
+sim: PASS (0 checks failed)

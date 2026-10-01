@@ -1,0 +1,11 @@
+# ESP-IDF generates sdkconfig from sdkconfig.defaults, and the build tree is a
+# build tree. Neither belongs in the repository: sdkconfig holds every default
+# IDF chose for this host, which is exactly the kind of thing that turns into a
+# mystery diff later.
+sdkconfig
+sdkconfig.old
+build/
+# And the radio's own build tree, which `scripts/esp32-proto.sh` keeps beside
+# the default one so that the half of the port a real board uses is compiled
+# without disturbing the half the checks run (see docs/17-esp32-port.md).
+build-wifi/

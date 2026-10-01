@@ -1,0 +1,258 @@
+
+AerialKit Firmware
+  product:  aerialkit-f405
+  board:    SIM / software in the loop
+  rev:      879086d-dirty
+  built:    Sep 18 2026 / 17:29:14
+  clocks:   simulated, 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+faults: none recorded
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the front pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+  ok       a wing arms the same way
+  ok       a wing that loses its link circles down instead of stopping
+  ok       and a link that comes back does not take it back mid-descent
+  ok       and the ground disarms it
+selftest: passed
+
+imu:       configured for 1 kHz, gyro 2000 dps, accel 16 g
+imu:       icm42688p
+baro:      dps310
+rangefinder: tof10120 at 0x52, up to 2.00 m
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is
+boot: ok
+ak> sim:    812 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:    812 ms  220 m to wp0, 352 m to wp1, 0 m up, nose 0 deg, the firmware believes -999 deg
+home: from the first fix while disarmed, 52.1234567, 4.9876543
+set airframe 1
+airframe = 1
+ak> gyro: bias measured while disarmed: 0 0 0 mdps (500 samples, 0 rejected)
+sim:   1501 ms  arm switch on, throttle down
+sim:   1811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   1812 ms  220 m to wp0, 352 m to wp1, 0 m up, nose 0 deg, the firmware believes 0 deg
+sim:   2811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   2812 ms  220 m to wp0, 352 m to wp1, 0 m up, nose 0 deg, the firmware believes 0 deg
+sim:   3002 ms  throttle up, climbing out
+sim:   3811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:   3812 ms  209 m to wp0, 342 m to wp1, 1 m up, nose 0 deg, the firmware believes 3 deg
+sim:   4001 ms  typed: mission add 52.1254304 4.9876548
+mission add 52.1254304 4.9876548
+mission: waypoint 0 is 52.1254304, 4.9876548 - 'save' keeps it
+ak> set mission_channel 7
+mission_channel = 7
+ak> sim:   4811 ms  roll    0.0 deg  pitch    5.4 deg  motors 0.56 0.56 0.00 0.00
+sim:   4812 ms  195 m to wp0, 329 m to wp1, 2 m up, nose 0 deg, the firmware believes 7 deg
+sim:   5501 ms  typed: mission add 52.1254304 4.9916784
+mission add 52.1254304 4.9916784
+mission: waypoint 1 is 52.1254304, 4.9916792 - 'save' keeps it
+ak> sim:   5811 ms  roll    0.0 deg  pitch    5.3 deg  motors 0.56 0.56 0.00 0.00
+sim:   5812 ms  180 m to wp0, 317 m to wp1, 4 m up, nose 0 deg, the firmware believes 11 deg
+sim:   6001 ms  mission switch on, at 4 m
+sim:   6811 ms  roll  -18.6 deg  pitch   -0.1 deg  motors 0.56 0.56 0.00 0.00
+sim:   6812 ms  166 m to wp0, 305 m to wp1, 4 m up, nose 352 deg, the firmware believes 7 deg
+sim:   7811 ms  roll  -10.8 deg  pitch   -0.3 deg  motors 0.56 0.56 0.00 0.00
+sim:   7812 ms  151 m to wp0, 296 m to wp1, 4 m up, nose 343 deg, the firmware believes -2 deg
+sim:   8811 ms  roll   -5.5 deg  pitch   -0.2 deg  motors 0.56 0.56 0.00 0.00
+sim:   8812 ms  137 m to wp0, 289 m to wp1, 4 m up, nose 337 deg, the firmware believes -6 deg
+sim:   9811 ms  roll   -2.7 deg  pitch   -0.1 deg  motors 0.56 0.56 0.00 0.00
+sim:   9812 ms  124 m to wp0, 284 m to wp1, 4 m up, nose 335 deg, the firmware believes -8 deg
+sim:  10811 ms  roll   -1.4 deg  pitch   -0.1 deg  motors 0.56 0.56 0.00 0.00
+alive: 10811 ms, 9990 loops
+sim:  10812 ms  110 m to wp0, 280 m to wp1, 4 m up, nose 333 deg, the firmware believes -9 deg
+sim:  11811 ms  roll   -0.7 deg  pitch   -0.1 deg  motors 0.56 0.56 0.00 0.00
+sim:  11812 ms  97 m to wp0, 277 m to wp1, 4 m up, nose 332 deg, the firmware believes -9 deg
+sim:  12811 ms  roll   -0.3 deg  pitch   -0.1 deg  motors 0.56 0.56 0.00 0.00
+sim:  12812 ms  84 m to wp0, 274 m to wp1, 4 m up, nose 332 deg, the firmware believes -9 deg
+sim:  13811 ms  roll   -0.2 deg  pitch   -0.1 deg  motors 0.56 0.56 0.00 0.00
+sim:  13812 ms  70 m to wp0, 273 m to wp1, 4 m up, nose 332 deg, the firmware believes -9 deg
+sim:  14811 ms  roll   18.5 deg  pitch   -0.1 deg  motors 0.57 0.55 0.00 0.00
+sim:  14812 ms  57 m to wp0, 272 m to wp1, 4 m up, nose 333 deg, the firmware believes -9 deg
+sim:  15811 ms  roll   36.0 deg  pitch   -0.1 deg  motors 0.56 0.56 0.00 0.00
+sim:  15812 ms  43 m to wp0, 268 m to wp1, 4 m up, nose 358 deg, the firmware believes 13 deg
+sim:  16811 ms  roll   35.6 deg  pitch   -0.1 deg  motors 0.54 0.58 0.00 0.00
+sim:  16812 ms  33 m to wp0, 259 m to wp1, 4 m up, nose 24 deg, the firmware believes 39 deg
+sim:  17811 ms  roll   29.7 deg  pitch   -0.0 deg  motors 0.53 0.59 0.00 0.00
+sim:  17812 ms  35 m to wp0, 244 m to wp1, 4 m up, nose 47 deg, the firmware believes 61 deg
+sim:  18811 ms  roll   19.1 deg  pitch   -0.1 deg  motors 0.54 0.58 0.00 0.00
+sim:  18812 ms  49 m to wp0, 226 m to wp1, 4 m up, nose 62 deg, the firmware believes 74 deg
+sim:  19811 ms  roll   13.4 deg  pitch   -0.0 deg  motors 0.54 0.58 0.00 0.00
+sim:  19812 ms  68 m to wp0, 207 m to wp1, 4 m up, nose 71 deg, the firmware believes 81 deg
+sim:  20811 ms  roll   10.1 deg  pitch   -0.1 deg  motors 0.54 0.58 0.00 0.00
+alive: 20811 ms, 19979 loops
+sim:  20812 ms  87 m to wp0, 188 m to wp1, 4 m up, nose 77 deg, the firmware believes 85 deg
+sim:  21811 ms  roll    7.9 deg  pitch   -0.0 deg  motors 0.54 0.58 0.00 0.00
+sim:  21812 ms  107 m to wp0, 169 m to wp1, 4 m up, nose 81 deg, the firmware believes 88 deg
+sim:  22811 ms  roll    6.5 deg  pitch   -0.0 deg  motors 0.54 0.58 0.00 0.00
+sim:  22812 ms  127 m to wp0, 149 m to wp1, 4 m up, nose 85 deg, the firmware believes 90 deg
+sim:  23811 ms  roll    5.6 deg  pitch   -0.0 deg  motors 0.54 0.58 0.00 0.00
+sim:  23812 ms  147 m to wp0, 129 m to wp1, 4 m up, nose 87 deg, the firmware believes 91 deg
+sim:  24811 ms  roll    4.9 deg  pitch   -0.0 deg  motors 0.55 0.57 0.00 0.00
+sim:  24812 ms  167 m to wp0, 109 m to wp1, 4 m up, nose 89 deg, the firmware believes 92 deg
+status
+state:     on autopilot
+uptime:    25001 ms
+loops:     24165
+attitude:  roll 83 mrad, pitch 0 mrad, yaw 1614 mrad
+attitude:  converged
+motors:    535 564 0 0 per-mille
+servos:    0 1 per-mille
+params:    8 changed since the last save
+fault:     none recorded
+ak> sim:  25811 ms  roll    4.5 deg  pitch   -0.0 deg  motors 0.55 0.57 0.00 0.00
+sim:  25812 ms  186 m to wp0, 89 m to wp1, 4 m up, nose 91 deg, the firmware believes 93 deg
+sim:  26811 ms  roll    4.3 deg  pitch    0.0 deg  motors 0.55 0.57 0.00 0.00
+sim:  26812 ms  206 m to wp0, 69 m to wp1, 4 m up, nose 93 deg, the firmware believes 94 deg
+sim:  27811 ms  roll   11.0 deg  pitch    0.0 deg  motors 0.54 0.58 0.00 0.00
+sim:  27812 ms  226 m to wp0, 50 m to wp1, 4 m up, nose 96 deg, the firmware believes 96 deg
+sim:  28811 ms  roll   12.5 deg  pitch    0.0 deg  motors 0.54 0.58 0.00 0.00
+sim:  28812 ms  246 m to wp0, 30 m to wp1, 4 m up, nose 103 deg, the firmware believes 102 deg
+sim:  29811 ms  roll   12.4 deg  pitch   -0.0 deg  motors 0.54 0.58 0.00 0.00
+sim:  29812 ms  265 m to wp0, 10 m to wp1, 4 m up, nose 109 deg, the firmware believes 107 deg
+mission
+mission:   2 waypoints, flying
+  [0] 52.1254304, 4.9876548
+  [1] 52.1254304, 4.9916792  <- flying here
+  2 reached, holding 123777 mm
+  1 started, 0 taken back
+  switch on channel 7
+ak> sim:  30811 ms  roll   12.3 deg  pitch   -0.0 deg  motors 0.54 0.58 0.00 0.00
+alive: 30811 ms, 29969 loops
+sim:  30812 ms  284 m to wp0, 10 m to wp1, 4 m up, nose 116 deg, the firmware believes 113 deg
+sim:  31811 ms  roll   12.3 deg  pitch   -0.0 deg  motors 0.54 0.58 0.00 0.00
+sim:  31812 ms  302 m to wp0, 30 m to wp1, 4 m up, nose 123 deg, the firmware believes 118 deg
+sim:  32811 ms  roll   12.3 deg  pitch    0.0 deg  motors 0.54 0.58 0.00 0.00
+sim:  32812 ms  320 m to wp0, 49 m to wp1, 4 m up, nose 129 deg, the firmware believes 123 deg
+sim:  33811 ms  roll   24.4 deg  pitch    0.0 deg  motors 0.53 0.59 0.00 0.00
+sim:  33812 ms  336 m to wp0, 68 m to wp1, 4 m up, nose 136 deg, the firmware believes 128 deg
+sim:  34811 ms  roll   35.6 deg  pitch    0.0 deg  motors 0.53 0.60 0.00 0.00
+sim:  34812 ms  351 m to wp0, 85 m to wp1, 4 m up, nose 159 deg, the firmware believes 147 deg
+sim:  35811 ms  roll   35.4 deg  pitch    0.0 deg  motors 0.53 0.59 0.00 0.00
+sim:  35812 ms  360 m to wp0, 99 m to wp1, 4 m up, nose 183 deg, the firmware believes 169 deg
+sim:  36811 ms  roll   35.2 deg  pitch    0.0 deg  motors 0.55 0.57 0.00 0.00
+sim:  36812 ms  364 m to wp0, 109 m to wp1, 4 m up, nose 208 deg, the firmware believes -169 deg
+sim:  37811 ms  roll   35.1 deg  pitch    0.0 deg  motors 0.59 0.53 0.00 0.00
+sim:  37812 ms  361 m to wp0, 113 m to wp1, 4 m up, nose 236 deg, the firmware believes -144 deg
+sim:  38811 ms  roll   35.0 deg  pitch    0.0 deg  motors 0.62 0.50 0.00 0.00
+sim:  38812 ms  354 m to wp0, 111 m to wp1, 4 m up, nose 266 deg, the firmware believes -113 deg
+sim:  39811 ms  roll   25.5 deg  pitch    0.0 deg  motors 0.62 0.50 0.00 0.00
+sim:  39812 ms  344 m to wp0, 103 m to wp1, 4 m up, nose 296 deg, the firmware believes -77 deg
+sim:  40811 ms  roll    4.4 deg  pitch    0.0 deg  motors 0.59 0.53 0.00 0.00
+alive: 40811 ms, 39958 loops
+sim:  40812 ms  335 m to wp0, 92 m to wp1, 4 m up, nose 308 deg, the firmware believes -57 deg
+sim:  41811 ms  roll   -0.7 deg  pitch    0.0 deg  motors 0.58 0.54 0.00 0.00
+sim:  41812 ms  326 m to wp0, 81 m to wp1, 4 m up, nose 311 deg, the firmware believes -48 deg
+sim:  42811 ms  roll   -1.9 deg  pitch    0.0 deg  motors 0.58 0.54 0.00 0.00
+sim:  42812 ms  318 m to wp0, 69 m to wp1, 4 m up, nose 312 deg, the firmware believes -43 deg
+sim:  43811 ms  roll    5.5 deg  pitch   -0.0 deg  motors 0.58 0.54 0.00 0.00
+sim:  43812 ms  311 m to wp0, 57 m to wp1, 4 m up, nose 312 deg, the firmware believes -40 deg
+sim:  44811 ms  roll   12.5 deg  pitch   -0.0 deg  motors 0.58 0.54 0.00 0.00
+sim:  44812 ms  304 m to wp0, 45 m to wp1, 4 m up, nose 321 deg, the firmware believes -29 deg
+sim:  45811 ms  roll   12.4 deg  pitch    0.0 deg  motors 0.58 0.54 0.00 0.00
+sim:  45812 ms  299 m to wp0, 34 m to wp1, 4 m up, nose 331 deg, the firmware believes -17 deg
+sim:  46811 ms  roll   12.3 deg  pitch    0.0 deg  motors 0.58 0.54 0.00 0.00
+sim:  46812 ms  298 m to wp0, 25 m to wp1, 4 m up, nose 341 deg, the firmware believes -6 deg
+sim:  47811 ms  roll   12.3 deg  pitch   -0.0 deg  motors 0.57 0.55 0.00 0.00
+sim:  47812 ms  299 m to wp0, 24 m to wp1, 4 m up, nose 350 deg, the firmware believes 5 deg
+sim:  48811 ms  roll   12.3 deg  pitch   -0.0 deg  motors 0.57 0.55 0.00 0.00
+sim:  48812 ms  303 m to wp0, 33 m to wp1, 4 m up, nose 359 deg, the firmware believes 14 deg
+sim:  49811 ms  roll   12.3 deg  pitch   -0.0 deg  motors 0.56 0.56 0.00 0.00
+sim:  49812 ms  310 m to wp0, 47 m to wp1, 4 m up, nose 8 deg, the firmware believes 23 deg
+mission
+mission:   2 waypoints, flying
+  [0] 52.1254304, 4.9876548
+  [1] 52.1254304, 4.9916792  <- flying here
+  2 reached, holding 123777 mm
+  1 started, 0 taken back
+  switch on channel 7
+ak> sim:  50811 ms  roll   12.3 deg  pitch   -0.0 deg  motors 0.56 0.56 0.00 0.00
+alive: 50811 ms, 49947 loops
+sim:  50812 ms  320 m to wp0, 63 m to wp1, 4 m up, nose 16 deg, the firmware believes 32 deg
+sim:  51811 ms  roll  -36.3 deg  pitch    0.0 deg  motors 0.57 0.55 0.00 0.00
+sim:  51812 ms  330 m to wp0, 80 m to wp1, 4 m up, nose 359 deg, the firmware believes 19 deg
+sim:  52811 ms  roll  -36.0 deg  pitch    0.0 deg  motors 0.56 0.56 0.00 0.00
+sim:  52812 ms  334 m to wp0, 92 m to wp1, 4 m up, nose 332 deg, the firmware believes -7 deg
+sim:  53811 ms  roll  -35.5 deg  pitch    0.0 deg  motors 0.52 0.60 0.00 0.00
+sim:  53812 ms  332 m to wp0, 99 m to wp1, 4 m up, nose 303 deg, the firmware believes -35 deg
+sim:  54811 ms  roll  -35.3 deg  pitch    0.0 deg  motors 0.49 0.63 0.00 0.00
+sim:  54812 ms  325 m to wp0, 100 m to wp1, 4 m up, nose 272 deg, the firmware believes -67 deg
+sim:  55001 ms  mission switch off
+sim:  55811 ms  roll    0.2 deg  pitch    5.3 deg  motors 0.54 0.58 0.00 0.00
+sim:  55812 ms  315 m to wp0, 94 m to wp1, 5 m up, nose 257 deg, the firmware believes -90 deg
+sim:  56811 ms  roll    0.7 deg  pitch    5.4 deg  motors 0.54 0.58 0.00 0.00
+sim:  56812 ms  305 m to wp0, 89 m to wp1, 6 m up, nose 256 deg, the firmware believes -96 deg
+status
+state:     armed
+uptime:    57001 ms
+loops:     56131
+attitude:  roll 10 mrad, pitch 94 mrad, yaw 4572 mrad
+attitude:  converged
+motors:    531 568 0 0 per-mille
+servos:    0 0 per-mille
+params:    8 changed since the last save
+fault:     none recorded
+ak> sim:  57811 ms  roll    0.4 deg  pitch    5.3 deg  motors 0.54 0.58 0.00 0.00
+sim:  57812 ms  295 m to wp0, 84 m to wp1, 7 m up, nose 255 deg, the firmware believes -101 deg
+sim:  58811 ms  roll    0.2 deg  pitch    5.3 deg  motors 0.55 0.57 0.00 0.00
+sim:  58812 ms  284 m to wp0, 80 m to wp1, 9 m up, nose 254 deg, the firmware believes -105 deg
+sim:  59811 ms  roll    0.1 deg  pitch    5.2 deg  motors 0.55 0.57 0.00 0.00
+sim:  59812 ms  274 m to wp0, 76 m to wp1, 10 m up, nose 253 deg, the firmware believes -108 deg
+sim:  60811 ms  roll    0.1 deg  pitch    5.2 deg  motors 0.55 0.57 0.00 0.00
+alive: 60811 ms, 59937 loops
+sim:  60812 ms  264 m to wp0, 74 m to wp1, 11 m up, nose 253 deg, the firmware believes -111 deg
+sim:  61811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.55 0.57 0.00 0.00
+sim:  61812 ms  254 m to wp0, 73 m to wp1, 13 m up, nose 252 deg, the firmware believes -113 deg
+sim:  62811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.55 0.57 0.00 0.00
+sim:  62812 ms  244 m to wp0, 73 m to wp1, 14 m up, nose 251 deg, the firmware believes -114 deg
+sim:  63811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.55 0.57 0.00 0.00
+sim:  63812 ms  234 m to wp0, 75 m to wp1, 16 m up, nose 251 deg, the firmware believes -116 deg
+sim:  64811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.55 0.56 0.00 0.00
+sim:  64812 ms  224 m to wp0, 77 m to wp1, 17 m up, nose 251 deg, the firmware believes -117 deg
+sim:  65811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:  65812 ms  214 m to wp0, 81 m to wp1, 18 m up, nose 250 deg, the firmware believes -118 deg
+sim:  66811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:  66812 ms  204 m to wp0, 86 m to wp1, 20 m up, nose 250 deg, the firmware believes -118 deg
+sim:  67811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:  67812 ms  194 m to wp0, 92 m to wp1, 21 m up, nose 250 deg, the firmware believes -119 deg
+sim:  68811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:  68812 ms  184 m to wp0, 99 m to wp1, 22 m up, nose 250 deg, the firmware believes -119 deg
+sim:  69811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:  69812 ms  175 m to wp0, 106 m to wp1, 24 m up, nose 249 deg, the firmware believes -120 deg
+sim:  70811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+alive: 70811 ms, 69926 loops
+sim:  70812 ms  165 m to wp0, 113 m to wp1, 25 m up, nose 249 deg, the firmware believes -120 deg
+sim:  71811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:  71812 ms  155 m to wp0, 121 m to wp1, 26 m up, nose 249 deg, the firmware believes -120 deg
+sim:  72811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:  72812 ms  146 m to wp0, 130 m to wp1, 28 m up, nose 249 deg, the firmware believes -120 deg
+sim:  73811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:  73812 ms  137 m to wp0, 138 m to wp1, 29 m up, nose 249 deg, the firmware believes -121 deg
+sim:  74811 ms  roll    0.0 deg  pitch    5.2 deg  motors 0.56 0.56 0.00 0.00
+sim:  74812 ms  128 m to wp0, 147 m to wp1, 31 m up, nose 249 deg, the firmware believes -121 deg
+
+sim: ---- 75 s of simulated flight ----
+sim: 75000 ms, 74921 passes of the main loop
+sim: ok   the mission reached its first waypoint     closest approach 32 m (arrive 60 m)
+sim: ok   and then the second                        closest approach 2 m
+sim: ok   the navigator counted both arrivals        the console says two reached
+sim: ok   the flight core says the navigator is flying status says on autopilot
+sim: ok   and the switch that started it ends it     the later status says armed
+sim: ok   and it stayed at the last one instead of flying on 99 m from the last waypoint, still circling
+sim: ok   holding the altitude it had when the mission started started at 4 m, ended at 4 m
+sim: PASS (0 checks failed)

@@ -1,0 +1,38 @@
+== running under qemu for 30s
+AerialKit Firmware
+  product:  aerialkit-esp32
+  board:    ESP32DEV / ESP32 devkit
+  rev:      34fdfa6-dirty
+  built:    2026-09-14T05:05:25
+  clocks:   CPU 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+faults: none recorded
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the rear pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+selftest: passed
+
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is
+boot: ok
+alive: 13200 ms, 9997 loops
+alive: 23194 ms, 20000 loops
+
+
+Aborted!
+Executing action: qemu

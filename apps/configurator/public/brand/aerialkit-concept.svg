@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 540" role="img" aria-labelledby="title">
+<title id="title">AerialKit swept-wing A concept in light and dark</title>
+<rect width="920" height="270" fill="#f6f7f9"/>
+<rect y="270" width="920" height="270" fill="#1c2127"/>
+<g font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<path transform="translate(60 54) scale(2)" fill="#4c90f0" fill-rule="evenodd" d="M32 5 59 54 42 46 38 38H26L22 46 5 54ZM32 19 24 33H40Z"/>
+<text x="218" y="145" fill="#1c2127" font-size="64" font-weight="600" letter-spacing="-2">AerialKit</text>
+<text x="66" y="224" fill="#5f6b7c" font-size="14">Swept-wing A · first concept</text>
+<path transform="translate(60 324) scale(2)" fill="#4c90f0" fill-rule="evenodd" d="M32 5 59 54 42 46 38 38H26L22 46 5 54ZM32 19 24 33H40Z"/>
+<text x="218" y="415" fill="#f6f7f9" font-size="64" font-weight="600" letter-spacing="-2">AerialKit</text>
+<text x="66" y="494" fill="#abb3bf" font-size="14">One mark for the app, favicon and firmware</text>
+</g>
+<g fill="#1c2127" fill-rule="evenodd">
+<path transform="translate(702 105) scale(.25)" d="M32 5 59 54 42 46 38 38H26L22 46 5 54ZM32 19 24 33H40Z"/>
+<path transform="translate(748 100) scale(.375)" d="M32 5 59 54 42 46 38 38H26L22 46 5 54ZM32 19 24 33H40Z"/>
+<path transform="translate(796 96) scale(.5)" d="M32 5 59 54 42 46 38 38H26L22 46 5 54ZM32 19 24 33H40Z"/>
+</g>
+<g fill="#f6f7f9" fill-rule="evenodd">
+<path transform="translate(702 375) scale(.25)" d="M32 5 59 54 42 46 38 38H26L22 46 5 54ZM32 19 24 33H40Z"/>
+<path transform="translate(748 370) scale(.375)" d="M32 5 59 54 42 46 38 38H26L22 46 5 54ZM32 19 24 33H40Z"/>
+<path transform="translate(796 366) scale(.5)" d="M32 5 59 54 42 46 38 38H26L22 46 5 54ZM32 19 24 33H40Z"/>
+</g>
+<g font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">
+<g fill="#5f6b7c"><text x="710" y="150">16</text><text x="760" y="150">24</text><text x="812" y="150">32 px</text></g>
+<g fill="#abb3bf"><text x="710" y="420">16</text><text x="760" y="420">24</text><text x="812" y="420">32 px</text></g>
+</g>
+</svg>

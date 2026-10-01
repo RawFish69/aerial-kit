@@ -1,0 +1,64 @@
+Activating ESP-IDF 5.5
+Setting IDF_PATH to '<ESP_IDF_ROOT>'.
+* Checking python version ... 3.14.4
+* Checking python dependencies ... OK
+* Deactivating the current ESP-IDF environment (if any) ... OK
+* Establishing a new ESP-IDF environment ... OK
+* Identifying shell ... bash
+* Detecting outdated tools in system ... Found tools that are not used by active ESP-IDF version.
+For removing old versions of slirp-lib use command 'python <ESP_IDF_ROOT>/tools/idf_tools.py uninstall'
+To free up even more space, remove installation packages of those tools.
+Use option python <ESP_IDF_ROOT>/tools/idf_tools.py uninstall --remove-archives.
+* Shell completion ... Autocompletion code generated
+== building
+== running under qemu, port 5555 forwarded
+== telemetry, at 10 Hz for 5s
+# telemetry at 10 Hz, Ctrl-C to stop
+    3955 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4057 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4158 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4258 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4360 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4460 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4560 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4660 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4760 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4860 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    4961 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5061 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5161 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5261 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5363 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5465 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5565 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5665 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5765 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5870 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    5970 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6070 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6170 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6270 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6370 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6470 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6570 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6670 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6770 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6871 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    6972 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7072 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7172 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7272 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7374 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7475 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7575 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7676 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7776 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7876 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    7976 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    8076 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    8176 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    8276 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    8376 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    8477 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    8577 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0
+    8677 ms  state 0 link 0 fix 0/0  roll    0.0 pitch    0.0 yaw    0.0   0.0000000   0.0000000  motors 0,0,0,0

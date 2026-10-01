@@ -1,0 +1,248 @@
+{
+  "captured_from": "aerialkit-sim",
+  "protocol_version": 1,
+  "product": "aerialkit-f405",
+  "parameter_count": 33,
+  "frames": {
+    "hello": {
+      "request": "aa550101009dc8",
+      "reply": "aa5501811c0161657269616c6b69742d66343035002100300000000000b76f268b1de2",
+      "note": "version, product, parameter count"
+    },
+    "status": {
+      "request": "aa550105005904",
+      "reply": "aa550185160101030b7d00d8ff84038768111f3f0ef90228283c3c8598",
+      "note": "flight state, link, fix, attitude, position, motors"
+    },
+    "param_get_0": {
+      "request": "aa550102010025af",
+      "reply": "aa5501821400726174655f6b705f726f6c6c00302e32353000ccb5",
+      "note": "the first parameter"
+    },
+    "param_get_past_end": {
+      "request": "aa5501020121669b",
+      "reply": "aa55018201015e84",
+      "note": "an index one past the table: status 1, and nothing else"
+    },
+    "param_set_refused": {
+      "request": "aa5501030700393939393939013b",
+      "reply": "aa5501831b026f7574206f662072616e676520302e3030302e2e332e303030002a7f",
+      "note": "a value above rate_kp_roll's 0.000..3.000: the table's own words come back"
+    },
+    "param_set_short": {
+      "request": "aa55010301001598",
+      "reply": "aa55018313016e6f207375636820706172616d6574657200395a",
+      "note": "an index with no value: the shape is refused, not the value"
+    },
+    "param_set_ok": {
+      "request": "aa5501030403312e351f24",
+      "reply": "aa550183020000d993",
+      "note": "rate_ki_roll written to 1.5, inside its 0.000..2.000"
+    },
+    "param_save": {
+      "request": "aa550104006837",
+      "reply": "aa5501840100df26",
+      "note": "persist, or say there is nowhere to"
+    },
+    "log_source_fast": {
+      "request": "aa5501090100d45f",
+      "reply": "aa5501890400000600cdf6",
+      "note": "the fast ring in RAM"
+    },
+    "log_source_flash": {
+      "request": "aa5501090102967f",
+      "reply": "aa55018904000203005867",
+      "note": "the log that survives the battery"
+    },
+    "log_get_0": {
+      "request": "aa5501070200001084",
+      "reply": "aa5501873400d00700000000c80000000000000000000000000000000000000000000000000000000000000000003c020000000000000000006577",
+      "note": "one 51-byte record"
+    },
+    "log_source_absent": {
+      "request": "aa5501090109fdce",
+      "reply": "aa5501890401020000bf44",
+      "note": "a source the device does not have is refused, not answered as empty"
+    },
+    "telemetry_rate": {
+      "request": "aa550108010aaec9",
+      "reply": "aa5501880100be53",
+      "note": "asked for 10 Hz over the console; refused, see anomalies"
+    }
+  },
+  "parameter_table": [
+    {
+      "index": 0,
+      "name": "rate_kp_roll",
+      "value": "0.250"
+    },
+    {
+      "index": 1,
+      "name": "rate_kp_pitch",
+      "value": "0.250"
+    },
+    {
+      "index": 2,
+      "name": "rate_kp_yaw",
+      "value": "0.350"
+    },
+    {
+      "index": 3,
+      "name": "rate_ki_roll",
+      "value": "1.500"
+    },
+    {
+      "index": 4,
+      "name": "rate_ki_pitch",
+      "value": "0.150"
+    },
+    {
+      "index": 5,
+      "name": "rate_ki_yaw",
+      "value": "0.200"
+    },
+    {
+      "index": 6,
+      "name": "rate_kd_roll",
+      "value": "0.0025"
+    },
+    {
+      "index": 7,
+      "name": "rate_kd_pitch",
+      "value": "0.0025"
+    },
+    {
+      "index": 8,
+      "name": "rate_kd_yaw",
+      "value": "0.0000"
+    },
+    {
+      "index": 9,
+      "name": "rate_i_limit",
+      "value": "0.300"
+    },
+    {
+      "index": 10,
+      "name": "torque_limit",
+      "value": "0.600"
+    },
+    {
+      "index": 11,
+      "name": "d_cutoff_hz",
+      "value": "80"
+    },
+    {
+      "index": 12,
+      "name": "gyro_lpf_hz",
+      "value": "0"
+    },
+    {
+      "index": 13,
+      "name": "arm_accel_lpf_hz",
+      "value": "0"
+    },
+    {
+      "index": 14,
+      "name": "max_rate_dps",
+      "value": "700"
+    },
+    {
+      "index": 15,
+      "name": "angle_kp_roll",
+      "value": "6.00"
+    },
+    {
+      "index": 16,
+      "name": "angle_kp_pitch",
+      "value": "6.00"
+    },
+    {
+      "index": 17,
+      "name": "angle_rate_lim",
+      "value": "6.00"
+    },
+    {
+      "index": 18,
+      "name": "max_tilt_deg",
+      "value": "35"
+    },
+    {
+      "index": 19,
+      "name": "yaw_rate_dps",
+      "value": "350"
+    },
+    {
+      "index": 20,
+      "name": "throttle_low",
+      "value": "0.050"
+    },
+    {
+      "index": 21,
+      "name": "arm_max_tilt_deg",
+      "value": "25.0"
+    },
+    {
+      "index": 22,
+      "name": "arm_hold_ms",
+      "value": "500"
+    },
+    {
+      "index": 23,
+      "name": "rc_timeout_ms",
+      "value": "250"
+    },
+    {
+      "index": 24,
+      "name": "max_dt_ms",
+      "value": "50"
+    },
+    {
+      "index": 25,
+      "name": "wing_descend_bank_deg",
+      "value": "30"
+    },
+    {
+      "index": 26,
+      "name": "wing_descend_pitch_deg",
+      "value": "8"
+    },
+    {
+      "index": 27,
+      "name": "wing_descend_throttle",
+      "value": "0.15"
+    },
+    {
+      "index": 28,
+      "name": "airframe",
+      "value": "0"
+    },
+    {
+      "index": 29,
+      "name": "rc_min",
+      "value": "172"
+    },
+    {
+      "index": 30,
+      "name": "rc_mid",
+      "value": "992"
+    },
+    {
+      "index": 31,
+      "name": "rc_max",
+      "value": "1811"
+    },
+    {
+      "index": 32,
+      "name": "rc_deadband",
+      "value": "0.020"
+    }
+  ],
+  "anomalies": [
+    {
+      "what": "the console link refuses a telemetry stream, and could not have sent one if it had agreed",
+      "evidence": "telemetry subscribe asked for 10 and the reply carried 0 - a refusal, not a rate; no telemetry frame followed",
+      "why": "Two independent reasons, and they are worth keeping apart. First, the firmware's: `ak_proto_init()` zeroes the whole struct, so `can_stream` is 0, and main.c sets it on the network link and not on the console - where the comment gives the reason, that the console is the wire a person types at and frames arriving among their keystrokes is a console nobody can use. A console subscribe is therefore answered 0 by design. Second, the simulator's: tools/akproto_sim.c never calls ak_proto_telemetry_frame(), so even a link that agreed to a rate could not push a frame. This entry used to attribute the reply to uninitialised stack memory, which was true of an older ak_proto_init and is true of nothing now.",
+      "app_consequence": "the app must treat 'no stream' and 'frames not arriving' as two different facts: a 0 is a refusal and is reported as one, while a non-zero rate followed by silence is a promise that was not kept. It says which, and takes its values from polling STATUS either way"
+    }
+  ]
+}

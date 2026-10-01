@@ -1,0 +1,130 @@
+# AerialKit - the whole suite, on a pull request.
+#
+# This runs `make ci`, which is the same command a person runs before saying a
+# change is finished. That is the point of it: a CI job that runs a *different*
+# set of steps from the one the developer ran is a job that reports on a build
+# nobody has. Everything this workflow knows about the build - which stages
+# exist, what each needs, what is allowed to fail - is in scripts/ci.sh and in
+# docs/28-build.md, and nothing is repeated here.
+#
+# Which is why there is almost nothing in this file: the host packages, the
+# pinned cross toolchain, and `make ci`. If this workflow ever needs to know
+# something about the firmware, that knowledge belongs in the Makefile or in
+# ci.sh, where a person can run it too.
+#
+# Paths: this repository is the `aerialkit/` subdirectory of the workspace, and
+# the workflow is written for the day `aerialkit/` is its own repository. It
+# works in both by not naming its own location - `make -C aerialkit` is done by
+# the checkout layout, not here.
+
+name: aerialkit
+
+on:
+  push:
+    branches: [main, master]
+    paths: ['aerialkit/**', '.github/workflows/aerialkit.yml']
+  pull_request:
+    paths: ['aerialkit/**', '.github/workflows/aerialkit.yml']
+  # So a run can be started by hand on a branch that is not a pull request -
+  # the first thing anyone does when CI is red is want to run it once more.
+  workflow_dispatch:
+
+# One run per branch. A push that supersedes an in-flight run cancels it: the
+# numbers from the older revision are not worth the runner.
+concurrency:
+  group: aerialkit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    # 24.04 because that is the host docs/28-build.md is written against, and
+    # the version of every host tool in a manifest should match the version in
+    # the document that says what to install.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    env:
+      # Pinned, and pinned by the same string the Makefile's CROSS default and
+      # the workspace's target.conf use. Upgrading it is a change to this file
+      # and to docs/28-build.md together, and it is worth doing deliberately:
+      # gcc 12 and 13 emit different code for the same source, so a per-profile
+      # figure quoted without a toolchain named cannot be checked.
+      TOOLCHAIN: arm-gnu-toolchain-13.2.rel1
+      TOOLCHAIN_DIR: arm-gnu-toolchain-13.2.rel1-x86_64-arm-none-eabi
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The host tools, which are distribution packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential python3
+          cc --version | head -1
+          python3 --version
+
+      # The cross toolchain is not a distribution package in a version worth
+      # having: Ubuntu 24.04 ships 13.2.1 as `gcc-arm-none-eabi`, but it also
+      # ships `binutils-arm-none-eabi` separately and its `readelf` and `nm` are
+      # the ones this build depends on, and neither is guaranteed to be the
+      # release the workspace builder uses. So it is Arm's own tarball, and its
+      # own published checksum.
+      - name: The pinned cross toolchain
+        run: |
+          set -euo pipefail
+          base="https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel"
+          url="$base/${TOOLCHAIN_DIR}.tar.xz"
+          echo "fetching $url"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/tc.tar.xz" "$url"
+          # Arm publishes the checksum beside the tarball. Checking it is the
+          # difference between a pinned toolchain and a downloaded one.
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/tc.sha256" \
+            "${url}.sha256"
+          ( cd "$RUNNER_TEMP" && mv tc.tar.xz "${TOOLCHAIN_DIR}.tar.xz" && \
+            sha256sum -c tc.sha256 )
+          mkdir -p "$HOME/toolchain"
+          tar -xJf "$RUNNER_TEMP/${TOOLCHAIN_DIR}.tar.xz" -C "$HOME/toolchain"
+          echo "$HOME/toolchain/${TOOLCHAIN_DIR}/bin" >> "$GITHUB_PATH"
+
+      - name: Which toolchain, exactly
+        run: |
+          arm-none-eabi-gcc --version | head -1
+          arm-none-eabi-readelf --version | head -1
+          arm-none-eabi-nm --version | head -1
+
+      # Everything. `make ci` exits non-zero if a stage that is not allowed to
+      # fail failed, and prints the allowed ones in its last line.
+      - name: make ci
+        run: make -C aerialkit ci
+
+      # An allowed failure is one nobody has fixed yet (docs/28-build.md,
+      # finding 1). It must not redden the run - a run that is always red is a
+      # run nobody reads - but it must not go quiet either, so it becomes an
+      # annotation on the check. The same goes for a stage that could not run
+      # here at all: on this runner that should be nothing, and if it is
+      # something, the run is greener than it looks.
+      - name: Say out loud what was allowed or skipped
+        if: always()
+        run: |
+          summary=aerialkit/ci-report/summary.txt
+          [ -f "$summary" ] || exit 0
+          allowed=$(sed -n 's/^allowed:  *//p' "$summary")
+          notrun=$(sed -n 's/^not run:  *//p' "$summary")
+          [ "$allowed" = "none" ] || [ -z "$allowed" ] || \
+            echo "::warning title=allowed failure::$allowed"
+          [ "$notrun" = "none" ] || [ -z "$notrun" ] || \
+            echo "::warning title=stage not run::$notrun"
+
+      # The report is the *evidence*, and it is the whole reason the manifest is
+      # written before anything is built: it carries the revision, the three
+      # toolchain versions and a hash over the source that was compiled. A
+      # number quoted from a run whose report is gone is a number nobody can
+      # check.
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aerialkit-ci-report
+          path: aerialkit/ci-report/
+          if-no-files-found: warn
+          retention-days: 30

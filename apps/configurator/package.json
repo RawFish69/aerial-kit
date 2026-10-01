@@ -1,0 +1,45 @@
+{
+  "name": "aerialkit-configurator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone web configurator for AerialKit flight controllers and, incrementally, other firmware families.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify:deploy": "bash tools/verify-deploy.sh",
+    "verify:drift": "bash tools/verify-drift.sh",
+    "verify:browser": "bash tools/verify-browser.sh",
+    "bridge": "node bridge/index.js",
+    "bridge:sim": "node bridge/index.js --sim ../../aerialkit/build-host/aerialkit-sim",
+    "bridge:setup": "npm --prefix bridge install --no-audit --no-fund"
+  },
+  "dependencies": {
+    "@blueprintjs/core": "^5.19.1",
+    "@blueprintjs/icons": "^5.23.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/node": "^26.6.2",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.186.0",
+    "@types/w3c-web-serial": "^1.0.7",
+    "@vitejs/plugin-react": "^4.3.2",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.9",
+    "vitest": "^2.1.3"
+  }
+}

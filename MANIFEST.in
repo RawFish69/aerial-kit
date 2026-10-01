@@ -1,6 +1,8 @@
 # The PyPI distribution ships only the Python packages (`aerial_kit` and
 # `sim_py`). Firmware, ROS, and repo-only directories must never appear in
 # the sdist or wheel.
+prune aerialkit
+prune apps
 prune firmware
 prune ros2_ws
 prune tools

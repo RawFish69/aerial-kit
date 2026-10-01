@@ -1,0 +1,49 @@
+# Leak suppressions for the one process in this repository that runs an
+# instrumented shared library under an *uninstrumented* interpreter.
+#
+# `tools/akcontrol_check.py` drives the C control core through the ABI a Python
+# simulation uses, by loading `libaerialkit-control.so` with ctypes. Under
+# `make sanitize` that library is built by the sanitizing compiler, and a Python
+# process cannot load it unless it is given the sanitizer runtime too - it says
+# so itself: "ASan runtime does not come first in initial library list". The
+# Makefile preloads `libasan.so` for that invocation when the host compiler is
+# the sanitizing one.
+#
+# The moment it does, LeakSanitizer starts looking at CPython as well, and
+# CPython does not free everything it allocates before it exits. On this machine
+# that is 150 allocations in 149,106 bytes, every one of them in interpreter
+# frames and not one with a `libaerialkit-control` frame.
+#
+# These are suppressed rather than the check being run with `detect_leaks=0`,
+# and the difference is the whole point. A leak that *originates in the control
+# library* must have a frame in that library at the top of its stack - that is
+# what "originates" means - so patterns naming CPython symbols cannot suppress
+# one. Turning leak detection off for the process would suppress everything,
+# including the leak this check is in a position to catch.
+#
+# Two patterns, and the count is the reason there are two rather than eight.
+# The first version of this file named eight CPython symbols, chosen by reading
+# an earlier leak report rather than by removing them one at a time. Measured
+# 2026-09-20, with `LSAN_OPTIONS=suppressions=` and the check run against the
+# sanitized library:
+#
+#   two patterns   akcontrol_check: 70 checks, 0 failed, exit 0,
+#                  "Suppressions used: 2 / 1151 bytes _PyObject,
+#                   148 / 147955 bytes PyObject_Malloc"
+#   eight patterns byte-for-byte the same summary, the other six matching
+#                  nothing at all
+#
+# 2 + 148 = 150 allocations and 1151 + 147955 = 149106 bytes, which is the
+# number above, so the two that remain account for all of it. The six that were
+# dropped are recorded here rather than silently deleted: `Py_BytesMain`,
+# `libpython`, `PyImport_ImportModuleLevelObject`, `_PyEval_EvalFrameDefault`,
+# `PyRun_StringFlags`, `Py_Initialize`. They matched zero allocations, and a
+# pattern that matches nothing is a guess written in the register of a rule -
+# it would sit here looking load-bearing while suppressing nothing.
+#
+# If a future interpreter leaks through a function these two do not name, the
+# check fails with a non-zero status and prints the stack, and the fix is to
+# read that stack and add the frame it actually shows. That is the intended
+# failure mode: loud, specific, and naming something real.
+leak:_PyObject
+leak:PyObject_Malloc

@@ -1,0 +1,204 @@
+
+AerialKit Firmware
+  product:  aerialkit-f405
+  board:    SIM / software in the loop
+  rev:      879086d-dirty
+  built:    Sep 18 2026 / 17:29:14
+  clocks:   simulated, 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+faults: none recorded
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the front pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+  ok       a wing arms the same way
+  ok       a wing that loses its link circles down instead of stopping
+  ok       and a link that comes back does not take it back mid-descent
+  ok       and the ground disarms it
+selftest: passed
+
+imu:       configured for 1 kHz, gyro 2000 dps, accel 16 g
+imu:       icm42688p
+baro:      dps310
+rangefinder: tof10120 at 0x52, up to 2.00 m
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is
+boot: ok
+ak> set rc_protocol 1
+rc_protocol = 1
+ak> sim:    812 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+home: from the first fix while disarmed, 52.1234567, 4.9876543
+gyro: bias measured while disarmed: 0 0 0 mdps (500 samples, 0 rejected)
+sim:   1501 ms  arm switch on, throttle down
+sim:   1811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+status
+state:     armed
+uptime:    2500 ms
+loops:     1688
+attitude:  roll 0 mrad, pitch 0 mrad, yaw 0 mrad
+attitude:  converged
+motors:    50 50 50 50 per-mille
+servos:    0 0 per-mille
+params:    1 changed since the last save
+fault:     none recorded
+ak> sim:   2811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.07 0.07 0.07 0.07
+sim:   3002 ms  throttle up to hover
+sim:   3811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.56 0.56 0.56 0.56
+sim:   4811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.56 0.56 0.56 0.56
+sim:   5003 ms  pitch nose down, half stick
+status
+state:     armed
+uptime:    5500 ms
+loops:     4685
+attitude:  roll 0 mrad, pitch -289 mrad, yaw 0 mrad
+attitude:  converged
+motors:    551 547 552 547 per-mille
+servos:    0 0 per-mille
+params:    1 changed since the last save
+fault:     none recorded
+ak> sim:   5811 ms  roll    0.0 deg  pitch  -17.5 deg  motors 0.56 0.56 0.56 0.56
+sim:   6811 ms  roll    0.0 deg  pitch  -17.6 deg  motors 0.56 0.56 0.56 0.56
+sim:   7004 ms  pitch held at -17.6 deg, roll right
+rc
+receiver:  sbus, 8375 bytes, 335 frames
+sbus:      335 good, 0 failsafe, 0 with lost frames, 0 rejected
+link:      framing
+channels:  1401 992 1073 992 1811 1811 172 172 
+sticks:    roll 499, pitch 0, yaw 0, throttle 549 per-mille
+switches:  arm on, mode angle
+uart:      0 bytes dropped by the receive buffer
+telemetry: none - sbus has no return path
+ak> sim:   7811 ms  roll   17.4 deg  pitch   -0.1 deg  motors 0.56 0.56 0.56 0.56
+battery
+battery:   3S, 12.00 V pack, 4.00 V a cell - ok
+divider:   11.000 pack volts per volt at the pin (vbat_ratio)
+return:    stays with the pilot when a cell is under 3.300 V, 0 engagements
+thresholds: low under 3.500 V a cell, critical under 3.300 V
+readings:  77 taken, 0 rejected as implausible
+adc:       simulated: 1.090 V at the pin behind a 11:1 divider
+ak> sim:   8811 ms  roll   17.6 deg  pitch    0.1 deg  motors 0.56 0.56 0.56 0.56
+sim:   9005 ms  yaw right, a little stick
+sim:   9811 ms  roll    0.1 deg  pitch    0.0 deg  motors 0.51 0.61 0.61 0.51
+sim:  10500 ms  the pack sags to 9.75 V, a 3S at 3.25 V a cell
+status
+state:     armed
+uptime:    10500 ms
+loops:     9679
+attitude:  roll -1 mrad, pitch 0 mrad, yaw 1647 mrad
+attitude:  converged
+motors:    495 603 604 495 per-mille
+servos:    0 0 per-mille
+params:    1 changed since the last save
+fault:     none recorded
+ak> sim:  10811 ms  roll   -0.1 deg  pitch    0.0 deg  motors 0.51 0.61 0.61 0.51
+alive: 10811 ms, 9990 loops
+sim:  11006 ms  receiver unplugged
+sim:  11811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+gps
+gps:       5900 bytes, 59 messages, 59 NAV-PVT, 0 bad checksums, 0 bad lengths, 0 other
+fix:       type 3 (ok), 11 satellites, pdop 1.23, hacc 1200 mm
+usable:    yes (needs 6 satellites, has 11)
+position:  52.1235561, 4.9878002
+altitude:  120000 mm msl
+motion:    0 mm/s, course 107.58653 deg
+uart:      0 bytes dropped by the receive buffer
+fixes:     59, valid now: yes
+configure:  0 attempts
+home:      15 m away, bearing -137.-97 deg
+return:    not engaged, 0 engagements, holding 0 mm (quadrotor: climb, translate, settle profile)
+link:      gone, returning disabled
+ak> sim:  12811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+battery
+battery:   3S, 9.75 V pack, 3.25 V a cell - critical
+divider:   11.000 pack volts per volt at the pin (vbat_ratio)
+return:    stays with the pilot when a cell is under 3.300 V, 0 engagements
+thresholds: low under 3.500 V a cell, critical under 3.300 V
+readings:  127 taken, 0 rejected as implausible
+adc:       simulated: 0.886 V at the pin behind a 11:1 divider
+ak> sim:  13811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+status
+state:     failsafe
+uptime:    14500 ms
+loops:     13675
+attitude:  roll 0 mrad, pitch 0 mrad, yaw 2323 mrad
+attitude:  converged
+motors:    0 0 0 0 per-mille
+servos:    0 0 per-mille
+params:    1 changed since the last save
+fault:     none recorded
+ak> sim:  14811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+output test
+output test: refusing - the aircraft is not disarmed
+ak> sim:  15811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+preflight
+ok    console attached to the board's own port
+ok    clock on the crystal, system 160 MHz, apb1 160 MHz
+ok    tick advanced after 304 spins
+ok    dshot 300 kHz, ARR 279, ccr 98/196, 16501 frames sent
+ok    saved configuration: none stored
+ok    no fault recorded since power on
+ok    airframe 0: the quad-x mix and a quadrotor return
+ok    outputs: 4 motors, 2 servos on this board, and the mix needs 4 and 0
+--    gyro bias: measured (500 samples): 0 0 0 mdps
+--    imu: icm42688p
+--    baro: dps310
+--    rangefinder: tof10120, the ground is 0.03 m below
+--    altitude: barometer, gps anchored
+--    battery: 3S, 9.75 V, 3.25 V a cell - critical
+--    receiver: 12750 bytes, 510 frames
+--    gps: 7900 bytes, 79 nav-pvt, 0 configure attempts
+--    fix: type 3, 11 satellites, hacc 1200 mm - usable
+--    return: off - a lost link stops the aircraft
+--    blackbox: 384 records (wrapped)
+--    long log: 384 records in retained RAM
+--    flash log: 78 records
+--    link gone, failsafe
+--    launch: off - no channel
+--    arm:       refused - the receiver has gone quiet (510 frames)
+preflight: the machine is what the firmware thinks it is
+ak> sim:  16811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:  17811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+status
+state:     failsafe
+uptime:    18500 ms
+loops:     17670
+attitude:  roll 0 mrad, pitch 0 mrad, yaw 2323 mrad
+attitude:  converged
+motors:    0 0 0 0 per-mille
+servos:    0 0 per-mille
+params:    1 changed since the last save
+fault:     none recorded
+ak> sim:  18811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:  19811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+
+sim: ---- 20 s of simulated flight ----
+sim: 20000 ms, 19979 passes of the main loop
+sim: ok   one pass of the loop is one millisecond    1.0011 ms per pass over 19979 passes
+sim: ok   every radio byte reached the parser        12750 of 12750 bytes taken, ring dropped 0
+sim: ok   the radio sent frames throughout           510 frames of 25 bytes each
+sim: ok   the pack it is holding is the pack it reports 12.00 V reads as three cells and ok
+sim: ok   and says so when the same pack sags        9.75 V, three cells, 3.25 V a cell: reported critical
+sim: ok   the gps stream reached the parser          96 gps frames, 0 bytes dropped
+sim: ok   the position the gps sent is the position the firmware has looking for "52.1234567, 4.9876543" in the console: found
+sim: ok   the aircraft armed and the mixer drove the motors motors turning 2013..11242 ms, up to 1.00
+sim: ok   the angle loop reached the commanded roll  commanded 17.5 deg, reached 17.5 deg
+sim: ok   and the nose went down when the stick went forward commanded -17.5 deg nose down, reached -17.6 deg
+sim: ok   yaw right turned the nose right, the usual props assumed 93.5 deg of nose-right for 53 deg a second asked
+sim: ok   the output test refuses while armed        the console says it refused
+sim: ok   losing the radio stopped the motors        236 ms after the link went (limit 400)
+sim: ok   and the receiver it was told to read is the one it read the simulator's receiver spoke sbus
+sim: PASS (0 checks failed)

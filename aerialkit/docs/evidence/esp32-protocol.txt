@@ -1,0 +1,39 @@
+the config protocol, against the firmware on an emulated ESP32
+  board   | AerialKit Firmware
+  board   | product:  aerialkit-esp32
+  board   | board:    ESP32DEV / ESP32 devkit
+  board   | rev:      f5536ff
+  board   | built:    2026-09-14T05:14:13
+  board   | clocks:   CPU 160 MHz
+  board   | state:    no sensor drivers - the flight loop runs in failsafe
+  board   | faults: none recorded
+  board   | selftest:
+  board   | ok       squareroot of 9 is 3
+  board   | ok       atan2(1,1) is pi/4
+  board   | ok       quad hover is symmetric
+  board   | ok       quad roll right lifts the left pair
+  board   | ok       quad nose-up lifts the rear pair
+  board   | ok       wing pitch moves both elevons together
+  board   | ok       wing roll moves the elevons opposite ways
+  board   | ok       wing yaw is differential thrust
+  board   | ok       estimator holds level when level
+  board   | ok       disarmed means motors at zero and servos centred
+  board   | ok       arm switch plus low throttle arms
+  board   | ok       armed, roll right lifts the left pair
+  board   | ok       RC loss stops the motors
+  board   | ok       failsafe is latched, not just this frame
+  board   | ok       failsafe holds until the arm switch is cycled
+  board   | selftest: passed
+  board   | console: type 'help'
+  board   | no saved configuration
+  board   | preflight: the machine is what the firmware thinks it is
+  board   | boot: ok
+  ok       the board booted and said so
+  ok       hello answers from the ESP32
+  ok       with the same parameter table the F405 build has
+  ok       status answers with a flight state and a link
+  ok       a parameter reads back
+  ok       and a value can be set
+  ok       and reads back as what was set
+  ok       save reaches the ESP32's own storage (NVS)
+esp32 protocol: ok

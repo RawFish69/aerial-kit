@@ -1,0 +1,218 @@
+{
+  "crc_extra": {
+    "0": 50,
+    "1": 124,
+    "148": 178,
+    "21": 159,
+    "22": 220,
+    "24": 24,
+    "253": 83,
+    "30": 39,
+    "33": 104,
+    "36": 222,
+    "65": 118,
+    "74": 20,
+    "76": 152,
+    "77": 143
+  },
+  "expect": {
+    "ATTITUDE": {
+      "pitch": -0.06981316953897476,
+      "roll": 0.19004255533218384,
+      "time_boot_ms": 5694,
+      "yaw": 4.729842185974121
+    },
+    "AUTOPILOT_VERSION": {
+      "board_version": 219025168,
+      "capabilities": 1,
+      "flight_sw_version": 16909060,
+      "middleware_sw_version": 84281096,
+      "os_sw_version": 151653132,
+      "product_id": 4884,
+      "uid": 1519427316551916316,
+      "vendor_id": 4370
+    },
+    "COMMAND_ACK": {
+      "command": 511,
+      "progress": 0,
+      "result": 0,
+      "result_param2": 0,
+      "target_component": 0,
+      "target_system": 0
+    },
+    "GLOBAL_POSITION_INT": {
+      "alt": 45000,
+      "hdg": 27100,
+      "lat": 521234567,
+      "lon": 49876543,
+      "relative_alt": 23000
+    },
+    "HEARTBEAT": {
+      "autopilot": 3,
+      "base_mode": 0,
+      "custom_mode": 4,
+      "mavlink_version": 3,
+      "system_status": 4,
+      "type": 2
+    },
+    "PARAM_VALUE": {
+      "param_count": 40,
+      "param_id": "RATE_RLL_P",
+      "param_index": 0,
+      "param_type": 9,
+      "param_value": 0.5
+    },
+    "RC_CHANNELS": {
+      "chan1_raw": 1500,
+      "chan2_raw": 1490,
+      "chancount": 8,
+      "rssi": 90
+    },
+    "SERVO_OUTPUT_RAW": {
+      "servo1_raw": 1500,
+      "servo2_raw": 1520,
+      "servo3_raw": 1480,
+      "servo4_raw": 1510
+    },
+    "STATUSTEXT": {
+      "chunk_seq": 0,
+      "id": 4660,
+      "severity": 6,
+      "text": "AerialKit fixture"
+    },
+    "STATUSTEXT_truncated": {
+      "chunk_seq": 0,
+      "id": 0,
+      "severity": 4,
+      "text": "x"
+    },
+    "SYS_STATUS": {
+      "battery_remaining": 78,
+      "current_battery": 1250,
+      "voltage_battery": 12600
+    }
+  },
+  "frames": {
+    "ATTITUDE": {
+      "crc_extra": 39,
+      "frame_hex": "fd1400000001011e00003e160000849a423e35fa8ebdde5a9740cdcccc3d359e",
+      "msgid": 30,
+      "payload_hex": "3e160000849a423e35fa8ebdde5a9740cdcccc3d",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    },
+    "COMMAND_ACK": {
+      "crc_extra": 143,
+      "frame_hex": "fd0200000001014d0000ff012a17",
+      "msgid": 77,
+      "payload_hex": "ff01",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    },
+    "GLOBAL_POSITION_INT": {
+      "crc_extra": 104,
+      "frame_hex": "fd1c00000001012100003e1600008768111f3f0ef902c8af0000d8590000640038ff1e00dc69f017",
+      "msgid": 33,
+      "payload_hex": "3e1600008768111f3f0ef902c8af0000d8590000640038ff1e00dc69",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    },
+    "GPS_RAW_INT": {
+      "crc_extra": 24,
+      "frame_hex": "fd1e000000010118000032e25600000000008768111f3f0ef902c8af00005a008c00fa00dc69030bf477",
+      "msgid": 24,
+      "payload_hex": "32e25600000000008768111f3f0ef902c8af00005a008c00fa00dc69030b",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    },
+    "HEARTBEAT": {
+      "crc_extra": 50,
+      "frame_hex": "fd090000000101000000040000000203000403d667",
+      "msgid": 0,
+      "payload_hex": "040000000203000403",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    },
+    "PARAM_VALUE": {
+      "crc_extra": 220,
+      "frame_hex": "fd1900000001011600000000003f28000000524154455f524c4c5f5000000000000009b492",
+      "msgid": 22,
+      "payload_hex": "0000003f28000000524154455f524c4c5f5000000000000009",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    },
+    "RC_CHANNELS": {
+      "crc_extra": 118,
+      "frame_hex": "fd2a00000001014100003e160000dc05d205b004e605e803e803e80308070000000000000000000000000000000000000000085abb85",
+      "msgid": 65,
+      "payload_hex": "3e160000dc05d205b004e605e803e803e80308070000000000000000000000000000000000000000085a",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    },
+    "SERVO_OUTPUT_RAW": {
+      "crc_extra": 222,
+      "frame_hex": "fd0c000000010124000032e25600dc05f005c805e605a464",
+      "msgid": 36,
+      "payload_hex": "32e25600dc05f005c805e605",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    },
+    "SYS_STATUS": {
+      "crc_extra": 124,
+      "frame_hex": "fd1f0000000101010000f1020000f1020000f1020000d2003831e2040000000000000000000000004eb33d",
+      "msgid": 1,
+      "payload_hex": "f1020000f1020000f1020000d2003831e2040000000000000000000000004e",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    },
+    "VFR_HUD": {
+      "crc_extra": 20,
+      "frame_hex": "fd1300000001014a00000000684133337341000034429a99993f0f01343b71",
+      "msgid": 74,
+      "payload_hex": "0000684133337341000034429a99993f0f0134",
+      "seq": 0,
+      "source": "mavlink-fake-vehicle"
+    }
+  },
+  "note": "Captured from aerialkit/tools/mavlink_fake_vehicle.py, whose frames are built by pymavlink. The framing that produced these hex strings is this repository's own, written longhand.",
+  "packed": {
+    "AUTOPILOT_VERSION": [
+      {
+        "crc_extra": 178,
+        "frame_hex": "fd4e000000010194000001000000000000001c1b1a191817161504030201080706050c0b0a09100f0e0d121114130102030405060708090a0b0c0d0e0f101112131415161718191919191919191919191919191919191919fa43",
+        "msgid": 148,
+        "payload_hex": "01000000000000001c1b1a191817161504030201080706050c0b0a09100f0e0d121114130102030405060708090a0b0c0d0e0f101112131415161718191919191919191919191919191919191919",
+        "seq": 0,
+        "source": "pymavlink"
+      }
+    ],
+    "COMMAND_ACK": [
+      {
+        "crc_extra": 143,
+        "frame_hex": "fd0a00000001014d0000ff010064feffffff01012d5c",
+        "msgid": 77,
+        "payload_hex": "ff010064feffffff0101",
+        "seq": 0,
+        "source": "pymavlink"
+      }
+    ],
+    "STATUSTEXT": [
+      {
+        "crc_extra": 83,
+        "frame_hex": "fd350000000101fd00000641657269616c4b697420666978747572650000000000000000000000000000000000000000000000000000000000000000003412e783",
+        "msgid": 253,
+        "payload_hex": "0641657269616c4b697420666978747572650000000000000000000000000000000000000000000000000000000000000000003412",
+        "seq": 0,
+        "source": "pymavlink"
+      },
+      {
+        "crc_extra": 83,
+        "frame_hex": "fd020000000101fd00000478f74b",
+        "msgid": 253,
+        "payload_hex": "0478",
+        "seq": 0,
+        "source": "pymavlink"
+      }
+    ]
+  }
+}

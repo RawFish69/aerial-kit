@@ -1,0 +1,22 @@
+# The program headers of the same image, verbatim from:
+#
+#   arm-none-eabi-readelf -lW build/aerialkit-f405.elf
+#
+# Trimmed to the four PT_LOAD segments, which are the ones that occupy memory on
+# the part, and to the mapping table that follows them - the table's first rows
+# are what a parser that reads to the end of the file would take for segments.
+#
+# The four segments are the whole of the arithmetic in tools/image_report.py:
+# flash is the span of the load addresses and the file sizes, RAM is the span of
+# the virtual addresses and the memory sizes, and the four-byte hole between
+# 0x20000024 and 0x20000028 is the alignment padding the linker reserved - which
+# is why the two spans must be measured to the furthest end rather than added up
+# (a sum reports 78,448 here; the linker reserved 78,452).
+Program Headers:
+  Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+  LOAD           0x001000 0x08000000 0x08000000 0x19810 0x19810 R E 0x1000
+  LOAD           0x01b000 0x20000000 0x08019810 0x00024 0x00024 RW  0x1000
+  LOAD           0x000028 0x20000028 0x08019834 0x00000 0x0ddf8 RW  0x1000
+  LOAD           0x000e20 0x2000de20 0x2000de20 0x00000 0x05454 RW  0x1000
+
+ Section to Segment mapping:

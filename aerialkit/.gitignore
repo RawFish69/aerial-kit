@@ -1,0 +1,25 @@
+# Build output
+build/
+build-host/
+build-port/
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+
+# Editors and hosts
+__pycache__/
+.venv/
+*.swp
+
+# The address-sanitizer build, which is a build like any other
+build-asan/
+build*/
+
+# What `make ci` leaves behind: the manifest, the counts, the per-profile
+# report and the logs behind all of them. Evidence for a run, not source - the
+# numbers worth keeping go in docs/ or the progress ledger, with the revision
+# they came from.
+ci-report/

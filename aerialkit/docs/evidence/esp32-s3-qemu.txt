@@ -1,0 +1,40 @@
+AerialKit Firmware
+  product:  aerialkit-esp32
+  board:    ESP32S3DEV / ESP32-S3-DevKitC-1
+  rev:      99ab111-dirty
+  built:    2026-09-18T01:54:08
+  clocks:   CPU 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+faults: none recorded
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the front pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+  ok       a wing arms the same way
+  ok       a wing that loses its link circles down instead of stopping
+  ok       and a link that comes back does not take it back mid-descent
+  ok       and the ground disarms it
+selftest: passed
+
+E (6013) gpio: gpio_set_level(238): GPIO output gpio_num error
+E (6026) i2c.common: s_hp_i2c_pins_config(323): i2c sda pin set level failed
+E (6028) i2c.common: i2c_common_set_pins(407): config i2c pins failed
+E (6029) i2c.master: i2c_param_master_config(800): i2c master set pin failed
+E (6031) i2c.master: i2c_new_master_bus(987): i2c configure parameter failed
+baro:      i2c0 did not come up - no barometer bus
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is

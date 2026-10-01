@@ -1,0 +1,22 @@
+# AerialKit's ESP32 layout, which is the F405's split in this chip's terms.
+#
+#   nvs        IDF's own storage, and the board's: the saved configuration goes
+#              here (src/boards/ESP32DEV/board.c), and so does the radio's
+#              calibration. It is the ESP32's answer to the F405's configuration
+#              sector, except that IDF already keeps it for us.
+#   phy_init   the radio calibration, written by IDF on the first boot.
+#   factory    the application. About 840 KB with the Wi-Fi stack in it, and
+#              1.25 MB here so that the radio build has room to grow - the
+#              single-app table gave it 1.75 MB and left nowhere for a log.
+#   aerialkit  the blackbox in flash: 704 KB, which is eleven 64 KB regions of
+#              the log - about fifty minutes at five records a second, and the
+#              same file (src/core/ak_flashlog.c) that writes the F405's.
+#
+# The offsets have to add up to the 2 MB part exactly, which they do:
+# 0x150000 + 0xB0000 = 0x200000.
+#
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x4000,
+phy_init,   data, phy,     0xf000,   0x1000,
+factory,    app,  factory, 0x10000,  0x140000,
+aerialkit,  data, 0x40,    0x150000, 0x0B0000,

@@ -1,0 +1,103 @@
+
+AerialKit Firmware
+  product:  aerialkit-f405
+  board:    SIM / software in the loop
+  rev:      879086d-dirty
+  built:    Sep 18 2026 / 17:29:14
+  clocks:   simulated, 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+faults: none recorded
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the front pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+  ok       a wing arms the same way
+  ok       a wing that loses its link circles down instead of stopping
+  ok       and a link that comes back does not take it back mid-descent
+  ok       and the ground disarms it
+selftest: passed
+
+imu:       configured for 1 kHz, gyro 2000 dps, accel 16 g
+imu:       icm42688p
+baro:      dps310
+rangefinder: tof10120 at 0x52, up to 2.00 m
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is
+boot: ok
+ak> set airframe 1
+airframe = 1
+ak> sim:    812 ms  roll    0.0  pitch    0.0 deg  alt    0 m     0 m out  course   0.0  motors 0.00 0.00
+home: from the first fix while disarmed, 52.1234567, 4.9876543
+gyro: bias measured while disarmed: 0 0 0 mdps (500 samples, 0 rejected)
+sim:   1501 ms  arm switch on, throttle down
+sim:   1811 ms  roll    0.0  pitch    0.0 deg  alt    0 m     0 m out  course   0.0  motors 0.00 0.00
+sim:   2811 ms  roll    0.0  pitch    0.0 deg  alt    0 m     0 m out  course   0.0  motors 0.00 0.00
+sim:   3002 ms  throttle up, climb out
+sim:   3811 ms  roll    0.0  pitch    7.0 deg  alt    1 m    11 m out  course   0.0  motors 0.56 0.56
+sim:   4811 ms  roll    0.0  pitch    7.2 deg  alt    3 m    27 m out  course   0.0  motors 0.56 0.56
+sim:   5811 ms  roll    0.0  pitch    7.1 deg  alt    5 m    43 m out  course   0.0  motors 0.56 0.56
+sim:   6811 ms  roll    0.0  pitch    7.0 deg  alt    7 m    59 m out  course   0.0  motors 0.56 0.56
+sim:   7811 ms  roll    0.0  pitch    7.0 deg  alt    8 m    74 m out  course   0.0  motors 0.56 0.56
+sim:   8811 ms  roll    0.0  pitch    7.0 deg  alt   10 m    90 m out  course   0.1  motors 0.56 0.56
+sim:   9811 ms  roll    0.0  pitch    7.0 deg  alt   12 m   106 m out  course   0.1  motors 0.56 0.56
+sim:  10811 ms  roll    0.0  pitch    7.0 deg  alt   14 m   122 m out  course   0.1  motors 0.56 0.56
+alive: 10811 ms, 9990 loops
+sim:  11003 ms  receiver unplugged, 125 m out
+sim:  11811 ms  roll   28.7  pitch   -6.8 deg  alt   15 m   135 m out  course  11.3  motors 0.14 0.20
+sim:  12811 ms  roll   30.5  pitch   -8.7 deg  alt   13 m   145 m out  course  45.3  motors 0.11 0.23
+sim:  13811 ms  roll   30.1  pitch   -8.4 deg  alt   12 m   154 m out  course  77.1  motors 0.09 0.25
+status
+state:     circling down
+uptime:    14000 ms
+loops:     13175
+attitude:  roll 529 mrad, pitch -144 mrad, yaw 1700 mrad
+attitude:  converged
+motors:    60 239 0 0 per-mille
+servos:    1 2 per-mille
+params:    1 changed since the last save
+fault:     none recorded
+ak> sim:  14811 ms  roll   29.9  pitch   -8.2 deg  alt   11 m   160 m out  course 106.9  motors 0.07 0.27
+sim:  15811 ms  roll   29.9  pitch   -8.1 deg  alt    9 m   163 m out  course 135.9  motors 0.07 0.27
+sim:  16811 ms  roll   29.8  pitch   -8.1 deg  alt    8 m   162 m out  course 164.9  motors 0.07 0.26
+sim:  17811 ms  roll   29.8  pitch   -8.1 deg  alt    7 m   159 m out  course 195.4  motors 0.10 0.24
+sim:  18811 ms  roll   29.8  pitch   -8.0 deg  alt    6 m   154 m out  course 230.2  motors 0.18 0.15
+sim:  19811 ms  roll   29.8  pitch   -8.0 deg  alt    5 m   150 m out  course 271.9  motors 0.25 0.09
+sim:  20811 ms  roll   29.8  pitch   -8.0 deg  alt    3 m   150 m out  course 316.3  motors 0.28 0.06
+alive: 20811 ms, 19979 loops
+sim:  21811 ms  roll   29.8  pitch   -8.0 deg  alt    2 m   157 m out  course 357.3  motors 0.19 0.15
+sim:  21827 ms  12 m lower at 2 m - the circle came down
+
+sim: ---- 40 s of simulated flight ----
+sim: 21827 ms, 21804 passes of the main loop
+sim: ok   one pass of the loop is one millisecond    1.0011 ms per pass over 21804 passes
+sim: ok   every radio byte reached the parser        13260 of 13260 bytes taken, ring dropped 0
+sim: ok   the radio sent frames throughout           510 frames of 26 bytes each
+sim: ok   the gps stream reached the parser          106 gps frames, 0 bytes dropped
+sim: ok   the position the gps sent is the position the firmware has looking for "52.1234567, 4.9876543" in the console: found
+sim: ok   the aircraft armed and the mixer drove the motors motors turning 3012..21827 ms, up to 0.56
+sim: ok   the firmware says what it is doing: circling down the status the console printed after the receiver came out
+sim: ok   and the lost wing came down                12 m down from the 14 m it was at when the receiver came out
+sim: ok   holding the bank and the nose-down it was told to hold bank 30 deg, pitch -8 deg
+sim: ok   with the motors still turning, which is what keeps the elevons flying motors 0.18 0.16
+sim: ok   the wing flew away from the take-off point 163 m out at its furthest
+sim: ok   the mixer drove the elevons                elevons moved to 0.99 of full travel
+sim: ok   and the height the navigator flies on is that height the fused height is 0.0 m, the airframe is at 0.0 m
+sim: ok   the handset's telemetry arrived intact     every frame passed the crc the receiver checks
+sim: ok   and the battery frame carries the pack it is flying the handset reads 12.00 V, the pack is 12.00 V
+sim: ok   and the attitude frame carries the attitude it has the handset reads 30.0 deg, the airframe is at 29.8 deg
+sim: ok   and the gps frame carries the fix the module sent the handset reads 52.1244820, 4.9891291, 11 satellites
+sim: PASS (0 checks failed)

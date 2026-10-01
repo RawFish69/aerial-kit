@@ -39,7 +39,7 @@ aerial-kit-teleop = "aerial_kit.sim.teleop:main"
 
 [tool.setuptools.packages.find]
 include = ["aerial_kit*", "sim_py*"]
-exclude = ["sim_py.tests*", "firmware*", "ros2_ws*", "tools*", "docker*", "scripts*", "plans*", "assets*", "docs*"]
+exclude = ["aerialkit*", "apps*", "sim_py.tests*", "firmware*", "ros2_ws*", "tools*", "docker*", "scripts*", "plans*", "assets*", "docs*"]
 
 [tool.setuptools.package-data]
 aerial_kit = ["py.typed", "sim/defaults/*.yaml"]

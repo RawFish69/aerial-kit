@@ -1,0 +1,349 @@
+AerialKit F405 - the bench board's preflight report, read the night the airframe default landed
+
+Taken 2026-09-30 with the board on the bus by its own USB console,
+`Bus 001 Device 068: ID 0483:5740 STMicroelectronics Virtual COM Port` ->
+`/dev/ttyACM0`, 115200 8N1.
+
+Everything in the original reading below is a console *command* whose reply was
+read back, plus two `reboot`s. At the time of that reading, nothing was flashed,
+erased or programmed; no `set` was typed, so no parameter was changed, and no
+`save`, so no configuration was written. The board was left running and disarmed.
+This was superseded by the later flash and preflight reading recorded at the end
+of this file on 2026-09-30.
+
+The image in flash is the one trap 208 was measured on, which this reading
+establishes rather than assumes (see `version` below): `rev f7ede87`, built
+Sep 29 2026. It is a **Feather** image - `board: FEATHER_F405` is the *image's*
+identity and not a reading of the silicon under it, which is trap 209, and what
+board is on the cable is still not established by anything in this file.
+
+Unedited replies, in the order they were taken. The console echoes each command
+and prints `ak> ` when it is listening; the `alive: N ms, N loops` lines are the
+board's own 10-second heartbeat and are removed where they fall inside a reply.
+
+--- `preflight` ---------------------------------------------------------------
+
+ak> preflight
+ok    console attached to the board's own port
+ok    clock on the crystal, system 168 MHz, apb1 42 MHz
+ok    tick advanced after 2860 spins
+ok    dshot 300 kHz, ARR 279, ccr 98/196, 123452 frames sent
+ok    saved configuration: none stored
+ok    no fault recorded since power on
+ok    airframe 0: the quad-x mix and a quadrotor return
+FAIL  this mix needs 4 motors and 0 servos; the board drives 2 and 2
+--    gyro bias: not measured yet - the stored bias stands
+--    imu: none fitted
+--    baro: none fitted
+--    rangefinder: none fitted
+--    altitude: gps only
+--    battery: none fitted on this board
+--    receiver: 0 bytes, 0 frames
+--    gps: 0 bytes, 0 nav-pvt, 4 configure attempts
+--    fix: none yet
+--    return: off - a lost link stops the aircraft
+--    blackbox: 384 records (wrapped)
+--    long log: 384 records in retained RAM, kept from the run before
+--    flash log: 9095 records
+--    link gone, disarmed
+--    launch: off - no channel
+--    arm:       refused - this airframe's mix needs 4 motors and 0 servos, and the board drives 2 and 2
+preflight: SOMETHING IS WRONG - read the FAIL lines above
+
+Two lines in that are the whole of the airframe-default work (#125, trap 219):
+
+  `ok    saved configuration: none stored`
+
+    There is no stored configuration on this board, so `airframe 0` on the line
+    above it is not a value anybody chose - it is the core's own literal in
+    `ak_flight_init()`, reached by a board that has nothing to say on the
+    subject. That is what makes the refusal unclearable rather than a
+    misconfiguration somebody can undo.
+
+  `ok    airframe 0: the quad-x mix and a quadrotor return` followed by
+  `FAIL  this mix needs 4 motors and 0 servos; the board drives 2 and 2`
+
+    The airframe resolves to the quad-X, the mix needs four motors, the board
+    reports two, and the gate says so with both numbers. It is the same FAIL
+    that trap 204 predicted would be reachable once `ak_board_output_shape()`
+    stopped reporting the arch's TIM3 channels, and the prediction was right -
+    it is just not a state a person can leave by wiring anything.
+
+--- `imu` ---------------------------------------------------------------------
+
+ak> imu
+imu:       none - the flight core stays in failsafe
+
+This is `imu_report()` and it says only that `imu_ok` is 0. It does **not**
+distinguish the two ways that can happen, and the board's own `board.c` makes
+the Feather interesting here: `ak_board_imu_bus()` returns `&imu_bus`
+unconditionally (`src/boards/FEATHER_F405/board.c:902`), so `ak_imu_open()` is
+*not* short-circuited by a null bus and it did run - which means it printed one
+of its two lines at boot:
+
+  imu:       nothing answered on the bus
+  imu:       answered 0x%02x, which is not a known part
+
+Those are different repairs (a cable or a pull-up against a part this build has
+no driver for) and **which one it printed was not captured.** The line is printed
+once, before USB enumerates, and it is not retained - see the two `reboot`
+attempts below, the second of them instrumented for exactly this. It is the one
+open question this file was taken to answer and it is still open.
+
+The repo's own record predicts the first of the two, and says so as a hardware
+fact rather than a guess: `docs/02-hardware.md:34` describes the Feather's IMU as
+"an LSM6DSO breakout on the Qwiic connector (I2C1, PB6/PB7, 0x6A) and **nothing
+is plugged into it**". An empty connector produces `nothing answered on the bus`
+and not the other line. Two things stop that from closing the question. It is a
+statement about the *Feather*, and what is on the cable is not established (trap
+209); and the page is a record rather than a reading taken tonight, so it cannot
+outrank the board's own output - which is what this file went to get and did not.
+A part plugged into the connector, or a host that successfully reads across a
+reset, would settle it; nothing else will, because the console has no command that
+scans the bus and reports what answered. There are 27 console commands on this
+firmware (`docs_check.py`: "27 console commands on the firmware, all of them
+written down") and reading the CLI's own table for a bus or address scan found
+none - `imu`, `baro` and `range` report on drivers that were already opened, and
+`none fitted` is the whole of what they can say when one was not.
+
+--- what the console cannot be asked, checked rather than assumed --------------
+
+Four read paths were followed to see whether any of them reports *why* the IMU
+did not open, and all four are closed. This is a reading of the source at
+`f7ede87`, listed because "there is no way to ask" is a claim that should come
+with the ways that were tried:
+
+- **No bus command.** The console has 27 commands (`docs_check.py`: "27 console
+  commands on the firmware, all of them written down") and none of them scans
+  I2C. `spi` looks like it might - and on this board it is a stub:
+  `ak_board_spi_loopback()` (`FEATHER_F405/board.c:1009`) prints `spi:       this
+  board has no SPI bus - its IMU is on I2C1, PB6/PB7` and touches no pin.
+- **`status` does not carry it.** Its sensor lines are absent by design; it
+  reports state, timing, links, attitude, outputs, arm, params, `identity` and
+  `fault`, and `fault: none recorded` is all it will ever say about a sensor that
+  was never there.
+- **`ak_boot_mark()` records the step, not the result.** `main.c` marks
+  `AK_BOOT_IMU` after the open call whichever way it went, so even a boot-stage
+  read cannot tell the two apart.
+- **The flash log is flight records.** `log flash` dumps `ak_log_record_t` rows
+  as CSV - the only log that survives a power cycle, and not a text log.
+
+What *is* readable now, and was taken while checking: `status`, which is the one
+command that answers a question about the board rather than the console.
+
+```
+ak> status
+state:     disarmed
+uptime:    52981 ms
+loops:     51941
+timing:    0 gaps, 0 catchup pieces, 51940 dropped ms, 51940 unusable
+timing:    0 duplicate samples, 0 clock resets, 0 long loops, longest 5 ms
+links:     7 console, 0 net, 0 rc, 0 gps bytes in one pass at most
+attitude:  roll 0 mrad, pitch 0 mrad, yaw 0 mrad
+attitude:  not converged
+motors:    0 0 0 0 per-mille
+servos:    0 0 per-mille
+arm:       refused - this airframe's mix needs 4 motors and 0 servos, and the board drives 2 and 2
+params:    0 changed since the last save
+identity:  0xe96d1457
+fault:     none recorded
+```
+
+`identity: 0xe96d1457` is the board's own identity word, and it is a second
+readable value - beside the ROM UID the handoff quotes - for the question trap
+209 is about. It has not been compared against anything yet, so it settles
+nothing here.
+
+--- `version` -----------------------------------------------------------------
+
+ak> version
+product:  aerialkit-f405
+board:    FEATHER_F405
+rev:      f7ede87
+built:    Sep 29 2026 / 02:43:53
+
+`f7ede87` is the revision trap 208 names as the image its symptom was measured
+on. So the board tonight is running the same build, and this reading is a
+reproduction of that trap on the same image rather than a new report about a
+different one.
+
+--- the `banner` command, and trap 208 reproduced on demand -------------------
+
+`banner` re-prints the boot banner. It was typed once, and this came back:
+
+ak> banner
+unknown command: AerialKit (try 'help')
+
+`unknown command: %s` is the CLI's answer to a command it could not parse
+(`ak_cli.c:639`), and `AerialKit` is the second word of the banner's own
+`AerialKit Firmware` line - so the board's own output became the board's own
+input, which is trap 208 exactly.
+
+**What this adds to trap 208 is that the trigger is the volume of output, not
+the boot and not the command.** The trap records the symptom at the boot and
+then, once, on a `version` about 110 s into a session - "the honest rate is one
+event in eight writes" - and it had stopped reproducing. `version` prints four
+short lines. `banner` prints about 250 bytes on a dozen `ak_console_write`
+calls, and the symptom appeared on the **first** attempt. Nothing else about the
+two runs differs: same image, same board, same host-side reader, and the
+`preflight` immediately before it came back clean. A loopback whose coupling is
+marginal will cross once the board is talking enough, so the largest thing the
+console prints is the most reliable way to provoke it - and `banner` is
+therefore the instrument to reach for, not a command to avoid.
+
+**And it happened again, unprompted, on the other large output.** After the two
+`reboot`s, a `preflight` typed to re-check the configuration line came back as
+
+```
+ak> preflight
+unknown command: AerialKit (try 'help')
+ak>
+```
+
+and the same command typed again returned the full report normally (below).
+
+The first reading of that was that the large outputs provoke it and the short
+ones do not, and a later command softened it. `status`, which is about fifteen
+lines, lost its echo once too - and then three further `status` calls, three
+`preflight` retries and the short commands all came back clean. Counted over the
+session: `banner` 1 of 1, `preflight` 1 of 3, `status` 1 of 4, `version` 1 of 8.
+Every command tried often enough has eventually been eaten, so the earlier "one
+event in eight writes" holds up better than the volume story does; what volume
+changes is the odds, and one successful `banner` is too small a sample to be a
+threshold. The instrument conclusion still stands - a long output is the cheapest
+way to *try* to provoke it - but it is a way to raise the odds, not a guarantee.
+
+The re-read report, which is also what makes the "nothing was written" claim
+below a measurement rather than an assurance:
+
+```
+ok    saved configuration: none stored
+ok    airframe 0: the quad-x mix and a quadrotor return
+FAIL  this mix needs 4 motors and 0 servos; the board drives 2 and 2
+--    imu: none fitted
+--    arm:       refused - this airframe's mix needs 4 motors and 0 servos, and the board drives 2 and 2
+```
+
+Unchanged after two resets, which is what a `reboot` should do to a board whose
+configuration is stored in flash - and there is still none stored.
+
+Note also what the reply is *not*: the banner text itself never reached the
+host. The bytes went out and came back as input, and the CLI answered them, so a
+`banner` typed at this console is not a way to read the banner. The banner did
+print at boot, before USB enumerated; see the `version` and `preflight` lines
+above for what that leaves readable.
+
+--- `log long` ----------------------------------------------------------------
+
+Typed once, expecting the console's history. It is not that: it dumps the
+blackbox from retained RAM - `# aerialkit blackbox, 384 records (47978
+overwritten...)` and CSV rows - so it is not a door onto the boot report either.
+Recorded because the guess was made and was wrong, and the next person to want
+the boot report should not make it again.
+
+--- the two `reboot`s, and the boot report that would not come back -----------
+
+The first was sent to see whether the boot report could be caught on the way up.
+The board reset, the USB device left the bus and re-enumerated, and the reader in
+flight got `device reports readiness to read but returned no data`. When the port
+came back the ring held only the heartbeat.
+
+The second was instrumented for it (`catch_boot.py`: open, drain, send `reboot`,
+wait for `/dev/ttyACM0` to disappear, then reopen as soon as it returns and read
+continuously). What it measured, in order:
+
+```
+[phase2] port absent: True
+[phase2] port back: True
+[phase3] open 1 failed: [Errno 13] could not open port /dev/ttyACM0: Permission denied
+[phase3] opened on attempt 2
+[boot] 0 bytes
+[phase3] opened on attempt 3
+alive: 21046 ms, 20000 loops
+[boot] 29 bytes
+[total] 29 bytes read across the reboot
+```
+
+So a host attached within about five seconds of re-enumeration received **zero**
+bytes of the boot report, and the first thing it ever saw was a heartbeat at
+21 s of uptime. The `Permission denied` on the first attempt is udev re-applying
+the device node's ownership as it is recreated, not a fault in the board.
+
+That is the opposite of what the source predicts, and the prediction is explicit.
+`ep1_push` (`src/arch/stm32f405/usb.c:295`) is called from `ak_usb_write` and
+again at `SET_CONFIGURATION` under a comment that says it in as many words:
+"Whatever was written while the host was still enumerating - the banner, above
+all - has been waiting in the ring for exactly this moment"
+(`usb.c:628-631`). The design intent is that a late host gets the banner.
+
+Two readings are consistent with the measurement and **neither is established**,
+so neither is being asserted as the cause:
+
+- The ring is drained into endpoint 1 at `SET_CONFIGURATION`, whether or not
+  anything on the host is reading the tty - the kernel's read URBs are submitted
+  by `cdc_acm` when the port is *opened*, which happens seconds later. If a USB
+  bus reset lands in that window, `usb_configured` is cleared (`usb.c:733`) and
+  the endpoint's FIFO is flushed, but `tx_tail` has already moved past the bytes
+  (`usb.c:318`), so they are gone rather than re-sent.
+- Or the boot report is larger than the ring. `AK_USB_TX_CAPACITY` is 2048
+  (`usb.c:211`) and `ak_usb_write` drops the **newest** bytes once the ring is
+  full (`tx_dropped += len - i`, `usb.c:328`), so a boot report longer than 2 KB
+  would leave a truncated head behind.
+
+What would tell them apart is the dropped-byte counter, and it cannot be asked.
+`ak_usb_dropped()` (`usb.c:344`) has no caller on the board at all - the only
+reads of it anywhere are in the two host arch tests (`tests/test_arch.c:2386`,
+`tests/test_arch_at32.c:1770`). So the one number that would say how much of the
+boot report was lost is not reachable from the console, and a late-attaching host
+cannot say whether it is looking at a report that was never fully buffered or one
+that was buffered and flushed.
+
+The practical conclusion is the one the `imu` section needs: on this stack as it
+stands, **attaching after a reset does not recover the boot report**, and the
+IMU's distinguishing line is not obtainable this way. Reading it needs the host
+already reading at the instant the device re-enumerates - which is what the
+earlier 11.88 s reading in trap 208 did - or a change that keeps the boot report
+readable after the fact.
+
+--- what was not done ---------------------------------------------------------
+
+At the time of the original reading: no flash, no erase, no DFU, no `set`, no
+`save`. Two `reboot`s were sent, which
+reset the MCU and nothing else - no configuration was touched, and `preflight`
+afterwards still read `saved configuration: none stored`. `rev f7ede87` was read,
+not written. The board is as it was found, running and disarmed, and the image that
+would carry the airframe default (built from `7655c7c` + the change) has not been
+put on it - so the acceptance line this work is waiting for,
+
+  ok    airframe 7: the elevon-wing-single mix and a fixed wing return
+
+had not been read and could not be before the new image was flashed. The
+2026-09-30 follow-up below records the later reading; the original FAIL above
+remains the measured baseline.
+
+--- superseding flash and preflight reading, 2026-09-30 ----------------------
+
+The later bench handoff (`the private bench handoff`)
+records a DFU flash with `dfu-util -a 0 -s 0x08000000:leave`, 110724 bytes
+downloaded, exit 0. The device's own map `04*016Kg,01*064Kg,07*128Kg` places
+that image in sectors 0-4, ending at 0x0801FFFF. The blackbox starts at
+0x08020000 and configuration at 0x080C0000, outside the image's erase range.
+This is a transcription of the handoff's bench reading, not a fresh flash in
+the session that updated this record.
+
+After that flash, the board's `preflight` command returned these lines:
+
+```
+ok    saved configuration: none stored
+ok    airframe 7: the elevon-wing-single mix and a fixed wing return
+ok    outputs: 2 motors, 2 servos on this board, and the mix needs 1 and 2
+--    imu: none fitted
+--    imu: nothing answered on the bus
+--    arm:       refused - no receiver has spoken
+preflight: the machine is what the firmware thinks it is
+```
+
+The absence of stored configuration is still reported, so airframe 7 is the
+board default. No `set` or `save` was used to establish it. The IMU remains
+undetected; the output and airframe checks pass, while arming is refused for
+the missing receiver.

@@ -1,0 +1,110 @@
+Checking "python3" ...
+Python 3.14.4
+"python3" has been detected
+Activating ESP-IDF 5.5
+Setting IDF_PATH to '<ESP_IDF_ROOT>'.
+* Checking python version ... 3.14.4
+* Checking python dependencies ... OK
+* Deactivating the current ESP-IDF environment (if any) ... OK
+* Establishing a new ESP-IDF environment ... OK
+* Identifying shell ... bash
+* Detecting outdated tools in system ... Found tools that are not used by active ESP-IDF version.
+For removing old versions of slirp-lib use command 'python <ESP_IDF_ROOT>/tools/idf_tools.py uninstall'
+To free up even more space, remove installation packages of those tools.
+Use option python <ESP_IDF_ROOT>/tools/idf_tools.py uninstall --remove-archives.
+* Shell completion ... Autocompletion code generated
+
+Done! You can now compile ESP-IDF projects.
+Go to the project directory and run:
+
+  idf.py build
+the config protocol, against the firmware on an emulated ESP32
+  board   | ets Jul 29 2019 12:21:46
+  board   | rst:0x1 (POWERON_RESET),boot:0x12 (SPI_FAST_FLASH_BOOT)
+  board   | configsip: 0, SPIWP:0xee
+  board   | clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,hd_drv:0x00,wp_drv:0x00
+  board   | mode:DIO, clock div:2
+  board   | load:0x3fff0030,len:6380
+  board   | ho 0 tail 12 room 4
+  board   | load:0x40078000,len:15916
+  board   | load:0x40080400,len:3860
+  board   | entry 0x40080638
+  board   | I (966) boot: ESP-IDF v5.5 2nd stage bootloader
+  board   | I (970) boot: compile time Sep 14 2026 06:38:38
+  board   | I (970) boot: Multicore bootloader
+  board   | I (1178) boot: chip revision: v0.0
+  board   | I (1188) boot.esp32: SPI Speed      : 40MHz
+  board   | I (1188) boot.esp32: SPI Mode       : DIO
+  board   | I (1189) boot.esp32: SPI Flash Size : 2MB
+  board   | I (1225) boot: Enabling RNG early entropy source...
+  board   | I (1268) boot: Partition Table:
+  board   | I (1269) boot: ## Label            Usage          Type ST Offset   Length
+  board   | I (1270) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+  board   | I (1272) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+  board   | I (1273) boot:  2 factory          factory app      00 00 00010000 00100000
+  board   | I (1297) boot: End of partition table
+  board   | I (1499) esp_image: segment 0: paddr=00010020 vaddr=3f400020 size=161b0h ( 90544) map
+  board   | I (1644) esp_image: segment 1: paddr=000261d8 vaddr=3ff80000 size=00020h (    32) load
+  board   | I (1737) esp_image: segment 2: paddr=00026200 vaddr=3ffb0000 size=02550h (  9552) load
+  board   | I (1850) esp_image: segment 3: paddr=00028758 vaddr=40080000 size=078c0h ( 30912) load
+  board   | I (1993) esp_image: segment 4: paddr=00030020 vaddr=400d0020 size=3ff84h (262020) map
+  board   | I (2254) esp_image: segment 5: paddr=0006ffac vaddr=400878c0 size=07e84h ( 32388) load
+  board   | I (2635) boot: Loaded app from partition at offset 0x10000
+  board   | I (2636) boot: Disabling RNG early entropy source...
+  board   | AerialKit Firmware
+  board   | product:  aerialkit-esp32
+  board   | board:    ESP32DEV / ESP32 devkit
+  board   | rev:      f6e35fc-dirty
+  board   | built:    2026-09-15T00:15:12
+  board   | clocks:   CPU 160 MHz
+  board   | state:    no sensor drivers - the flight loop runs in failsafe
+  board   | faults: none recorded
+  board   | selftest:
+  board   | ok       squareroot of 9 is 3
+  board   | ok       atan2(1,1) is pi/4
+  board   | ok       quad hover is symmetric
+  board   | ok       quad roll right lifts the left pair
+  board   | ok       quad nose-up lifts the rear pair
+  board   | ok       wing pitch moves both elevons together
+  board   | ok       wing roll moves the elevons opposite ways
+  board   | net: ethernet, listening on 5555, no address yet
+  board   | ok       wing yaw is differential thrust
+  board   | ok       estimator holds level when level
+  board   | ok       disarmed means motors at zero and servos centred
+  board   | ok       arm switch plus low throttle arms
+  board   | ok       armed, roll right lifts the left pair
+  board   | ok       RC loss stops the motors
+  board   | ok       failsafe is latched, not just this frame
+  board   | ok       failsafe holds until the arm switch is cycled
+  board   | selftest: passed
+  board   | console: type 'help'
+  board   | net: ethernet, 10.0.2.15:5555
+  board   | no saved configuration
+  board   | preflight: the machine is what the firmware thinks it is
+  board   | boot: ok
+  ok       the board booted and said so
+  ok       hello answers from the ESP32
+  ok       with the parameter table the F405 build has
+  ok       status answers with a flight state and a link
+  ok       a parameter reads back
+  ok       and a value can be set
+  ok       and reads back as what was set
+  ok       save reaches the ESP32's own storage (NVS)
+  board   | alive: 13719 ms, 10000 loops
+  board   | alive: 23719 ms, 20000 loops
+  board   | a
+and the same protocol over the network
+  ok       a client can reach the firmware's port
+  ok       the ESP32 answers over the network
+  ok       with the same parameter table the console has
+  ok       a value set over the network is the value the console reads
+  ok       the firmware agrees to stream telemetry at 20 Hz
+  ok       telemetry arrives without being asked for
+  frame   | aa5501081af183000000000000000000000000000000000000000000000000357a
+  ok       at about the rate that was asked for
+  ok       and the uptime in it is moving
+  ok       and it stops when asked to stop
+  ok       a second client can connect
+  ok       and its first request is answered first
+  ok       and it is not already streaming
+esp32 protocol: ok

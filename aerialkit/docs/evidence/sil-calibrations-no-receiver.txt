@@ -1,0 +1,191 @@
+
+AerialKit Firmware
+  product:  aerialkit-f405
+  board:    SIM / software in the loop
+  rev:      879086d-dirty
+  built:    Sep 18 2026 / 17:29:14
+  clocks:   simulated, 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+faults: none recorded
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the front pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+  ok       a wing arms the same way
+  ok       a wing that loses its link circles down instead of stopping
+  ok       and a link that comes back does not take it back mid-descent
+  ok       and the ground disarms it
+selftest: passed
+
+imu:       configured for 1 kHz, gyro 2000 dps, accel 16 g
+imu:       icm42688p
+baro:      dps310
+rangefinder: tof10120 at 0x52, up to 2.00 m
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is
+boot: ok
+ak> sim:    812 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+home: from the first fix while disarmed, 52.1234567, 4.9876543
+gyro: bias measured while disarmed: 0 0 0 mdps (500 samples, 0 rejected)
+sim:   1811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   2811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   3601 ms  arm switch off, and the pack unplugged
+sim:   3811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+calibrate vbat 99
+calibrate vbat: 99.00 V is not a pack this aircraft flies
+ak> calibrate vbat 12.6
+calibrate vbat: the pin reads 0.0 mV - connect the pack
+ak> calibrate accel 9
+calibrate accel: '9' is not a face
+ak> calibrate rc
+sim:   4811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+calibrate rc: no frames from the receiver
+ak> sim:   5811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   6811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   7001 ms  somebody picks the aircraft up
+calibrate
+sim:   7811 ms  roll    2.2 deg  pitch    3.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   8811 ms  roll   -5.1 deg  pitch   -4.4 deg  motors 0.00 0.00 0.00 0.00
+calibrate: failed with 7 good samples and 1993 rejected - the aircraft is moving, or the sensor stopped answering
+ak> sim:   9811 ms  roll  -10.5 deg  pitch    5.6 deg  motors 0.00 0.00 0.00 0.00
+status
+state:     disarmed
+uptime:    10501 ms
+loops:     6683
+attitude:  roll 58 mrad, pitch 129 mrad, yaw -101 mrad
+attitude:  converged
+motors:    0 0 0 0 per-mille
+servos:    0 0 per-mille
+arm:       refused - no receiver has spoken
+params:    0 changed since the last save
+fault:     none recorded
+ak> sim:  10811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+alive: 10811 ms, 6993 loops
+sim:  11811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+set mission_channel 7
+mission_channel = 7
+ak> save
+save: the board refused the write
+ak> params
+params (90):
+  rate_kp_roll          0.250  rate loop P, roll
+  rate_kp_pitch         0.250  rate loop P, pitch
+  rate_kp_yaw           0.350  rate loop P, yaw
+  rate_ki_roll          0.150  rate loop I, roll
+  rate_ki_pitch         0.150  rate loop I, pitch
+  rate_ki_yaw           0.200  rate loop I, yaw
+  rate_kd_roll         0.0025  rate loop D, roll
+  rate_kd_pitch        0.0025  rate loop D, pitch
+  rate_kd_yaw          0.0000  rate loop D, yaw
+  rate_i_limit          0.300  clamp on the integral term
+  torque_limit          0.600  clamp on each axis before the mix
+  d_cutoff_hz              80  derivative low pass, 0 disables
+  max_rate_dps            700  rate mode, deg/s at full stick
+  angle_kp_roll          6.00  angle loop P, roll
+  angle_kp_pitch         6.00  angle loop P, pitch
+  angle_rate_lim         6.00  clamp on the angle loop output
+  max_tilt_deg             35  max commanded tilt in angle mode
+  yaw_rate_dps            350  deg/s at full rudder
+  throttle_low          0.050  arm only below this throttle
+  arm_max_tilt_deg       25.0  refuse to arm further than this from level; 180 is the sky
+  arm_hold_ms             500  switch held this long to arm
+  rc_timeout_ms           250  no RC frame this long is a failsafe
+  max_dt_ms                50  longer than this is a sensor problem
+  wing_descend_bank_deg         30  fixed wing, lost link: bank held while circling down
+  wing_descend_pitch_deg          8  fixed wing, lost link: nose-down held while circling down
+  wing_descend_throttle       0.15  fixed wing, lost link: throttle held while circling down
+  airframe                  0  0 quadx, 1 elevonwing, 2 quadx1234, 3 quadp, 4 y4, 5 vtail4, 6 tri - see docs/07-outputs.md
+  rc_min                  172  receiver count at full low stick
+  rc_mid                  992  receiver count with the sticks centred
+  rc_max                 1811  receiver count at full high stick
+  rc_deadband           0.020  stick deadband, fraction of travel
+  dshot_khz               300  150, 300 or 600 (applies immediately)
+  rc_protocol               0  0 crsf, 1 sbus (applies immediately)
+  servo1_reverse            0  1 when this servo's linkage moves the surface the other way
+  servo1_trim_us            0  centre, in microseconds from 1500
+  servo1_travel_us        500  how far the linkage moves at full stick, in microseconds
+  servo2_reverse            0  1 when this servo's linkage moves the surface the other way
+  servo2_trim_us            0  centre, in microseconds from 1500
+  servo2_travel_us        500  how far the linkage moves at full stick, in microseconds
+  vbat_ratio           11.000  pack volts per volt at the ADC pin (10k/1k = 11)
+  vbat_cells                0  cells, or 0 to count them from the voltage
+  vbat_warn_cell        3.500  volts a cell that says the pack is low
+  vbat_min_cell         3.300  volts a cell that says the pack is done
+  battery_rth               0  1 brings it home when the pack is done
+  align_roll_deg          0.0  mounting rotation, board to airframe
+  align_pitch_deg         0.0  mounting rotation, board to airframe
+  align_yaw_deg           0.0  mounting rotation, board to airframe
+  gyro_bias_roll        0.000  measured by 'calibrate', dps
+  gyro_bias_pitch       0.000  measured by 'calibrate', dps
+  gyro_bias_yaw         0.000  measured by 'calibrate', dps
+  accel_bias_x         0.0000  measured by 'calibrate accel', g
+  accel_scale_x        1.0000  measured by 'calibrate accel'
+  accel_bias_y         0.0000  measured by 'calibrate accel', g
+  accel_scale_y        1.0000  measured by 'calibrate accel'
+  accel_bias_z         0.0000  measured by 'calibrate accel', g
+  accel_scale_z        1.0000  measured by 'calibrate accel'
+  rth_enable                0  0 to stop on a lost link, 1 to come home
+  gps_min_sats              6  satellites a fix needs to be navigated on
+  rth_cruise             0.55  throttle to hold while returning
+  rth_course_kp        0.0250  roll per degree of course error
+  rth_alt_kp           0.0100  pitch per metre of altitude error
+  rth_alt_ki          0.00080  pitch per metre-second of altitude error (the standing pitch)
+  rth_loiter_roll        0.35  bank held while circling at home
+  rth_arrive_m             60  how close counts as arrived
+  rth_min_alt_m             0  never hold below this while returning (0 = off)
+  quad_return_kp        0.500  speed asked for per metre from home, m/s per m
+  quad_return_speed        6.0  fastest the return will ask for, m/s
+  quad_arrive_m            15  how close home before the return descends
+  quad_hover_m            2.0  metres above home the quadrotor settles at
+  quad_alt_ki           0.100  standing throttle learned per (m/s)-second of climb-rate error
+  range_land_mm           400  how close the ground counts as landed, mm
+  range_agree_m           3.0  how far the rangefinder and the height may disagree
+  quad_hold_land_s          0  seconds of holding with no fix before a quadrotor lands in place (0 = never)
+  fence_enable              0  1 brings it home if it leaves the fence
+  fence_radius_m            0  how far from home it may go (0 = off)
+  fence_ceiling_m           0  how high above home it may go (0 = off)
+  wp0_lat           0.0000000  mission waypoint, degrees
+  wp0_lon           0.0000000  mission waypoint, degrees
+  wp1_lat           0.0000000  mission waypoint, degrees
+  wp1_lon           0.0000000  mission waypoint, degrees
+  wp2_lat           0.0000000  mission waypoint, degrees
+  wp2_lon           0.0000000  mission waypoint, degrees
+  wp3_lat           0.0000000  mission waypoint, degrees
+  wp3_lon           0.0000000  mission waypoint, degrees
+  wp_count                  0  how many waypoints to fly, in order
+  mission_channel           7  RC channel for the mission switch (0 = none)
+  launch_channel            0  RC channel for the hand-launch switch (0 = none)
+  launch_throttle        0.70  throttle held during a launch
+  launch_climb_deg         18  climb attitude held during a launch, degrees
+  launch_timeout_s          5  seconds a launch may fly the aircraft
+1 changed since the last save
+ak> sim:  12811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:  13811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+save
+saved 1636 bytes
+ak> sim:  14811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:  15811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:  16811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim: ok   a pack that is not a pack, and a divider with nothing on it, are two different sentences a pack of 99 V: refused; a divider with nothing on it: said
+sim: ok   a face that is not a face says so, with the digit the console names the face it was given
+sim: ok   and a calibration with a receiver that has never spoken says so the console says there are no frames
+sim: ok   a gyro calibration somebody interrupts by picking the aircraft up refuses to write a bias the console says how many samples it had and how many it rejected
+sim: ok   and none of it armed anything              the last status says disarmed
+sim: ok   a board whose flash refuses the record does not get a save reported as one the console says the board refused the write
+sim: ok   and the parameter that was set is still counted as unsaved params still says one change since the last save
+sim: ok   while the same command on a board that takes the write does save it the second save wrote the record and said so
+sim: PASS (0 checks failed)

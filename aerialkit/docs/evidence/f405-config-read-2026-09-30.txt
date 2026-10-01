@@ -1,0 +1,96 @@
+AerialKit F405, WeAct board - the raw flash read of the configuration's sector
+
+Taken 2026-09-30 with the board in its ROM bootloader, entered by hand at the
+board (BOOT0 held, reset tapped). Tool: dfu-util 0.11, unpacked from the Ubuntu
+archive with `apt-get download dfu-util` + `dpkg -x` into the job tmp - not
+installed system-wide, and no root was used.
+
+This is the read that trap 216 left open. The answer is below: the first word of
+0x080C0000 is AK_FLASHLOG_MAGIC, which is a previous owner's flash-log header and
+not a configuration at all.
+
+Every read here is an UPLOAD. Nothing was written, erased or programmed, and no
+command in this file carries `:leave` or a download. The board was left in DFU.
+
+Device as the host saw it, on every read:
+  Bus 001 Device 064: ID 0483:df11 STMicroelectronics STM Device in DFU Mode
+
+dfu-util's own handshake, on the first read:
+  Device DFU version 011a
+  DFU state(10) = dfuERROR, status(10) = Device's firmware is corrupt
+  Clearing status
+  DFU state(2) = dfuIDLE, status(0) = No error condition is present
+  Device returned transfer size 2048
+  DfuSe interface name: "Internal Flash  "
+
+Each read is the same command with a different address:
+
+  dfu-util -d 0483:df11 -a 0 -s <address>:<length> -U <file>
+
+ADDRESSING IS CHECKED BEFORE ANYTHING IS BELIEVED FROM IT
+  A read of the vector table has to look like one: word 0 a stack pointer in
+  SRAM, word 1 a reset handler in flash.
+    0x08000000  20020000 0800F829 0800F825 0800F80D 0800F825 0800F825 0800F825 00000000
+  w0 = 0x20020000 is the top of the part's 128 KB of SRAM and w1 = 0x0800F829
+  is in flash, so the addresses are being honoured. Two further controls agree:
+  0x080F0000 and 0x0801F000 come back blank, 0x08020000 does not.
+
+0x0801F000 - THE TRACE PAGE, the last page of the image's sector
+  All 4096 bytes 0xFF. Nothing has been saved there, so on this board the lamp
+  is the only instrument and section 6b is the reading.
+  sha256 f47a8ec3e9aff2318d896942282ad4fe37d6391c82914f54a5da8a37de1300c6
+
+0x08020000 - THE FLASH LOG'S OWN FIRST SLOT, for comparison
+  414B464C 003C0002 00000000 00000022 00169B28 00000000 00000000 DF8E2838
+  w0 = 0x414B464C is AK_FLASHLOG_MAGIC ("AKFL"), w1 = 0x003C0002 carries
+  AK_FLASHLOG_VERSION 2 in its low half. 1024 of 1024 bytes non-FF.
+  sha256 1a32aefae29a890be1848ddf967a494da20a19bb1681640c0e9c4901d83c5ea9
+
+0x080C0000 - THE CONFIGURATION'S BANK 0, SECTOR 10 - THE READ THAT WAS MISSING
+  414B464C 003C0002 00000005 00000012 0005AC8A 00000000 00000000 4ADE7925
+  w0 = 0x414B464C = AK_FLASHLOG_MAGIC, the same value the log's own first slot
+  carries two sectors below it. w8 = 0x414B4653 = AK_FLASHLOG_SLOT_MAGIC
+  ("AKFS"). So sector 10 holds a log header and a log slot: the previous owner
+  of the region is still in it.
+  4095 of 4096 bytes non-FF; 3333 of them are 0x00.
+  sha256 c6fc7a83525435d752a8668bc8b92239a8b382b5d9fe0612167b0748c1758bd0
+
+  And the reader's own test, run against these bytes rather than against a
+  model of them:
+      board sector 10 word 0 : 0x414B464C
+      AK_CONFIG_MAGIC        : 0x414B4346   -> not equal
+      erased (0xFFFFFFFF)?   : False
+  so the sector is neither erased nor a configuration, which is the "not
+  erased, nothing valid" branch, and exactly the message the board prints.
+
+0x080E0000 - BANK 1, SECTOR 11 - NOT BLANK, AND THAT WAS NOT EXPECTED
+  67120883 C4980462 B4A2086E E2E8D0D8 86042123 084C75CD 4D44193A 112F5A11
+  sha256 32599f6d0e225bc53c9e55483b2ca0d660a367a33f9864f9eb5bd2dd380dd0f4
+  4093 of 4096 bytes non-FF; all 256 possible byte values appear. Read twice, the
+  two files are byte-identical (that same sha256 both times), so this is flash
+  content and not a buffer or a transport artefact.
+
+  How far it goes, 0x400 at a time:
+    0x080E0000  non-FF 4093/4096
+    0x080E1000  non-FF 1024/1024
+    0x080E2000  non-FF 1022/1024
+    0x080E4000  non-FF    0/1024
+    0x080E8000  non-FF    0/1024
+    0x080EC000  non-FF    0/1024
+  The first 12 KB of the 128 KB sector is written and the rest is erased -
+  three 4 KB slots' worth - and not one of the three known magics appears
+  anywhere in it.
+
+WHAT IS NOT ESTABLISHED
+  What wrote the 12 KB in sector 11, or what it is. It carries none of
+  AK_CONFIG_MAGIC, AK_FLASHLOG_MAGIC or AK_FLASHLOG_SLOT_MAGIC, its byte
+  distribution is as flat as a random one, and it reproduces. That is the whole
+  of it: not erased, not this firmware's configuration, and its origin has not
+  been measured. Trap 216's bench prediction was that bank 1 is "the other,
+  erased bank"; on this board that premise does not hold, so what a `save` would
+  do here is not predicted by that paragraph and has not been tried.
+
+0x080D0000 - THE SECOND 4 KB OF BANK 0
+  00000000 00000000 00000000 00000000 414B4653 D79FFF87 000901AA 00000000
+  1023 of 1024 bytes non-FF and word 0 is 0x00000000: a block of zeros, which is
+  what a programmed region looks like rather than an erased one.

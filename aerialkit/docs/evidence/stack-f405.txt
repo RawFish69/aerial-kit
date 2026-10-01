@@ -1,0 +1,116 @@
+# AerialKit's stack, from the compiler's call graph - 2026-09-17
+#
+# What this file is: the recording behind docs/21-port-on-the-host.md, "The
+# stack, which is the one question running the code cannot answer". No board
+# was involved and nothing was flashed - this is two compiler flags and a walk
+# of the graph they write, so it is a recording of a *check* rather than of the
+# aircraft, and it can be taken again from the same sources with the same
+# toolchain rather than only by somebody who was there.
+#
+# ---- what produced it -------------------------------------------------------
+
+$ arm-none-eabi-gcc --version
+    arm-none-eabi-gcc (Arm GNU Toolchain 13.2.rel1 (Build arm-13.7)) 13.2.1
+    20231009
+
+$ make stack-check                    # = scripts/check-stack.sh
+== building aerialkit-f405 with the call graph and the frame sizes
+stack usage, from the compiler's own records
+  functions with a frame size: 403
+  functions in the call graph: 370 (363 of them also have a frame size)
+  indirect calls (edges this analysis cannot follow): 506
+
+  largest single frames:
+      2120  preflight_run
+      2056  save_parameters
+       552  ak_flight_selftest
+       368  ak_cli_run
+       360  ak_flashlog_dump
+       288  calibrate
+       264  ak_firmware_main
+       208  ak_console_printf
+
+  deepest chain of resolved calls: 2480 bytes over 5 frames
+  and with one largest-frame call at every unresolved site: 8584 bytes
+         8  Reset_Handler
+       264  ak_firmware_main
+      2120  preflight_run
+        64  arm_line
+        24  ak_flight_arm_check
+
+# ---- the same walk, rooted at the control loop instead of the whole image ---
+
+$ python3 tools/stack_report.py build-stack/aerialkit-f405 \
+      --top 1 --from ak_flight_step
+stack usage, from the compiler's own records
+  functions with a frame size: 403
+  functions in the call graph: 370 (363 of them also have a frame size)
+  indirect calls (edges this analysis cannot follow): 506
+
+  largest single frames:
+      2120  preflight_run
+
+  deepest chain of resolved calls: 2480 bytes over 5 frames
+  and with one largest-frame call at every unresolved site: 8584 bytes
+         8  Reset_Handler
+       264  ak_firmware_main
+      2120  preflight_run
+        64  arm_line
+        24  ak_flight_arm_check
+
+  from ak_flight_step: 116 bytes over 4 frames (116 pessimistically)
+        56  ak_flight_step
+        40  control_armed
+         8  ak_mixer_apply_limited
+        12  ak_mixer_apply_scaled
+
+# ---- where the number is compared against what the part has ----------------
+
+$ arm-none-eabi-size -A build-stack/aerialkit-f405/aerialkit-f405.elf
+section             size        addr
+.isr_vector          224   134217728
+.text             101692   134217952
+.data                 36   536870912
+.bss               56792   536870952
+.ccm                   0   268435456
+.noinit            21584   536927744
+
+# SRAM is 0x20000000..0x20020000 and _estack is its top, so what is left
+# between the end of .noinit (0x20013250) and the stack is 52,656 bytes. The
+# image itself was 101,952 bytes of flash for this build; its sha256 was
+# 06b115a67b262cadb3fc7432304d982bbe2ce8540dbf8abed710fc65f697e436.
+
+# ---- and the wing's part, which shares the chain because it shares src/core -
+
+$ scripts/check-stack.sh AERIALKIT_GHF435 at32f435 at32f435rg aerialkit-ghf435
+== building aerialkit-ghf435 with the call graph and the frame sizes
+stack usage, from the compiler's own records
+  functions with a frame size: 413
+  functions in the call graph: 378 (372 of them also have a frame size)
+  indirect calls (edges this analysis cannot follow): 509
+
+  largest single frames:
+      2120  preflight_run
+      2056  save_parameters
+       552  ak_flight_selftest
+       368  ak_cli_run
+       360  ak_flashlog_dump
+       288  calibrate
+       264  ak_firmware_main
+       208  ak_console_printf
+
+  deepest chain of resolved calls: 2480 bytes over 5 frames
+  and with one largest-frame call at every unresolved site: 8584 bytes
+         8  Reset_Handler
+       264  ak_firmware_main
+      2120  preflight_run
+        64  arm_line
+        24  ak_flight_arm_check
+
+# ---- what this does not say -------------------------------------------------
+#
+# The graph has no edges through function pointers, and this firmware passes
+# drivers around as tables: 506 call sites are counted as zero, so 2,480 is a
+# floor and 8,584 is one largest-frame call at every one of them, which cannot
+# be true of all of them at once. The truth is between the two. Nothing here
+# was run on a part, so nothing here says what a real overflow would do.

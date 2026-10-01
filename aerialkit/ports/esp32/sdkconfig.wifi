@@ -1,0 +1,13 @@
+# The radio, for a board that has one (a devkit has no PHY, QEMU has no
+# radio). Used as:
+#
+#   idf.py -C ports/esp32 -B ports/esp32/build-wifi \
+#       -DSDKCONFIG=build-wifi/sdkconfig \
+#       -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
+#
+# which is what scripts/esp32-proto.sh runs, so the half of the port a real
+# board uses is compiled on every build. It is a file in the tree rather than a
+# printf in a page because a build configuration that only exists in a
+# document is a build configuration that stops matching it.
+
+CONFIG_AK_NET_WIFI=y

@@ -15,7 +15,7 @@ contract, so the control stack above them is identical.
 
 The stick mapping and `hover_throttle` described here are **multirotor-specific**. Fixed-wing
 and other airframes need their own mapping; that work is tracked in the roadmap in the
-[root README](../README.md#roadmap).
+[root README](STACK-GUIDE.md#roadmap).
 
 ## ROS-Side Hardware Contract
 

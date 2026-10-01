@@ -1,0 +1,45 @@
+# Board and platform choices for the first ESP32 target.
+
+CONFIG_IDF_TARGET="esp32"
+
+# AerialKit's main() runs the whole firmware in IDF's main task, and it has
+# tables and buffers of its own, so the default 3.5 KB stack is not enough.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# A partition table of this target's own, rather than IDF's single-app default.
+# The default gives everything to the application and leaves nowhere for a log
+# to live; partitions.csv reserves a 704 KB region for the blackbox in flash
+# and caps the application at 1.25 MB, which the Wi-Fi build (926 KB, measured
+# 2026-09-17) fits with 28% to spare. See docs/17-esp32-port.md.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# IDF's routine logging would interleave with the console, which is the
+# interface here - but errors and panics must not be silent, so they stay. That
+# is the level where the console is quiet and a crash is not.
+CONFIG_LOG_DEFAULT_LEVEL_ERROR=y
+
+# One tick per millisecond, which is what the flight loop's delay arithmetic
+# assumes.
+CONFIG_FREERTOS_HZ=1000
+
+# Networking, for the config and telemetry port.
+#
+# The chip this runs on has Wi-Fi; the machine it is *tested* on does not, so
+# the default here is QEMU's emulated OpenCores Ethernet MAC and that is what
+# the automated check connects through - the same lwip, the same sockets, the
+# same port list, a different cable. A real board is the other way round: a
+# devkit has no PHY at all, so it wants
+#
+#   idf.py -C ports/esp32 -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.wifi" build
+#
+# with a sdkconfig.wifi holding the two Wi-Fi settings (see main/Kconfig.projbuild
+# and docs/17-esp32-port.md). Choosing the medium is a compile-time decision
+# because a build that carries both has one of them failing on every board it
+# ever runs on, and the failure - "listening, no address yet" - is the same
+# symptom the medium would explain.
+CONFIG_AK_NET_OPENETH=y
+CONFIG_ETH_ENABLED=y
+CONFIG_ETH_USE_OPENETH=y
+CONFIG_ETH_USE_ESP32_EMAC=n
+CONFIG_ETH_USE_SPI_ETHERNET=n

@@ -1,0 +1,126 @@
+# AerialKit on the WeAct STM32F405, on the bench at the NAS - 2026-09-17
+#
+# What this file is: the raw evidence for the two hardware claims the plan
+# makes about the USB console (docs/01-plan.md, "The console's other door").
+# The board was plugged into the Pi's USB hub, put in DFU by hand (BOOT0 to
+# 3V3, tap reset), flashed from this machine, and watched with the kernel log.
+# Nothing else was powered: no props, no ESC, no servo, no pack.
+#
+# ---- the image, built minutes before it was flashed -------------------------
+
+$ scripts/fw build aerialkit-f405
+    dist/aerialkit-f405/aerialkit-f405.bin   101756 B
+    sha256 53d914f331dde7131252547ac9444c1226d4f06048367bcfd22cc27812a692be
+    result: shape ok (nothing here proves the code runs)
+
+# ---- the flash --------------------------------------------------------------
+
+$ dfu-util -l
+Found DFU: [0483:df11] ver=2200, devnum=29, cfg=1, intf=0, path="1-1.1",
+    alt=0, name="@Internal Flash  /0x08000000/04*016Kg,01*064Kg,07*128Kg"
+
+$ dfu-util -d 0483:df11 -a 0 -s 0x08000000:leave \
+      -D dist/aerialkit-f405/aerialkit-f405.bin
+Download done.
+File downloaded successfully
+Submitting leave request...
+Transitioning to dfuMANIFEST state
+
+# ---- and the kernel log, first flash (no GCCFG write in the image) ----------
+
+[382837.099646] usb 1-1.1: USB disconnect, device number 29
+    ... and then nothing. No "new full-speed USB device" line for 25 seconds,
+    which is a board that looks unplugged: the same cable, port and pins had
+    enumerated the ROM's DFU a minute earlier. Full stop until fixed.
+
+# ---- the fix, and the second flash ------------------------------------------
+#
+# src/arch/stm32f405/usb.c now writes GCCFG = PWRDOWN | NOVVBUSSENS. The image
+# is otherwise the same tree; it flashed the same way and reported the same
+# success lines. The kernel log, with the enumeration attempts:
+
+[383660.274949] usb 1-1.1: new full-speed USB device number 41 using xhci_hcd
+[383663.244163] usb 1-1.1: device descriptor read/64, error -32
+[383663.420182] usb 1-1.1: device descriptor read/64, error -32
+[383663.593981] usb 1-1.1: new full-speed USB device number 42 using xhci_hcd
+[383663.661164] usb 1-1.1: device descriptor read/64, error -32
+[383663.837206] usb 1-1.1: device descriptor read/64, error -32
+[383663.948306] usb 1-1-port1: attempt power cycle
+[383664.527017] usb 1-1.1: new full-speed USB device number 43 using xhci_hcd
+[383664.527205] usb 1-1.1: Device not responding to setup address.
+[383664.939987] usb 1-1.1: device not accepting address 43, error -71
+[383664.946401] usb 1-1.1: WARN: invalid context state for evaluate context command.
+[383665.009010] usb 1-1.1: new full-speed USB device number 44 using xhci_hcd
+[383665.009193] usb 1-1.1: Device not responding to setup address.
+[383665.420004] usb 1-1.1: device not accepting address 44, error -71
+
+# ---- what the board itself showed ------------------------------------------
+#
+# The LED (PC13) is steady - not the 2 Hz heartbeat the main loop gives, and not
+# the boot's blink pattern. Reported by the owner, who was watching the board.
+# Whether it is steady *lit* or steady *dark* was not established before the
+# board was unplugged; that answer separates the two remaining causes:
+#
+#   steady and LIT  - a delay that never returns: the boot's three-blink loop
+#                     turns the LED on before its first ak_delay_ms
+#   steady and DARK - a fault, or a stop with the LED left off
+
+# ---- one caveat about the log above, said plainly ---------------------------
+#
+# The device that appears in the second log never got far enough to be named:
+# there is no "idVendor=..., idProduct=..." line, because the descriptor read
+# is exactly what fails. So this file shows that *a* full-speed device is on the
+# bus and is being reset by the host - not, by itself, that it is the firmware's
+# CDC (0483:5740) rather than the ROM's DFU (0483:df11) reappearing.
+#
+# The reasons to read it as the firmware's device, in order of weight: the DFU
+# device disconnected at the flash's ":leave" and nothing re-announced itself as
+# DFU; the ROM's DFU had enumerated *successfully* on this cable minutes before,
+# so a half-enumerated 0483:df11 would be a new failure of its own; and the only
+# change between the two images is the two GCCFG bits, which is a change with no
+# effect on the ROM. The next session settles it in one line: whether BOOT0 is
+# still strapped, and whether the descriptors come back once the boot reaches
+# its loop.
+
+# ---- what this file does *not* show ----------------------------------------
+#
+# No banner. No /dev/ttyACM0, no cdc_acm line, nothing that came out of the
+# firmware's console: enumeration never completes, so the console over USB is
+# still unproven. The next session flashes a tell-tale image that blinks the
+# stage the boot reached (and blinks ten times before the stage number if it
+# crashed) - see ~/mcu-bringup-2026-09-17/ on the NAS and docs/05-bringup.md
+# step 3a for the failure table this evidence fills in.
+
+# ---- what it turned out to be (found on the host, 2026-09-18) ---------------
+#
+# The four lines above from the second log are the whole answer, and they were
+# read past for a day: "device descriptor read/64, error -32" is EPIPE, which
+# is a *stall* - the device received the request and refused it - and "Device
+# not responding to setup address" is the next one after that. Nothing was
+# wrong with the cable, the pins, the descriptors or the delay: the driver
+# read bRequest out of the wrong byte of the setup packet.
+#
+# usb.c computed `request = setup[1] * 256 + setup[0]`, i.e. the request out of
+# the little-endian pair rather than out of byte 1 - so a real GET_DESCRIPTOR
+# (bmRequestType 0x80, bRequest 0x06) decoded as 0x0680, matched none of the
+# request numbers the driver knows, and fell through to the stall. USB 2.0
+# section 9.3 puts bmRequestType in byte 0 and bRequest in byte 1, and Artery's
+# own library for the same class of core parses it that way (INAV 9.1.0,
+# lib/main/AT32F43x/Middlewares/AT/AT32_USB_Device_Library/Core/Src/usbd_sdr.c:
+# `setup->bmRequestType = *(uint8_t *)buf; setup->bRequest = *(uint8_t *)(buf + 1)`)
+# - both AerialKit USB ports had the same line, because the second is the
+# first re-derived.
+#
+# Why no test caught it: the host model had one FIFO word, so a setup packet
+# was the same four bytes read twice, and the test wrote the *request* into
+# byte 0. Driver and test agreed with each other, and neither agreed with a
+# host. Both are fixed - the FIFO is a queue behind a seam
+# (tests/host_usb_model.c) and every packet in the tests is now one a host
+# actually sends, SET_ADDRESS included - and the proof is that putting the old
+# decode back fails sixteen checks. See docs/21-port-on-the-host.md, "The USB
+# console", and docs/01-plan.md.
+#
+# So the next session's line is: plug it in, and expect
+# `new full-speed USB device number N ... cdc_acm ... ttyACM0` in the kernel
+# log, then the banner. If that log still shows a stall, this file's reading is
+# wrong and the four lines above are the evidence to start from again.

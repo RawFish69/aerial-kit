@@ -1,0 +1,52 @@
+# Trimmed from a real link of the bare F405 profile (rev ebc6bf9-dirty,
+# 2026-09-19), and trimmed to the two parts that matter to a reader of it:
+#
+#   * the Memory Configuration block, which is the linker's own account of what
+#     the part has, written from linker/stm32f405rg.ld;
+#   * a window of the memory map proper, taken from the `.iplt` rows, because
+#     those are the rows a parser that does not stop at the end of the block
+#     reads as regions - `.iplt` has a length of zero, and dividing by it is
+#     how tools/image_report.py first failed.
+#
+# The link's own --print-memory-usage line, which tools/image_report.py has to
+# agree with byte for byte, was:
+#
+#   FLASH:      104500 B         1 MB      9.97%
+#   RAM:         78452 B       128 KB     59.85%
+#   CCM:             0 GB        64 KB      0.00%
+#
+# Regenerate: make BOARD=AERIALKIT_F405 OUT=build size, then take the block.
+Memory Configuration
+
+Name             Origin             Length             Attributes
+FLASH            0x08000000         0x00100000         xr
+RAM              0x20000000         0x00020000         xrw
+CCM              0x10000000         0x00010000         xrw
+*default*        0x00000000         0xffffffff
+
+ .v4_bx         0x08019810        0x0 linker stubs
+
+.iplt           0x08019810        0x0
+ .iplt          0x08019810        0x0 build-ci/aerialkit-f405/src/core/ak_boot.o
+
+.rel.dyn        0x08019810        0x0
+ .rel.iplt      0x08019810        0x0 build-ci/aerialkit-f405/src/core/ak_boot.o
+
+.data           0x20000000       0x24 load address 0x08019810
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _sdata = .
+ *(.data*)
+ .data.range_agree_m
+                0x20000000        0x4 build-ci/aerialkit-f405/src/core/main.o
+ .data.range_land_mm
+                0x20000004        0x4 build-ci/aerialkit-f405/src/core/main.o
+ .data.dshot_khz
+
+.data           0x20000000       0x24 load address 0x08019810
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _sdata = .
+ *(.data*)
+ .data.range_agree_m
+                0x20000000        0x4 build-ci/aerialkit-f405/src/core/main.o
+ .data.range_land_mm
+                0x20000004        0x4 build-ci/aerialkit-f405/src/core/main.o

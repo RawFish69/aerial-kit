@@ -1,0 +1,207 @@
+
+AerialKit Firmware
+  product:  aerialkit-f405
+  board:    SIM / software in the loop
+  rev:      879086d-dirty
+  built:    Sep 18 2026 / 17:29:14
+  clocks:   simulated, 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+faults: none recorded
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the front pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+  ok       a wing arms the same way
+  ok       a wing that loses its link circles down instead of stopping
+  ok       and a link that comes back does not take it back mid-descent
+  ok       and the ground disarms it
+selftest: passed
+
+imu:       configured for 1 kHz, gyro 2000 dps, accel 16 g
+imu:       icm42688p
+baro:      dps310
+rangefinder: tof10120 at 0x52, up to 2.00 m
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is
+boot: ok
+ak> sim:    812 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+home: from the first fix while disarmed, 52.1234567, 4.9876543
+set rth_enable 1
+rth_enable = 1
+ak> gyro: bias measured while disarmed: 0 0 0 mdps (500 samples, 0 rejected)
+sim:   1811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   2501 ms  arm switch on, throttle down
+sim:   2811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   3811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.07 0.07 0.07 0.07
+sim:   4001 ms  throttle up, climbing
+sim:   4811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.59 0.59 0.59 0.59
+sim:   5811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.59 0.59 0.59 0.59
+sim:   6811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.59 0.59 0.59 0.59
+sim:   7001 ms  nose down, flying out east
+sim:   7811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:   8811 ms  roll    0.0 deg  pitch  -10.6 deg  motors 0.59 0.59 0.59 0.59
+sim:   9811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  10811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+alive: 10811 ms, 9990 loops
+sim:  11811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  12811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  13811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  14811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  15811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  16811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  17811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  18811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  19811 ms  roll    0.0 deg  pitch  -10.5 deg  motors 0.59 0.59 0.59 0.59
+sim:  20001 ms  receiver unplugged, 119 m out at 19.5 m up
+sim:  20811 ms  roll    1.6 deg  pitch   27.9 deg  motors 0.40 0.57 0.58 0.43
+alive: 20811 ms, 19979 loops
+sim:  21811 ms  roll    2.2 deg  pitch   29.2 deg  motors 0.63 0.47 0.45 0.62
+sim:  22811 ms  roll   13.4 deg  pitch   25.4 deg  motors 0.47 0.62 0.66 0.47
+sim:  23811 ms  roll   13.5 deg  pitch   25.3 deg  motors 0.52 0.58 0.58 0.52
+sim:  24811 ms  roll   19.6 deg  pitch   20.8 deg  motors 0.56 0.55 0.54 0.56
+sim:  25811 ms  roll   26.0 deg  pitch   11.0 deg  motors 0.54 0.59 0.62 0.52
+sim:  26811 ms  roll   23.4 deg  pitch  -17.2 deg  motors 0.47 0.62 0.63 0.42
+sim:  27811 ms  roll   -5.0 deg  pitch  -27.1 deg  motors 0.47 0.61 0.59 0.46
+sim:  28811 ms  roll  -15.6 deg  pitch  -19.9 deg  motors 0.54 0.55 0.56 0.54
+sim:  29811 ms  roll  -11.1 deg  pitch  -23.3 deg  motors 0.57 0.51 0.53 0.58
+sim:  30811 ms  roll    1.3 deg  pitch  -26.5 deg  motors 0.58 0.51 0.52 0.59
+alive: 30811 ms, 29969 loops
+gps
+gps:       15100 bytes, 151 messages, 151 NAV-PVT, 0 bad checksums, 0 bad lengths, 0 other
+fix:       type 3 (ok), 11 satellites, pdop 1.23, hacc 1200 mm
+usable:    yes (needs 6 satellites, has 11)
+position:  52.1234489, 4.9891654
+altitude:  139981 mm msl
+motion:    3754 mm/s, course -84.-35440 deg
+uart:      0 bytes dropped by the receive buffer
+fixes:     151, valid now: yes
+configure:  0 attempts
+home:      103 m away, bearing -89.-51 deg
+return:    engaged, 1 engagements, holding 139845 mm (quadrotor: climb, translate, settle profile)
+link:      gone, returning enabled
+ak> sim:  31811 ms  roll   10.5 deg  pitch  -24.1 deg  motors 0.55 0.52 0.52 0.55
+sim:  32001 ms  the gps module goes quiet, 99 m from home at 20.0 m up, mode RTH
+sim:  32002 ms  98.8 m from home, 20.0 m up, mode RTH
+sim:  32811 ms  roll   12.0 deg  pitch  -23.1 deg  motors 0.55 0.53 0.53 0.55
+sim:  33002 ms  95.1 m from home, 20.0 m up, mode RTH
+sim:  33811 ms  roll   12.5 deg  pitch  -22.8 deg  motors 0.55 0.52 0.52 0.55
+sim:  34002 ms  91.5 m from home, 20.0 m up, mode RTH
+sim:  34811 ms  roll   -0.3 deg  pitch    0.1 deg  motors 0.55 0.55 0.55 0.55
+sim:  35002 ms  89.8 m from home, 20.0 m up, mode RTH
+sim:  35811 ms  roll   -0.1 deg  pitch    0.1 deg  motors 0.55 0.55 0.55 0.55
+sim:  36002 ms  90.8 m from home, 20.0 m up, mode RTH
+sim:  36811 ms  roll   -0.0 deg  pitch    0.1 deg  motors 0.55 0.55 0.55 0.55
+sim:  37002 ms  93.4 m from home, 20.0 m up, mode RTH
+sim:  37811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.57 0.57 0.56 0.57
+sim:  38002 ms  96.9 m from home, 20.0 m up, mode RTH
+sim:  38811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.57 0.57 0.57 0.57
+sim:  39002 ms  101.0 m from home, 20.0 m up, mode RTH
+sim:  39811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.57 0.57 0.57 0.57
+sim:  40002 ms  105.5 m from home, 20.0 m up, mode RTH
+sim:  40811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.54 0.54 0.54 0.54
+alive: 40811 ms, 39958 loops
+sim:  41002 ms  110.2 m from home, 20.0 m up, mode RTH
+sim:  41811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.54 0.54 0.54 0.54
+gps
+gps:       15600 bytes, 156 messages, 156 NAV-PVT, 0 bad checksums, 0 bad lengths, 0 other
+fix:       type 3 (ok), 11 satellites, pdop 1.23, hacc 1200 mm
+usable:    yes (needs 6 satellites, has 11)
+position:  52.1234512, 4.9891107
+altitude:  139983 mm msl
+motion:    3749 mm/s, course -88.-21875 deg
+uart:      0 bytes dropped by the receive buffer
+fixes:     156, valid now: no
+configure:  0 attempts
+home:      99 m away, bearing -89.-64 deg
+return:    engaged, 1 engagements, holding 139845 mm (quadrotor: climb, translate, settle profile)
+held:      8182 steps with no fix, still holding - level, altitude held
+link:      gone, returning enabled
+ak> sim:  42002 ms  115.0 m from home, 20.0 m up, mode RTH
+sim:  42811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.53 0.53 0.53 0.53
+sim:  43002 ms  119.8 m from home, 20.0 m up, mode RTH
+sim:  43811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.55 0.55 0.55 0.55
+sim:  44002 ms  124.8 m from home, 20.0 m up, mode RTH
+sim:  44811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.53 0.53 0.53 0.53
+sim:  45002 ms  129.7 m from home, 20.0 m up, mode RTH
+sim:  45811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.53 0.53 0.53 0.53
+sim:  46002 ms  134.7 m from home, 20.0 m up, mode RTH
+sim:  46811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.54 0.54 0.54 0.54
+sim:  47002 ms  139.7 m from home, 20.0 m up, mode RTH
+sim:  47811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.54 0.54 0.54 0.54
+sim:  48002 ms  144.7 m from home, 20.0 m up, mode RTH
+sim:  48811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.54 0.54 0.54 0.54
+sim:  49002 ms  149.7 m from home, 20.0 m up, mode RTH
+sim:  49811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.54 0.54 0.54 0.54
+sim:  50002 ms  154.7 m from home, 20.0 m up, mode RTH
+sim:  50811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.53 0.53 0.53 0.53
+alive: 50811 ms, 49947 loops
+sim:  51002 ms  159.7 m from home, 20.0 m up, mode RTH
+sim:  51811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.55 0.55 0.55 0.55
+sim:  52002 ms  164.6 m from home, 20.0 m up, mode RTH
+sim:  52811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.53 0.53 0.54 0.54
+sim:  53002 ms  169.6 m from home, 20.0 m up, mode RTH
+sim:  53811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.54 0.54 0.54 0.54
+sim:  54002 ms  174.6 m from home, 20.0 m up, mode RTH
+sim:  54811 ms  roll    0.0 deg  pitch   -0.0 deg  motors 0.54 0.54 0.54 0.54
+sim:  55002 ms  179.6 m from home, 20.0 m up, mode RTH
+sim:  55811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.54 0.54 0.54 0.54
+sim:  56002 ms  184.6 m from home, 20.0 m up, mode RTH
+sim:  56811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.54 0.54 0.54 0.54
+sim:  57002 ms  189.6 m from home, 20.0 m up, mode RTH
+sim:  57811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.53 0.53 0.53 0.53
+sim:  58002 ms  194.6 m from home, 20.0 m up, mode RTH
+sim:  58811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.55 0.55 0.55 0.55
+sim:  59002 ms  199.6 m from home, 20.0 m up, mode RTH
+sim:  59811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.55 0.55 0.55 0.55
+sim:  60002 ms  204.6 m from home, 20.0 m up, mode RTH
+sim:  60811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.53 0.53 0.53 0.53
+alive: 60811 ms, 59937 loops
+sim:  61002 ms  209.6 m from home, 20.0 m up, mode RTH
+sim:  61811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.53 0.53 0.53 0.53
+sim:  62002 ms  214.6 m from home, 20.0 m up, mode RTH
+sim:  62811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.53 0.53 0.53 0.53
+sim:  63002 ms  219.6 m from home, 20.0 m up, mode RTH
+sim:  63811 ms  roll    0.0 deg  pitch   -0.0 deg  motors 0.53 0.53 0.53 0.53
+sim:  64002 ms  224.6 m from home, 20.0 m up, mode RTH
+sim:  64811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.55 0.55 0.55 0.55
+sim:  65002 ms  229.6 m from home, 20.0 m up, mode RTH
+sim:  65811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.57 0.57 0.57 0.57
+sim:  66002 ms  234.6 m from home, 20.0 m up, mode RTH
+sim:  66811 ms  roll   -0.0 deg  pitch    0.0 deg  motors 0.57 0.57 0.57 0.57
+sim:  67002 ms  239.6 m from home, 20.0 m up, mode RTH
+sim:  67811 ms  roll    0.0 deg  pitch   -0.0 deg  motors 0.54 0.54 0.54 0.54
+sim:  68002 ms  244.6 m from home, 20.0 m up, mode RTH
+sim:  68811 ms  roll    0.0 deg  pitch   -0.0 deg  motors 0.53 0.53 0.53 0.53
+sim:  69002 ms  249.6 m from home, 20.0 m up, mode RTH
+sim:  69811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.55 0.55 0.55 0.55
+sim: ok   the return was flying when the gps went quiet the console says the return was engaged
+sim: ok   and the console says the fix is gone       the console reports no valid fix
+sim: ok   and that it is holding rather than navigating the console counts the steps it has been holding for
+sim: ok   but the motors kept turning                lowest collective after the cut was 0.53, of hover 0.55
+sim: ok   and it did not fall out of the sky         20.0 m up at the cut, 20.0 m at its lowest after it, 20.0 m at the end
+sim: ok   and it was still holding its height at the end 20.0 m up at the cut, 20.0 m at the end
+sim: ok   and the handset was still being told it was returning RTH
+
+sim: ---- 70 s of simulated flight ----
+sim: 70000 ms, 69926 passes of the main loop
+sim: ok   one pass of the loop is one millisecond    1.0011 ms per pass over 69926 passes
+sim: ok   every radio byte reached the parser        24960 of 24960 bytes taken, ring dropped 0
+sim: ok   the radio sent frames throughout           960 frames of 26 bytes each
+sim: ok   the gps stream reached the parser          156 gps frames, 0 bytes dropped
+sim: ok   the position the gps sent is the position the firmware has looking for "52.1234567, 4.9876543" in the console: found
+sim: ok   the aircraft armed and the mixer drove the motors motors turning 3013..70000 ms, up to 1.00
+sim: PASS (0 checks failed)

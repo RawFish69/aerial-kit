@@ -1,0 +1,174 @@
+# AerialKit on the WeAct STM32F405 - the USB trace record, 2026-09-27
+#
+# What this file is: the raw evidence behind docs/05-bringup.md 6b and 6c. The
+# trace image writes a 16-word record into flash page 0x0801F000 ten seconds
+# into its main loop; these are the pages a host read back out of the ROM's
+# DFU, and the decode of them. The reader is scripts/trace-page.py, which
+# recomputes the FNV-1a sum and refuses a record whose sum disagrees, so a page
+# that decodes here is a page the firmware wrote whole.
+#
+# The point of running it twice is the comparison. The same instrument, the
+# same board, the same cable, the same host port - and the two builds differ in
+# exactly one thing, which oscillator the clock tree hangs off. That is the
+# one-variable experiment the crystal question was given, and it is what this
+# file is for. It is not the experiment that *answered* it: the reading taken
+# from this comparison on 2026-09-27 is retracted at the foot of this file, and
+# what answered the question was measuring the crystal against HSI with TIM11 a
+# day later.
+#
+# ---- the two images --------------------------------------------------------
+#
+# Both built from this tree with the wide trace instrument:
+#
+#   build/diag/hsi-trace/aerialkit-f405.bin   110020 B
+#     sha256 f4529b610394300c352745ba858d0d371b017be09b4b8d932d957dd560da3815
+#     built with EXTRA_CFLAGS="-DAK_PLL_FROM_HSI=1" (plus the trace flags)
+#
+#   build/diag/hse-trace/aerialkit-f405.bin   110052 B
+#     sha256 bfacccbcac88cb0e04374b637f8d0c2a4c320511663a030a861d1616f2859570
+#
+# Both were flashed over DFU, left to run past ten seconds, and then put back
+# into DFU by hand (BOOT0 to 3V3, tap reset) to read the page out. The
+# hand-over the trace image used to attempt at ten seconds does not work on
+# this part and is no longer in the ten-second path - see docs/05-bringup.md 6c.
+#
+# ---- reading the page back -------------------------------------------------
+#
+# $ dfu-util -d 0483:df11 -a 0 -s 0x0801F000:0x1000 -U trace-page.bin
+# $ scripts/trace-page.py trace-page.bin
+#
+# Three pages came back. One is all FF - a save that never happened, which is a
+# boot that did not reach ten seconds, not a record of zeroes; the shape of that
+# answer is described at the foot of f405-usb-trace-pages.txt. The other two:
+#
+# The raw bytes of both are in f405-usb-trace-pages.txt, first the HSI page and
+# then the HSE one. They are hex rather than .bin because aerialkit/.gitignore
+# keeps `*.bin` out of the tree.
+
+# ---- the HSI build: the first page in f405-usb-trace-pages.txt --------------
+
+slot 0  sysclk 168000000 Hz  resets 7  setups 19  sends 19
+        PLLCFGR 07005410  PLLM=16 PLLN=336 PLLP=2 PLLSRC=HSI PLLQ=7
+        DSTS    00010406  ENUMSPD=FS(48MHz) SUSSTS=0 EERR=0 FNSOF=260
+        DCTL    00000000  all clear
+        GINTSTS|5484bc38  SOF RXFLVL NPTXFE ERLYSUSP USBSUSP USBRST ENUMDNE EOPF OEPINT INCOMPISOIN WkUpInt SRQINT SESSREQINT
+        passes 2786605  rx 50 = setup 19 + data 6 + other 25
+slot 1  sysclk 168000000 Hz  resets 8  setups 19  sends 19
+        PLLCFGR 07005410  PLLM=16 PLLN=336 PLLP=2 PLLSRC=HSI PLLQ=7
+        DSTS    0002d906  ENUMSPD=FS(48MHz) SUSSTS=0 EERR=0 FNSOF=729
+        DCTL    00000000  all clear
+        GINTSTS|5484bc38  SOF RXFLVL NPTXFE ERLYSUSP USBSUSP USBRST ENUMDNE EOPF OEPINT INCOMPISOIN WkUpInt SRQINT SESSREQINT
+        passes 2870011  rx 50 = setup 19 + data 6 + other 25
+
+# Two valid records, so two boots reached ten seconds without a reflash. The
+# newest is slot 1. Both read the same, so this is one answer seen twice.
+
+# ---- the HSE build: the second page in f405-usb-trace-pages.txt ------------
+
+slot 0  sysclk 168000000 Hz  resets 9  setups 0  sends 0
+        PLLCFGR 07405408  PLLM=8 PLLN=336 PLLP=2 PLLSRC=HSE PLLQ=7
+        DSTS    00000007  ENUMSPD=FS(48MHz) SUSSTS=1 EERR=0 FNSOF=0
+        DCTL    00000000  all clear
+        GINTSTS|5480bc20  NPTXFE ERLYSUSP USBSUSP USBRST ENUMDNE EOPF INCOMPISOIN WkUpInt SRQINT SESSREQINT
+        passes 2866622  rx 0 = setup 0 + data 0 + other 0
+
+# ---- what these say --------------------------------------------------------
+#
+# 1. Both builds reached the end of the clock layer, and the register that says
+#    which tree they built is a raw read of RCC_PLLCFGR, not a computed number:
+#    07405408 is PLLM=8 off HSE, 07005410 is PLLM=16 off HSI. Both are the
+#    trees clk.c means to build. `sysclk 168000000` is weaker than it looks on
+#    its own - clk.c *assigns* sysclk_hz rather than measuring it - but reaching
+#    that line at all means HSERDY set, the PLL locked, and the switch to PLL
+#    took.
+#
+#    **And that is the whole of it. What this comment first said it meant was
+#    wrong** - "so on the HSE build the crystal was inside the 2.4-10.3 MHz band
+#    the VCO maths allows". The crystal is 11.95 MHz, measured on 2026-09-28 -
+#    **on the board that build ran on, which is a 12 MHz part and not the WeAct**,
+#    whose crystal is 8 MHz, measured off it on 2026-09-29 (traps 212) - outside
+#    that band, and the PLL locked and the switch took anyway: M=8 asks
+#    this VCO for 504 MHz against the part's 432 MHz limit, a datasheet maximum
+#    being a guarantee inside it rather than a cliff at its edge. The part ran
+#    at 252 MHz with USB at 72, which is the failure words 3 to 14 below
+#    describe. It is still not evidence that the frequency is 8 MHz - it is not
+#    evidence of any frequency, in either direction.
+#
+# 2. `passes` is about 2.8 million at ten seconds in both - some 280,000 poll
+#    iterations per second, ~3.5 us each. Neither build is a starved poll loop,
+#    so an empty count is not the loop failing to run.
+#
+# 3. The receive path differs completely. HSI took 50 entries off the status
+#    queue (19 SETUP, 6 data, 25 other) and its GINTSTS latch contains SOF and
+#    RXFLVL. HSE took zero of any kind, its latch has neither SOF nor RXFLVL,
+#    and DSTS says SUSSTS=1 - the core was suspended at the ten-second sample.
+#
+# 4. Both latched USBRST and ENUMDNE. So on HSE the core saw the bus reset and
+#    the enumeration-done condition, and then received nothing at all - not one
+#    frame marker - before the bus went idle.
+#
+# 5. On HSI `sends == setups == 19`: every SETUP the core was handed started
+#    exactly one control transfer, so no multi-packet control transfer ever ran.
+#    A 67-byte configuration descriptor needs two calls, so the host never got
+#    past the device descriptor. The host side agrees - `device descriptor
+#    read/64, error -71` on every boot.
+#
+# ---- and what it does not say, retracted 2026-09-29 -------------------------
+#
+# As written on 2026-09-27, this section read: "**The clock is not the
+# discriminator, and this is the measurement that retires it.** The ROM
+# bootloader is an HSI-sourced USB device on this same OTG_FS peripheral, same
+# pins, same cable, same host port, and it enumerates on every single flash ...
+# A 48 MHz HSI clock therefore demonstrably drives working full-speed USB on
+# this board. Our HSI build runs on that same clock source and still cannot
+# enumerate. The crystal is exonerated."
+#
+# **The premise is false and the conclusion is retracted.** The F405's ROM
+# bootloader does not run USB from HSI: per AN2606 it measures HSE and runs DFU
+# from it, which is why it enumerated on every flash and why its success said
+# nothing whatever about the HSI path. The observation was real - 0483:df11 does
+# appear in lsusb every time dfu-util runs - and the reading put on it was not:
+# "the ROM works, so the crystal is fine" was the *HSE* path working.
+#
+# The HSI build's own failure is not the other half of the argument either, and
+# it is worth keeping why: HSI is an RC oscillator good to about +/-1% and USB
+# full speed asks for +/-0.25% of the device's transmit, so that build could
+# have failed for its own reason whatever the rest of the firmware did. The
+# strong half of the argument was the weak half.
+#
+# **The fault was in the clock layer, and this record contains it.** Word 6
+# above is `07405408`: PLLM=8 off a 12 MHz crystal, asking this VCO for 504 MHz
+# against the part's 432 MHz limit. Word 2 is `ak_clk_sysclk_hz()`, which clk.c
+# assigns only after HSERDY, PLLRDY and SWS have each said yes - so the part did
+# not refuse to lock, it locked outside its datasheet, ran at 252 MHz and gave
+# USB 72. Words 3 to 14 are exactly that failure: the bus reset and the
+# enumeration-done condition latched, not one frame marker decoded, suspended by
+# ten seconds. `clk.c` now times the crystal against HSI at boot and sets PLLM
+# from the measurement (`ad766dd`, 2026-09-28 - read on the 12 MHz board this
+# build ran on, not on the WeAct, whose crystal is 8 MHz; traps 212); it
+# enumerated on its first boot, and `usb.c` was never the fault.
+#
+# The lead this section called live - "the same clock with two builds fails at
+# different points", the HSI *trace* image taking in 19 SETUPs while the HSI
+# *flight* image (build/diag/flight-hsi/aerialkit-f405.bin, sha256
+# 4e795eb80d7c9ea6b15310295494f3e72960f27312a75828f704b239ad902916) died at
+# `read/8, error -71` - is retired rather than followed. Both were HSI builds,
+# and the fault was the HSE divider: a variable neither of them carried, so that
+# comparison could not have reached it however it had come out. The difference
+# between those two images was never explained and did not need to be, because
+# measuring the crystal found the fault without it.
+#
+# Two readings of two real observations went wrong here in the same way, and
+# that is the part worth keeping: the ROM's success was read as exonerating a
+# crystal, and `sysclk 168000000` (comment 1 above) was read as bounding one.
+# Neither is a frequency measurement. A register a locked PLL writes says which
+# tree was built; it does not say the tree was a legal one, and a working path
+# says nothing about a path it never took.
+#
+# Not measured, and named so it is not read as measured:
+#   - the flight images were flashed but their trace pages were never read
+#     back, so there is no record for either of them;
+#   - the first flash of the HSE image failed at exactly 65536 bytes
+#     (dfu-util exit 74, the sector 3/sector 4 boundary) and the retry
+#     succeeded. The kernel log shows board reloads at 23:36:41, 23:36:46 and
+#     23:37:09 in that window. Unexplained.

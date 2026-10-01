@@ -1,0 +1,80 @@
+
+AerialKit Firmware
+  product:  aerialkit-f405
+  board:    SIM / software in the loop
+  rev:      879086d-dirty
+  built:    Sep 18 2026 / 17:29:14
+  clocks:   simulated, 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+faults: none recorded
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the front pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+  ok       a wing arms the same way
+  ok       a wing that loses its link circles down instead of stopping
+  ok       and a link that comes back does not take it back mid-descent
+  ok       and the ground disarms it
+selftest: passed
+
+imu:       configured for 1 kHz, gyro 2000 dps, accel 16 g
+imu:       icm42688p
+baro:      dps310
+rangefinder: tof10120 at 0x52, up to 2.00 m
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is
+boot: ok
+ak> sim:    812 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:    812 ms  somebody is holding the aircraft, and it is moving
+home: from the first fix while disarmed, 52.1234567, 4.9876543
+sim:   1811 ms  roll   -8.7 deg  pitch   -5.4 deg  motors 0.00 0.00 0.00 0.00
+sim:   2501 ms  arm switch on, still in the hand
+sim:   2811 ms  roll   -2.2 deg  pitch    4.2 deg  motors 0.00 0.00 0.00 0.00
+gyro: no bias measured before arming (0 samples, 2198 rejected as moving); the stored bias stands
+status
+state:     armed
+uptime:    3401 ms
+loops:     2588
+attitude:  roll 79 mrad, pitch 127 mrad, yaw -106 mrad
+attitude:  converged
+motors:    50 50 50 50 per-mille
+servos:    0 0 per-mille
+params:    0 changed since the last save
+fault:     none recorded
+ak> sim:   3402 ms  armed with the bias measurement still running
+sim:   3811 ms  roll    5.1 deg  pitch   -2.8 deg  motors 0.07 0.07 0.07 0.07
+sim:   4801 ms  put down on the bench, level and still
+sim:   4811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.07 0.07 0.07 0.07
+sim:   5301 ms  throttle up, flying on the bias it has
+sim:   5811 ms  roll   -5.5 deg  pitch   -1.8 deg  motors 0.59 0.59 0.59 0.59
+sim:   6811 ms  roll   -2.4 deg  pitch   -0.9 deg  motors 0.59 0.59 0.59 0.59
+sim:   7811 ms  roll   -1.2 deg  pitch   -0.4 deg  motors 0.59 0.59 0.59 0.59
+sim:   8811 ms  roll   -0.6 deg  pitch   -0.2 deg  motors 0.59 0.59 0.59 0.59
+sim:   9811 ms  roll   -0.3 deg  pitch   -0.1 deg  motors 0.59 0.59 0.59 0.59
+sim: ok   an aircraft armed before the bias was measured is told once, and was not told the other thing told 1 time: 0 samples, 2198 rejected as moving, and the measurement line is not
+sim: ok   and it did arm, which is what makes this a window rather than a refusal the status the scenario typed says armed
+sim: ok   and it flew on the bias it had, rather than refusing to go anywhere on a bias it did not armed at 3402 ms, motors up to 0.86, 4.0 m above where it was when it armed
+
+sim: ---- 10 s of simulated flight ----
+sim: 10000 ms, 9990 passes of the main loop
+sim: ok   one pass of the loop is one millisecond    1.0010 ms per pass over 9990 passes
+sim: ok   every radio byte reached the parser        11960 of 11960 bytes taken, ring dropped 0
+sim: ok   the radio sent frames throughout           460 frames of 26 bytes each
+sim: ok   the gps stream reached the parser          46 gps frames, 0 bytes dropped
+sim: ok   the position the gps sent is the position the firmware has looking for "52.1234567, 4.9876543" in the console: found
+sim: ok   the aircraft armed and the mixer drove the motors motors turning 3013..10000 ms, up to 0.86
+sim: PASS (0 checks failed)

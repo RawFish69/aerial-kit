@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="/brand/aerialkit-rotor-a.svg" />
+    <title>AerialKit Configurator</title>
+    <meta
+      name="description"
+      content="A standalone web configurator for AerialKit flight controllers."
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      This configurator needs JavaScript. It talks to a flight controller over a
+      serial port, which a browser can only do with scripting enabled.
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "aerialkit-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bytes between a browser and an AerialKit board. A pipe, not a protocol implementation.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "bin": {
+    "aerialkit-bridge": "./index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "sim": "node index.js --sim ../../build-host/aerialkit-sim"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "serialport": "^12.0.0"
+  }
+}

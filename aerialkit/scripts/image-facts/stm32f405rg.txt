@@ -1,0 +1,19 @@
+# STM32F405RGT6 - the facts scripts/check-image.sh measures a built image
+# against. See that script for what each one proves, and src/arch/stm32f405/
+# vectors.h for the table these entries are the two ends of.
+#
+# stack-top is what the hardware loads the initial stack pointer with: the top
+# of SRAM, which linker/stm32f405rg.ld puts at _estack (128 KB at 0x20000000).
+#
+# vector-words is 16 core vectors + the highest interrupt this firmware uses.
+# On this part that is interrupt 39 (USART3), so 16 + 39 + 1 = 56 words.
+#
+# Each vector line is: index, the symbol the entry must point at, and what
+# stops working if it does not.
+stack-top 0x20020000
+vector-words 56
+vector 3 HardFault_Handler a fault leaves no record
+vector 15 SysTick_Handler the clock stops
+vector 31 DMA1_Stream4_IRQHandler a DShot frame never completes
+vector 53 USART1_IRQHandler the receiver hears nothing
+vector 55 USART3_IRQHandler the gps never reports a fix

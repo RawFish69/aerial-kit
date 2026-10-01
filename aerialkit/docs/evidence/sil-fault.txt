@@ -1,0 +1,57 @@
+
+AerialKit Firmware
+  product:  aerialkit-f405
+  board:    SIM / software in the loop
+  rev:      879086d-dirty
+  built:    Sep 18 2026 / 17:29:14
+  clocks:   simulated, 160 MHz
+  state:    no sensor drivers - the flight loop runs in failsafe
+
+fault: 2 recorded, last pc 0x08001b42 lr 0x08000a55 psr 0x61000000
+       cfsr 0x00000082 hfsr 0x40000000 mmfar 0x00000000 bfar 0x00000000
+       r0 0x11111111 r1 0x22222222 r2 0x33333333 r3 0x44444444 r12 0x55555555
+       frame 0x2001ffc0 (the stacked registers are here)
+selftest:
+  ok       squareroot of 9 is 3
+  ok       atan2(1,1) is pi/4
+  ok       quad hover is symmetric
+  ok       quad roll right lifts the left pair
+  ok       quad nose-up lifts the front pair
+  ok       wing pitch moves both elevons together
+  ok       wing roll moves the elevons opposite ways
+  ok       wing yaw is differential thrust
+  ok       estimator holds level when level
+  ok       disarmed means motors at zero and servos centred
+  ok       arm switch plus low throttle arms
+  ok       armed, roll right lifts the left pair
+  ok       RC loss stops the motors
+  ok       failsafe is latched, not just this frame
+  ok       failsafe holds until the arm switch is cycled
+  ok       a wing arms the same way
+  ok       a wing that loses its link circles down instead of stopping
+  ok       and a link that comes back does not take it back mid-descent
+  ok       and the ground disarms it
+selftest: passed
+
+imu:       configured for 1 kHz, gyro 2000 dps, accel 16 g
+imu:       icm42688p
+baro:      dps310
+rangefinder: tof10120 at 0x52, up to 2.00 m
+console: type 'help'
+no saved configuration
+preflight: the machine is what the firmware thinks it is
+boot: ok
+ak> sim:    812 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+home: from the first fix while disarmed, 52.1234567, 4.9876543
+gyro: bias measured while disarmed: 0 0 0 mdps (500 samples, 0 rejected)
+sim:   1811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+sim:   2811 ms  roll    0.0 deg  pitch    0.0 deg  motors 0.00 0.00 0.00 0.00
+
+sim: ---- the boot after a crash, 3000 ms ----
+sim: ok   the fault reaches the console with the count and the pc fault: 2 recorded, last pc 0x08001b42 lr 0x08000a55 psr 0x61000000
+sim: ok   and with the fault status registers        the line the record's cfsr and hfsr are read from
+sim: ok   and the registers the faulting code was using the line the record's r0-r3 and r12 are read from
+sim: ok   and where those registers still are, for a stack walk the line that says where the frame was
+sim: ok   and the boot consumes it, so the next thing that asks is not told about the same crash twice ak_fault_present() is false after the boot's report
+sim: ok   which the preflight, running after the report, agrees with the record was consumed before the preflight looked
+sim: PASS (0 checks failed)
