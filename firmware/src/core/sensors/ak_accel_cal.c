@@ -2,14 +2,23 @@
 
 #include "ak_math.h"
 
-/* The two faces that read each axis, the way up and the way down. */
+/* The two faces that read each axis: `up` is the face on which that axis reads
+ * +1 g, `down` the one on which it reads -1 g. The firmware's accelerometer
+ * reads gravity's direction in the body's forward-right-down frame - level is
+ * z = +1 (ak_estimator.c, pitch = atan2(-ax, ...); ak_selftest.c) - so x reads
+ * +1 with the nose *down* and y reads +1 with the *right* side down.
+ *
+ * Until 2026-10-06 the x and y rows had the faces the other way round, which
+ * made both spans -2 g and failed every real calibration; the bench scenario
+ * in tools/fw_sim.c had its face labels the other way round too, and the two
+ * errors cancelled there. */
 static const struct {
     int axis;
     int up;
     int down;
 } axes[3] = {
-    { 0, AK_ACCEL_NOSE_UP, AK_ACCEL_NOSE_DOWN },
-    { 1, AK_ACCEL_LEFT_DOWN, AK_ACCEL_RIGHT_DOWN },
+    { 0, AK_ACCEL_NOSE_DOWN, AK_ACCEL_NOSE_UP },
+    { 1, AK_ACCEL_RIGHT_DOWN, AK_ACCEL_LEFT_DOWN },
     { 2, AK_ACCEL_LEVEL, AK_ACCEL_INVERTED },
 };
 

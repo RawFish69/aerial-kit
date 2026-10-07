@@ -125,6 +125,44 @@ def serial_cases(where):
            % (flash_rows, out.stdout.strip(),
               out.stderr.strip()[:120] if out.returncode else ""))
 
+    # The calibration line, against the real firmware - `Cable` puts
+    # `aerialkit-fw-sim 0 console` on the far end, so these are sessions rather
+    # than a stand-in's answers. The property being pinned is that the command
+    # *returns*: a calibration that held the flight loop would show up here as a
+    # client that printed nothing, because the loop is what feeds it.
+    out = run(["--port", cable.device, "calibrate", "gyro"])
+    expect("`calibrate gyro` starts a session, follows it to the end and "
+           "reports what it measured",
+           out.returncode == 0 and "calibrate gyro:" in out.stdout and
+           "bias roll (mdps)" in out.stdout,
+           " (%s)" % " / ".join(out.stdout.strip().splitlines()[-2:])[:90])
+
+    out = run(["--port", cable.device, "calibrate", "status"])
+    expect("and `calibrate status` names the session it is reading rather than "
+           "the verb it was sent with, so a client knows how to read the slots",
+           out.returncode == 0 and "calibrate gyro:" in out.stdout and
+           "bias roll (mdps)" in out.stdout,
+           " (%s)" % out.stdout.strip().replace("\n", " / ")[:90])
+
+    out = run(["--port", cable.device, "calibrate", "vbat", "12600"])
+    expect("and `calibrate vbat` measures the divider against the number a "
+           "person read off a multimeter",
+           out.returncode == 0 and "ratio (x1e6)" in out.stdout,
+           " (%s)" % out.stdout.strip().replace("\n", " / ")[:90])
+
+    out = run(["--port", cable.device, "calibrate", "accel", "9"])
+    expect("and a face this aircraft does not have comes back as the board's "
+           "refusal rather than as a session",
+           out.returncode == 1 and
+           "no such accelerometer face" in out.stderr,
+           " (rc %d, %s)" % (out.returncode, out.stderr.strip()[-60:]))
+
+    out = run(["--port", cable.device, "calibrate", "wobble"])
+    expect("and a verb that is not one of the six is refused by the client "
+           "before a frame is built",
+           out.returncode == 1 and "calibrate takes one of" in out.stderr,
+           " (%s)" % out.stderr.strip()[:70])
+
     cable.close()
 
 

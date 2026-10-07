@@ -22,7 +22,27 @@ typedef struct {
     float    deadband;        /* fraction of full stick travel */
     uint32_t mode_threshold;  /* above this, the mode channel selects angle */
     uint32_t arm_threshold;   /* above this, the arm channel requests armed */
+    /*
+     * Which receiver channel arms and which selects the mode, 1-based the way
+     * a transmitter labels them, so `arm_channel 5` is "AUX1".
+     *
+     * They were fixed at 6 and 5 until 2026-10-05, and that order fits neither
+     * radio the fixed wing flies: ExpressLRS puts the arm switch on CH5 (AUX1)
+     * by convention, and the custom ESP-NOW link sends its arm button there
+     * too (aerial-kit firmware/legacy/espnow, `rcChannels[4]`). With the old
+     * fixed order, either radio's arm switch toggled angle mode and nothing
+     * armed. The defaults are still 6 and 5, so no saved configuration means
+     * something different; the parameters are what a pilot changes. Channels
+     * 1-4 are the sticks (AETR), so both are held to 5..AK_RC_CHANNELS, and a
+     * value outside that - or the two set equal - is read as "no arm request"
+     * and "rate mode" rather than guessed at.
+     */
+    uint32_t arm_channel;
+    uint32_t mode_channel;
 } ak_rc_config_t;
+
+/* The aux channels a switch may be on: the four sticks come first. */
+#define AK_RC_FIRST_AUX_CHANNEL 5u
 
 typedef struct {
     float roll;       /* -1..1 */

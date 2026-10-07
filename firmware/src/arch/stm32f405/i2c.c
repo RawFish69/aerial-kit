@@ -119,8 +119,19 @@ static int wait_set(uint32_t i2c, uint32_t mask)
     uint32_t guard = AK_I2C_GUARD;
 
     while (guard-- > 0u) {
-        if ((i2c_read(i2c, I2C_OFF_SR1) & mask) != 0u) {
+        uint32_t sr1 = i2c_read(i2c, I2C_OFF_SR1);
+        if ((sr1 & mask) != 0u) {
             return 0;
+        }
+        /* A NACK is an answer, and it is final: no flag the caller is waiting
+         * for will follow it. Until 2026-10-06 this spun the whole guard -
+         * about 13 ms at 168 MHz - on every address that did not answer, so a
+         * Qwiic sensor that dropped off turned a 1 kHz loop into a 70 Hz one,
+         * and the boot probe of four empty addresses took seconds. AF is left
+         * set for the caller, which clears it (start()) or resets the
+         * peripheral. */
+        if ((sr1 & I2C_SR1_AF) != 0u) {
+            return -1;
         }
     }
     return -1;
@@ -442,6 +453,11 @@ int ak_i2c_read_reg(uint32_t i2c, uint8_t address, uint8_t reg, uint8_t *buf,
             reset_keeping_settings(i2c);
             return -1;
         }
+        /* STOP before the two reads, as RM0090 27.3.3 has it for N = 2: both
+         * bytes are already in, and without it the bus was left mid-transaction
+         * for the next caller's START to tidy up. */
+        i2c_write(i2c, I2C_OFF_CR1,
+                  i2c_read(i2c, I2C_OFF_CR1) | I2C_CR1_STOP);
         buf[0] = (uint8_t)(i2c_read(i2c, I2C_OFF_DR) & 0xFFu);
         i2c_write(i2c, I2C_OFF_CR1,
                   i2c_read(i2c, I2C_OFF_CR1) & ~I2C_CR1_POS);

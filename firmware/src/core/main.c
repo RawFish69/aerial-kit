@@ -20,10 +20,13 @@
 #include "ak_launch.h"
 #include "ak_mixer.h"
 #include "ak_params.h"
+#include "ak_perf.h"
+#include "ak_sched.h"
 #include "ak_selftest.h"
 #include "ak_rc_receiver.h"
 #include "ak_crsf_telemetry.h"
 #include "ak_imu.h"
+#include "ak_imu_bno055.h"
 #include "ak_baro.h"
 #include "ak_rangefinder.h"
 #include "ak_altitude.h"
@@ -68,9 +71,21 @@
 #define AK_LONG_EVERY      10u
 /* And the flash log every fifth of a second. A record is twelve words
  * programmed one at a time, so this is the rate at which the writing fits in
- * a 1 kHz loop without the loop noticing; the region is five 128 KB sectors
- * since the configuration took the sixth for a second bank, so it holds a bit
- * under an hour at this rate. */
+ * a 1 kHz loop without the loop noticing; the region is four 128 KB sectors -
+ * six until the configuration took one for a second bank and the image took
+ * another - so it holds about 18 minutes at this rate (22 until log version 4
+ * grew the slot to 96 bytes on 2026-10-05).
+ *
+ * That duration said "a bit under an hour" until 2026-10-02, which was the
+ * arithmetic of a different part: eighteen thousand records over six sectors at
+ * 48-byte slots. The slot is 80 bytes now (a yaw and an altitude went into the
+ * record, and then the filtering fields of roadmap 2.4) and the image took
+ * another, so it is 6 552 - and
+ * nothing failed on the sentence for the changes in between, because a
+ * duration in a comment has no test. `apps/configurator/tools/
+ * check-flash-capacity.py` derives this number from `ak_flashlog.h`, this
+ * board's `log_regions[]` and the two constants above, and fails when a
+ * statement of it disagrees. Trap 229. */
 #define AK_FLASH_EVERY     200u
 
 static ak_flight_t flight;
@@ -83,6 +98,50 @@ static ak_cli_t    cli;
 static void parameters_changed(void);
 
 static uint32_t    dshot_khz = 300u;
+
+/*
+ * Phase 1.4's rates: how fast the gyro samples, and how many of its samples one
+ * pass of the control law runs on.
+ *
+ * `gyro_rate_hz` is documented as the rate *in use* rather than the rate asked
+ * for, and that distinction is the whole of its honesty: every part here can
+ * only take the rates its own register's table offers, so a request for 3 kHz
+ * on an ICM-42688-P is answered with 2 kHz and the part's answer is what the
+ * parameter is written back to. A parameter that said 3000 while the aircraft
+ * ran at 2000 would be a number a person reads, believes, and flies.
+ *
+ * `pid_denom` is the divisor between the two clocks, and the reason it is a
+ * divisor rather than a second rate is that the two must stay in step: the loop
+ * runs once per N samples, and a pair of independent rates would drift into a
+ * loop that sometimes sees one new sample and sometimes three.
+ *
+ * `gyro_rate_hz` defaults to **zero, which means "as the driver's own init left
+ * it"** rather than "stop" or "one kilohertz". That is the value that changes
+ * nothing: every part in this tree already comes out of `init` at a rate its
+ * driver chose and printed, and a new parameter with a number in it would have
+ * moved all four of them on the day it was added - the LSM6DSO's 6664 Hz gyro
+ * down to 833, for one, which is a real change to the Feather and not a
+ * default. Zero is also the same convention `ak_imu_t.rate_hz` uses, and the
+ * same sentence: not stated. A part this firmware has been *told* to run at a
+ * rate reports that rate here, because apply_loop_rate() writes back what the
+ * part took.
+ *
+ * `pid_denom` is one: one pass of the loop per gyro sample, which is what this
+ * firmware did before either could be set.
+ */
+static uint32_t    gyro_rate_hz = 0u;
+static uint32_t    pid_denom    = 1u;
+
+/* The control loop's period in microseconds, derived from the two above and
+ * from what the part actually took. It is the one number the flight core, the
+ * profiler and the scheduler are all told, so that no two of them can disagree
+ * about the rate the aircraft is running at. */
+static uint32_t    control_period_us = AK_FLIGHT_LOOP_US;
+
+/* The scheduler slot the control loop was given, or -1 before the table is
+ * built. Held because ak_sched_set_period() needs the id and the id is only
+ * knowable where the task is registered. */
+static int         fast_task = -1;
 /* Which protocol the receiver speaks. Both are parsed; this says which one the
  * bytes arriving on the receiver's port are. */
 static uint32_t    rc_protocol = AK_RC_PROTOCOL_CRSF;
@@ -131,9 +190,12 @@ static float             range_agree_m = 3.0f;
  * 23 microsecond conversion is not a line worth counting. */
 static ak_battery_t      battery;
 static int               battery_ready;
-static uint32_t          battery_next_ms;
 static uint32_t          battery_last_ms;
 #define AK_BATTERY_PERIOD_MS 100u
+/* How late the dynamic notch's transform may be, not how often it runs - see
+ * task_dyn_notch. The module paces itself on a filled window; this bounds the
+ * delay between the window filling and the transform that consumes it. */
+#define AK_DYN_NOTCH_PERIOD_US 5000u
 /* The height the aircraft actually flies on: the barometer's changes, the
  * GPS's absolute reference, and a leak between them. */
 static ak_altitude_t     altitude;
@@ -150,15 +212,68 @@ static ak_gyro_cal_t     gyro_cal;
 static ak_flight_state_t last_flight_state;
 static ak_accel_cal_t    accel_cal;
 static ak_rc_cal_t       rc_cal;
+/*
+ * The calibration a protocol client asked for, if any.
+ *
+ * It is a *session* and not a command, because CALIBRATE does not block: the
+ * console's four calibrations each sit in a loop for a second or more, and the
+ * protocol is dispatched from the flight loop - so a client starts one of these,
+ * the loop advances it a sample at a time, and a `status` verb reads it back.
+ * See the opcode in ak_proto.h.
+ *
+ * The struct outlives the session on purpose: `active` says whether it is still
+ * sampling, and every other field keeps the last answer after it stops, so a
+ * client that polls once a second can still be told how the calibration it
+ * started turned out. A session that cleared itself on completion would leave
+ * the poll answering "nothing here" to the one question it exists to answer.
+ *
+ * `outcome` is the AK_PROTO_CALIBRATE_* status a `status` verb reports, which is
+ * why it is a field rather than a return: the calibration ends in the flight
+ * loop, in a different call from the one that started it.
+ */
+typedef struct {
+    uint8_t  verb;      /* AK_PROTO_CALIBRATE_*, or 0 for "never used" */
+    uint8_t  active;    /* sampling now */
+    uint8_t  step;      /* the accelerometer face being sampled, or NO_STEP */
+    uint8_t  faces;     /* bitmask of the faces measured so far */
+    uint8_t  outcome;   /* AK_PROTO_CALIBRATE_OK, or why it stopped */
+    uint32_t started_ms;
+    uint32_t samples;
+    uint32_t rejected;
+    /* The receiver frame count already fed to an RC calibration. The console
+     * feeds its receiver calibration on a 5 ms timer, which is a decent
+     * impression of a frame rate and is not one; here the sample *is* the
+     * frame, so `samples` means what the console's report says it means and a
+     * receiver that has gone quiet stalls the calibration instead of letting it
+     * average the same stale frame fifty times into a centre. */
+    uint32_t fed_frames;
+    int32_t  result[AK_PROTO_CALIBRATE_RESULT];
+} wire_cal_t;
+
+static wire_cal_t        wire_cal = { .verb = AK_PROTO_CALIBRATE_NO_SESSION };
 static ak_log_t          blackbox;
 /* The long log: the same records, a coarser rate, and - on a board with
  * retained RAM - the one that is still there after the reset it is explaining.
  * The fast ring holds 1.5 seconds at 250 Hz for a bench session; this one
- * holds fifteen seconds at 25 Hz for what happened. */
+ * holds fifteen seconds at 25 Hz for what happened.
+ *
+ * The ring itself belongs to the board: `ak_board_retained_ram` hands it back,
+ * and there is no second one here to fall back on. The core used to keep its
+ * own and choose at run time, which put a 27,672-byte ring in every image that
+ * no board with retained RAM could ever reach - see ak_board.h. So `longlog` is
+ * null only when a board has broken that contract, and the six places that
+ * dereference it say what happened rather than crashing on it: a board that
+ * cannot produce the ring gets a long log that is off and says so, which is the
+ * same answer it would have given for a ring it could not reach. */
 static ak_log_t         *longlog;
-static ak_log_t          longlog_fallback;
 static int               longlog_retained;
 static int               longlog_kept;
+
+/* Printed wherever somebody asks for the long log a board did not provide.
+ * Distinct from an empty ring on purpose: "0 records" is a log that has just
+ * started, and this is a log that does not exist. */
+static const char        longlog_absent[] =
+    "long log: off - the board returned no retained block";
 /* The third log, and the only one that survives losing the battery: the same
  * records, written into flash at a rate the loop can afford. It stops when it
  * runs out of erased sectors and is given more room on the ground - see
@@ -935,6 +1050,14 @@ static void gps_report(ak_printf_fn out)
             nav.profile == AK_NAV_PROFILE_QUAD ? "quadrotor: climb, translate, "
                                                  "settle"
                                                : "fixed wing: bank and circle");
+        /* Guidance steps the navigator was handed as a longer interval than it
+         * will integrate over in one step. Reported because the alternative is
+         * a loop that behaves oddly for reasons nothing on the console can
+         * explain - see AK_NAV_MAX_DT_MS. */
+        if (nav.dt_clipped_ms > 0u) {
+            out("clipped:   %u ms of interval not integrated, over steps the "
+                "loop did not fly\n", (unsigned)nav.dt_clipped_ms);
+        }
         if (nav.hold_steps > 0u) {
             if (nav.hold_landing) {
                 out("held:      %u steps with no fix, and coming down where it "
@@ -983,8 +1106,11 @@ static void log_iteration(uint32_t now)
     ak_log_record_t record;
     record.time_ms = now;
 
+    /* The driver's reading and the chain's output, from the one function that
+     * knows the units both are written in - see ak_flight_log_gyro. */
+    ak_flight_log_gyro(&flight, imu_sample.gyro, record.gyro,
+                       record.gyro_filtered);
     for (int i = 0; i < 3; i++) {
-        record.gyro[i] = (int16_t)(ak_rad2deg(imu_sample.gyro[i]) * 10.0f);
         record.accel[i] = (int16_t)(imu_sample.accel[i] * 1000.0f);
     }
     /* Tenths of a degree, wrapped: the estimate runs on unwrapped and this
@@ -1026,10 +1152,37 @@ static void log_iteration(uint32_t now)
         record.flags |= AK_LOG_GPS_VALID;
     }
 
+    /*
+     * And where the notches have moved to (roadmap 2.4). The two gyro triples
+     * above are the same quantity either side of the chain - the driver's
+     * reading and what the controller flew on - and subtracting one from the
+     * other in a spreadsheet is what the chain's own contribution looks like.
+     * These say which filter did it and where it was sitting.
+     */
+    ak_flight_log_notch(&flight, record.notch_hz, record.notch_engaged);
+
+    /*
+     * And the controller (roadmap 4.1): the sample's own timestamp, what the
+     * rate loop was asked for and the three terms it answered with, the pack,
+     * and the mode switch. A pack this board cannot measure is 0 with its flag
+     * clear, never a voltage a reader would take for an empty battery.
+     */
+    record.time_us = imu_sample.time_us;
+    ak_flight_log_control(&flight, record.rate_setpoint, record.pid_p,
+                          record.pid_i, record.pid_d);
+    record.vbat_mv = 0u;
+    if (battery_ready && battery.volts > 0.0f && battery.volts < 65.0f) {
+        record.vbat_mv = (uint16_t)(battery.volts * 1000.0f + 0.5f);
+        record.flags |= AK_LOG_VBAT_VALID;
+    }
+    if (decoded && cmd.angle_mode) {
+        record.flags |= AK_LOG_ANGLE_MODE;
+    }
+
     ak_log_push(&blackbox, &record);
     /* Every tenth of the fast log's records: the long one is about what
      * happened, not about what a tuning pass needs. */
-    if ((flight.steps % (AK_LOG_EVERY * AK_LONG_EVERY)) == 0u) {
+    if (longlog != 0 && (flight.steps % (AK_LOG_EVERY * AK_LONG_EVERY)) == 0u) {
         ak_log_push(longlog, &record);
     }
     /* And a fifth of that into flash, which is the log that will still be
@@ -1051,11 +1204,19 @@ static void log_reset(void)
 
 static void longlog_dump(ak_printf_fn out)
 {
+    if (longlog == 0) {
+        out(longlog_absent);
+        out("\r\n");
+        return;
+    }
     ak_log_dump(longlog, out);
 }
 
 static void longlog_reset(void)
 {
+    if (longlog == 0) {
+        return;
+    }
     ak_log_reset(longlog);
 }
 
@@ -1093,30 +1254,228 @@ static void flashlog_reset(void)
  * used to answer an arm it would not honour with silence, and "it just will
  * not arm" is a bench hour that a single sentence pays for.
  */
+/*
+ * The one checklist, built once, read twice.
+ *
+ * The console has printed a preflight report since before there was a wire, and
+ * the app wants the same report as a list it can draw. The tempting shape is two
+ * renderings - one that formats console lines, one that formats wire lines - and
+ * it is the wrong one: two renderings of one checklist are two checklists, and
+ * the day one of them is reworded the console and the app disagree about whether
+ * the machine is what the firmware thinks it is, which is the only question
+ * either of them exists to answer.
+ *
+ * So the checks run once and write `preflight_lines`; the console walks that
+ * array printing a marker and the line's own sentence, and the wire serves the
+ * same sentences a page at a time. A host test asserts the console's rendering
+ * is `marker(verdict) + detail` for every line, which is what keeps the two from
+ * drifting without either being able to reword the other.
+ *
+ * ## `detail` is the console's sentence verbatim, name and all
+ *
+ * Every line reads `name: something`, and `detail` carries the whole of it
+ * including the name. That is deliberate and it costs a few redundant bytes on
+ * the wire. The alternative - `name` on its own and `detail` starting after the
+ * colon - needs the console's printer to reassemble the sentence, and the
+ * console's exact bytes are pinned by tests that cannot run at this bench:
+ * `tools/fw_sim.c` asserts around thirty of these lines verbatim, `bench_check.py`
+ * greps for `--    fix:` and `--    return:`, and `docs/15-preflight.md` quotes
+ * two blocks of them. Byte-identical console output is worth more than a tidier
+ * wire, and the app renders `detail` on its own and keeps `name` as a stable key.
+ *
+ * ## Every line is built, whether or not anyone is listening
+ *
+ * The boot report is cut short by `verbose`: it wants the checks that can be
+ * wrong on a cold board and not the ones a bench session exists to ask about.
+ * But the *record* is built in full every time, because a wire client that asks
+ * for line 20 must be answered with the same checklist the console printed, not
+ * with whatever a compile-time flag left behind. The cost is ~3.9 KB of static
+ * - 32 lines of 121 bytes - and it buys the property that there is one checklist
+ * on a board at any moment and it is the same one for everybody.
+ */
+static ak_preflight_line_t preflight_lines[AK_PROTO_PREFLIGHT_MAX];
+static char                preflight_text[AK_PROTO_PREFLIGHT_MAX]
+                                         [AK_PROTO_PREFLIGHT_DETAIL_MAX + 1u];
+static unsigned preflight_lines_used;
+static unsigned preflight_problems;
+
+/* Where the appenders are writing: the line being built, or - for the console's
+ * `status` line, which wants the arm sentence and no checklist - a local buffer
+ * that never reaches the array. */
+static char    *pf_buf;
+static unsigned pf_cap;
+static unsigned pf_used;
+static int       pf_cut;   /* a line that did not fit; a test asserts never */
+
+static void pf_target(char *buf, unsigned cap)
+{
+    pf_buf = buf;
+    pf_cap = cap;
+    pf_used = 0u;
+    pf_cut = 0;
+    if (cap > 0u) { buf[0] = '\0'; }
+}
+
+/* Point the appenders at nothing. Called after a scratch line is printed, so a
+ * later append by accident lands nowhere instead of into freed stack. */
+static void pf_forget(void)
+{
+    pf_buf = 0;
+    pf_cap = 0u;
+    pf_used = 0u;
+}
+
+static void pf_ch(char c)
+{
+    if (pf_buf == 0 || pf_used + 1u >= pf_cap) {
+        pf_cut = 1;
+        return;
+    }
+    pf_buf[pf_used++] = c;
+    pf_buf[pf_used] = '\0';
+}
+
+static void pf_write(const char *text)
+{
+    if (text == 0) { return; }
+    for (unsigned i = 0u; text[i] != '\0'; i++) {
+        pf_ch(text[i]);
+    }
+}
+
+static void pf_uint(unsigned value)
+{
+    char digits[12];
+    unsigned used = 0u;
+
+    if (value == 0u) { pf_ch('0'); return; }
+    while (value > 0u && used < sizeof digits) {
+        digits[used++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    }
+    while (used > 0u) { pf_ch(digits[--used]); }
+}
+
+/* There is no vsnprintf in this firmware - see ak_text.h - so the few numbers
+ * the checklist prints get their own writers. `digits` is the console's own
+ * width: eight for a register address (`%08x`), two for a part's identity
+ * (`%02x`), so the checklist spells both the way the console already does. */
+static void pf_hex(uint32_t value, unsigned digits)
+{
+    static const char alphabet[] = "0123456789abcdef";
+
+    for (unsigned i = 0u; i < digits; i++) {
+        pf_ch(alphabet[(value >> (4u * (digits - 1u - i))) & 0xFu]);
+    }
+}
+
+static void pf_int(int value)
+{
+    unsigned magnitude;
+
+    if (value < 0) {
+        pf_ch('-');
+        magnitude = (unsigned)(-(value + 1)) + 1u;
+    } else {
+        magnitude = (unsigned)value;
+    }
+    pf_uint(magnitude);
+}
+
+/* Start a line. The verdict is the first thing written and the only thing that
+ * decides the marker the console prints, so a check cannot report PASS in prose
+ * and FAIL in its marker. */
+static void pf_begin(uint8_t verdict, const char *name)
+{
+    if (preflight_lines_used >= AK_PROTO_PREFLIGHT_MAX) {
+        /* Out of room. The count *is* the report - "the number of things that
+         * mean the firmware is wrong about itself" - so a dropped line has to
+         * be a fault rather than a silently shorter list. A client paging a
+         * truncated checklist would otherwise be told the machine is fine by
+         * omission, which is the one way this tab can hurt somebody. */
+        preflight_problems++;
+        pf_forget();
+        return;
+    }
+
+    unsigned at = preflight_lines_used++;
+    preflight_lines[at].name = name;
+    preflight_lines[at].verdict = verdict;
+    /* Set from the start, not in `pf_end`: a caller that starts a line and
+     * appends nothing still has to yield a detail a client can print, and an
+     * empty string is a sentence with nothing in it rather than a null the wire
+     * layer has to remember to guard. */
+    preflight_lines[at].detail = preflight_text[at];
+
+    if (verdict == AK_PROTO_PREFLIGHT_VERDICT_FAIL) { preflight_problems++; }
+
+    pf_target(preflight_text[at], AK_PROTO_PREFLIGHT_DETAIL_MAX + 1u);
+}
+
+/* Finish a line. The detail is already the buffer `pf_begin` pointed the
+ * appenders at; what is left is the one thing that can go wrong. */
+static void pf_end(void)
+{
+    if (pf_cut) {
+        /* A sentence that did not fit is a firmware bug, and counting it is the
+         * honest response rather than serving it: everything after the cut is
+         * missing, and a checklist that stops mid-word reads as a shorter
+         * checklist rather than as a broken one. The buffers are sized well
+         * past the longest line this file writes, so this is a backstop for the
+         * next person who adds a line, not a condition that is expected. */
+        preflight_problems++;
+    }
+    pf_forget();
+}
+
+/* The sentence, without the column it is printed in.
+ *
+ * Split out from `arm_line` because the preflight needs these words twice: once
+ * as a line of the console's report and once as a line of the checklist the
+ * wire carries, and those two renderings are of one sentence. A second copy of
+ * this switch would be a second answer to "would this aircraft arm", which is
+ * the answer the whole gate exists to give once. */
+static void arm_write(void);
+
 static void arm_line(ak_printf_fn out, const char *prefix)
+{
+    /* A local buffer rather than the checklist's own: `status` prints this line
+     * on a console that never asked for a checklist, and a console command must
+     * not be what rebuilds a record a wire client is halfway through reading. */
+    char text[AK_PROTO_PREFLIGHT_DETAIL_MAX + 1u];
+    pf_target(text, sizeof text);
+    arm_write();
+    out("%s%s\n", prefix, text);
+    pf_forget();
+}
+
+static void imu_absence_words(void);
+
+static void arm_write(void)
 {
     float detail = 0.0f;
     ak_rc_command_t cmd = flight.cmd; /* the last decoded frame, as it stands */
     ak_arm_block_t block = ak_flight_arm_check(&flight, &cmd, &detail);
 
-    out("%s", prefix);
     switch (block) {
     case AK_ARM_OK:
-        out("ready\n");
+        pf_write("ready");
         break;
     case AK_ARM_OUTPUTS:
         /* The one refusal a pilot cannot do anything about from the sticks, so
          * it says both numbers: what the mix needs and what the board has. */
         if (!flight.board_outputs_known) {
-            out("refused - the board has not said what its outputs are\n");
+            pf_write("refused - the board has not said what its outputs are");
         } else {
-            out("refused - this airframe's mix needs %u motor%s and %u servo%s, "
-                "and the board drives %u and %u\n",
-                (unsigned)flight.needed_motors,
-                flight.needed_motors == 1u ? "" : "s",
-                (unsigned)flight.needed_servos,
-                flight.needed_servos == 1u ? "" : "s",
-                (unsigned)flight.board_motors, (unsigned)flight.board_servos);
+            pf_write("refused - this airframe's mix needs ");
+            pf_uint((unsigned)flight.needed_motors);
+            pf_write(flight.needed_motors == 1u ? " motor and " : " motors and ");
+            pf_uint((unsigned)flight.needed_servos);
+            pf_write(flight.needed_servos == 1u ? " servo, and the board drives "
+                                                : " servos, and the board drives ");
+            pf_uint((unsigned)flight.board_motors);
+            pf_write(" and ");
+            pf_uint((unsigned)flight.board_servos);
         }
         break;
     case AK_ARM_NO_LINK:
@@ -1124,33 +1483,53 @@ static void arm_line(ak_printf_fn out, const char *prefix)
          * very different bench problems, so the count that tells them apart is
          * printed with the answer. */
         if (receiver.frames == 0u) {
-            out("refused - no receiver has spoken\n");
+            pf_write("refused - no receiver has spoken");
         } else {
-            out("refused - the receiver has gone quiet (%u frames)\n",
-                receiver.frames);
+            pf_write("refused - the receiver has gone quiet (");
+            pf_uint(receiver.frames);
+            pf_write(" frames)");
         }
         break;
     case AK_ARM_FAILSAFE:
-        out("refused - a failsafe is latched: the arm switch off, then on\n");
+        pf_write("refused - a failsafe is latched: the arm switch off, then on");
         break;
     case AK_ARM_NOT_REQUESTED:
-        out("refused - the arm switch is off\n");
+        pf_write("refused - the arm switch is off");
+        break;
+    case AK_ARM_SWITCH_HELD:
+        pf_write("refused - the arm switch was already on: off, then on");
         break;
     case AK_ARM_THROTTLE:
-        out("refused - the throttle is at %d per cent, and arming wants %d\n",
-            (int)(detail * 100.0f + 0.5f),
-            (int)(flight.cfg.throttle_low * 100.0f + 0.5f));
+        pf_write("refused - the throttle is at ");
+        pf_int((int)(detail * 100.0f + 0.5f));
+        pf_write(" per cent, and arming wants ");
+        pf_int((int)(flight.cfg.throttle_low * 100.0f + 0.5f));
         break;
     case AK_ARM_NOT_CONVERGED:
-        out("refused - the attitude estimate has not seen the accelerometer\n");
+        pf_write("refused - the attitude estimate has not seen the accelerometer");
+        break;
+    case AK_ARM_NO_IMU:
+        /* Two different repairs, so two sentences: a part that never opened
+         * (the boot's verdict says why), and one that opened and has stopped
+         * giving usable samples since - a cable, not a strap. */
+        if (imu_ok) {
+            pf_write("refused - the inertial sensor opened at boot and its "
+                     "last sample was unusable (");
+            pf_uint((unsigned)imu.errors);
+            pf_write(" read errors)");
+        } else {
+            pf_write("refused - no inertial sensor: ");
+            imu_absence_words();
+        }
         break;
     case AK_ARM_NOT_LEVEL:
-        out("refused - the aircraft is %d degrees from level, and arming "
-            "wants %d\n",
-            (int)(detail + 0.5f), (int)(flight.cfg.arm_max_tilt_deg + 0.5f));
+        pf_write("refused - the aircraft is ");
+        pf_int((int)(detail + 0.5f));
+        pf_write(" degrees from level, and arming wants ");
+        pf_int((int)(flight.cfg.arm_max_tilt_deg + 0.5f));
         break;
     default:
-        out("refused\n");
+        pf_write("refused");
         break;
     }
 }
@@ -1214,52 +1593,111 @@ static void arm_announce(void)
  * `label` is the column the caller is printing in, because the same sentence is
  * wanted under `imu` and under the preflight and the two do not share a prefix.
  */
-static void imu_absence(ak_printf_fn out, const char *label)
+static void imu_absence_words(void)
 {
     switch (ak_imu_last_result()) {
     case AK_IMU_UNKNOWN_PART:
-        out("%sanswered 0x%02x, which is not a known part\n", label,
-            ak_imu_last_whoami());
+        pf_write("answered 0x");
+        pf_hex((uint32_t)ak_imu_last_whoami(), 2);
+        pf_write(", which is not a known part");
         break;
     case AK_IMU_NO_CONFIG:
-        out("%sa known part answered but would not configure\n", label);
+        pf_write("a known part answered but would not configure");
         break;
     case AK_IMU_NOBODY:
     default:
-        out("%snothing answered on the bus\n", label);
+        pf_write("nothing answered on the bus");
         break;
     }
 }
 
-static int preflight_run(ak_printf_fn out, int verbose)
+/* The same words in a console column. `label` is that column, because the same
+ * sentence is wanted under `imu` and under the preflight and the two do not
+ * share a prefix - and the preflight does not come through here, because its
+ * line is the whole sentence on one line rather than this tail. */
+static void imu_absence(ak_printf_fn out, const char *label)
 {
-    int problems = 0;
+    char text[AK_PROTO_PREFLIGHT_DETAIL_MAX + 1u];
 
-    if (ak_board_console_attached_port() != ak_board_console_port()) {
-        problems++;
-        if (verbose) {
-            out("FAIL  console is on 0x%08x, but the board's console is 0x%08x\n",
-                ak_board_console_attached_port(), ak_board_console_port());
+    pf_target(text, sizeof text);
+    imu_absence_words();
+    out("%s%s\n", label, text);
+    pf_forget();
+}
+
+/* The marker a verdict prints.
+ *
+ * Six characters, the width the console has always used, and the only place the
+ * mapping lives: the report below and any test that holds the record against
+ * the console both go through it, so a verdict cannot print one thing and mean
+ * another. */
+static const char *preflight_marker(uint8_t verdict)
+{
+    switch (verdict) {
+    case AK_PROTO_PREFLIGHT_VERDICT_FAIL:
+        return "FAIL  ";
+    case AK_PROTO_PREFLIGHT_VERDICT_PASS:
+        return "ok    ";
+    default:
+        return "--    ";
+    }
+}
+
+/*
+ * Run the checklist.
+ *
+ * One check per line, in the order a person reads them: what the board is, then
+ * what the aircraft is, then what it would do. Each line is a `pf_begin` with
+ * its verdict, the sentence, and a `pf_end`.
+ *
+ * The verdicts are assigned here and nowhere else, and `pf_begin` counts the
+ * FAILs as it goes - so "the number of things that mean the firmware is wrong
+ * about itself" is derived from the markers rather than tallied beside them,
+ * and a line cannot say FAIL in the record while the report says otherwise.
+ */
+static int preflight_build(void)
+{
+    preflight_lines_used = 0u;
+    preflight_problems = 0u;
+
+    /* --- the board --- */
+
+    {
+        uint32_t attached = ak_board_console_attached_port();
+        uint32_t wanted = ak_board_console_port();
+
+        pf_begin(attached != wanted ? AK_PROTO_PREFLIGHT_VERDICT_FAIL
+                                    : AK_PROTO_PREFLIGHT_VERDICT_PASS,
+                 "console");
+        if (attached != wanted) {
+            pf_write("console is on 0x");
+            pf_hex(attached, 8);
+            pf_write(", but the board's console is 0x");
+            pf_hex(wanted, 8);
+        } else {
+            pf_write("console attached to the board's own port");
         }
-    } else if (verbose) {
-        out("ok    console attached to the board's own port\n");
+        pf_end();
     }
 
+    pf_begin(ak_board_clock_ok() ? AK_PROTO_PREFLIGHT_VERDICT_PASS
+                                 : AK_PROTO_PREFLIGHT_VERDICT_FAIL,
+             "clock");
     if (!ak_board_clock_ok()) {
-        problems++;
-        if (verbose) {
-            /* No vendor's initials in the message: HSE/HSI are the STM32's
-             * names for the crystal and the internal clock, and this part's are
-             * HEXT and HICK. The board's own clock summary says which of its
-             * sources is in use; this line says what went wrong. */
-            out("FAIL  the clock is not on its crystal: the board fell back to "
-                "the internal clock\n");
-        }
-    } else if (verbose) {
-        out("ok    clock on the crystal, system %u MHz, apb1 %u MHz\n",
-            ak_board_clock_sysclk_hz() / 1000000u,
-            ak_board_clock_apb1_hz() / 1000000u);
+        /* No vendor's initials in the message: HSE/HSI are the STM32's names
+         * for the crystal and the internal clock, and this part's are HEXT and
+         * HICK. The board's own clock summary says which of its sources is in
+         * use; this line says what went wrong. */
+        pf_write("the clock is not on its crystal: the board fell back to the "
+                 "internal clock");
+    } else {
+        pf_write("clock on the crystal, system ");
+        pf_uint(ak_board_clock_sysclk_hz() / 1000000u);
+        pf_write(" MHz, apb1 ");
+        pf_uint(ak_board_clock_apb1_hz() / 1000000u);
+        pf_write(" MHz");
     }
+    pf_end();
 
     /* The tick has to advance while we stand here, or every delay, timeout and
      * failsafe in this firmware is measuring nothing. */
@@ -1268,39 +1706,50 @@ static int preflight_run(ak_printf_fn out, int verbose)
     while (ak_time_ms() == t0 && spins < 5000000u) {
         spins++;
     }
+    pf_begin(ak_time_ms() == t0 ? AK_PROTO_PREFLIGHT_VERDICT_FAIL
+                                : AK_PROTO_PREFLIGHT_VERDICT_PASS,
+             "tick");
     if (ak_time_ms() == t0) {
-        problems++;
-        if (verbose) {
-            out("FAIL  the millisecond tick is not running (%u delay%s have "
-                "given up waiting for it)\n",
-                ak_delay_stalls(), ak_delay_stalls() == 1u ? "" : "s");
-        }
-    } else if (verbose) {
-        out("ok    tick advanced after %u spins\n", spins);
+        pf_write("the millisecond tick is not running (");
+        pf_uint(ak_delay_stalls());
+        pf_write(ak_delay_stalls() == 1u ? " delay has" : " delays have");
+        pf_write(" given up waiting for it)");
+    } else {
+        pf_write("tick advanced after ");
+        pf_uint(spins);
+        pf_write(" spins");
     }
+    pf_end();
 
     if (!ak_board_output_ready()) {
-        if (verbose) {
-            /* A fact about the board rather than about the aircraft, and the
-             * one that makes the mix-versus-board line below fail: the timers
-             * this board's outputs need are not up, so it states nothing it
-             * can drive. */
-            out("--    outputs: none on this board - the timers did not come "
-                "up\n");
-        }
+        /* A fact about the board rather than about the aircraft, and the one
+         * that makes the mix-versus-board line below fail: the timers this
+         * board's outputs need are not up, so it states nothing it can drive. */
+        pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "outputs");
+        pf_write("outputs: none on this board - the timers did not come up");
     } else if (ak_board_output_dshot_period() == 0 ||
-        ak_board_output_dshot_hz() != dshot_khz * 1000u) {
-        problems++;
-        if (verbose) {
-            out("FAIL  outputs are at %u kHz, %u asked for\n",
-                ak_board_output_dshot_hz() / 1000u, dshot_khz);
-        }
-    } else if (verbose) {
-        out("ok    dshot %u kHz, ARR %u, ccr %u/%u, %u frames sent\n",
-            ak_board_output_dshot_hz() / 1000u, ak_board_output_dshot_period(),
-            ak_board_output_ccr_zero(), ak_board_output_ccr_one(),
-            ak_board_output_frames_sent());
+               ak_board_output_dshot_hz() != dshot_khz * 1000u) {
+        pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FAIL, "outputs");
+        pf_write("outputs are at ");
+        pf_uint(ak_board_output_dshot_hz() / 1000u);
+        pf_write(" kHz, ");
+        pf_uint(dshot_khz);
+        pf_write(" asked for");
+    } else {
+        pf_begin(AK_PROTO_PREFLIGHT_VERDICT_PASS, "outputs");
+        pf_write("dshot ");
+        pf_uint(ak_board_output_dshot_hz() / 1000u);
+        pf_write(" kHz, ARR ");
+        pf_uint(ak_board_output_dshot_period());
+        pf_write(", ccr ");
+        pf_uint(ak_board_output_ccr_zero());
+        pf_ch('/');
+        pf_uint(ak_board_output_ccr_one());
+        pf_write(", ");
+        pf_uint(ak_board_output_frames_sent());
+        pf_write(" frames sent");
     }
+    pf_end();
 
     /* Big enough for the largest record the firmware can write, which is what
      * makes this a question whose answer can be trusted: a board reads the
@@ -1309,32 +1758,40 @@ static int preflight_run(ak_printf_fn out, int verbose)
      * hypothetical - with 64 bytes here, both real targets answered a saved
      * 1191-byte configuration with a checksum failure on every boot, and the
      * simulator hid it by answering "nothing stored" instead. */
-    char config_text[AK_PARAMS_TEXT_MAX + 1];
-    int config_length = ak_board_config_read(config_text, sizeof config_text - 1u);
-    if (config_length < 0) {
-        problems++;
-        if (verbose) {
-            out("FAIL  the saved configuration is damaged (a bad length, or a "
-                "checksum mismatch)\n");
+    {
+        char config_text[AK_PARAMS_TEXT_MAX + 1];
+        int config_length =
+            ak_board_config_read(config_text, sizeof config_text - 1u);
+
+        pf_begin(config_length < 0 ? AK_PROTO_PREFLIGHT_VERDICT_FAIL
+                                   : AK_PROTO_PREFLIGHT_VERDICT_PASS,
+                 "saved configuration");
+        if (config_length < 0) {
+            pf_write("the saved configuration is damaged (a bad length, or a "
+                     "checksum mismatch)");
+        } else {
+            pf_write("saved configuration: ");
+            pf_write(config_length > 0 ? "present and intact" : "none stored");
         }
-    } else if (verbose) {
-        out("ok    saved configuration: %s\n",
-            config_length > 0 ? "present and intact" : "none stored");
+        pf_end();
     }
 
+    pf_begin(ak_fault_present() ? AK_PROTO_PREFLIGHT_VERDICT_FAIL
+                                : AK_PROTO_PREFLIGHT_VERDICT_PASS,
+             "fault");
     if (ak_fault_present()) {
-        problems++;
-        if (verbose) {
-            out("FAIL  a fault is recorded: pc 0x%08x cfsr 0x%08x\n",
-                ak_fault.pc, ak_fault.cfsr);
-        }
-    } else if (verbose) {
-        out("ok    no fault recorded since power on\n");
+        pf_write("a fault is recorded: pc 0x");
+        pf_hex(ak_fault.pc, 8);
+        pf_write(" cfsr 0x");
+        pf_hex(ak_fault.cfsr, 8);
+    } else {
+        pf_write("no fault recorded since power on");
     }
+    pf_end();
+
+    /* --- what the aircraft is --- */
 
     /*
-     * What the aircraft *is*, and what it will therefore do.
-     *
      * The `airframe` parameter chooses two things: the mix in the flight core
      * and the return profile in the navigator. They are set together, in one
      * function, so a disagreement should be impossible - which is exactly why
@@ -1351,22 +1808,26 @@ static int preflight_run(ak_printf_fn out, int verbose)
         ak_nav_profile_t wanted_profile = wanted->fixed_wing
                                               ? AK_NAV_PROFILE_WING
                                               : AK_NAV_PROFILE_QUAD;
+        int agrees = flight.mixer == wanted && nav.profile == wanted_profile;
 
-        if (flight.mixer != wanted || nav.profile != wanted_profile) {
-            problems++;
-            if (verbose) {
-                out("FAIL  airframe %u: flying the %s mixer with a %s return\n",
-                    (unsigned)flight.airframe,
-                    flight.mixer != 0 ? flight.mixer->name : "no",
-                    nav.profile == AK_NAV_PROFILE_QUAD ? "quadrotor"
-                                                       : "fixed wing");
-            }
-        } else if (verbose) {
-            out("ok    airframe %u: the %s mix and a %s return\n",
-                (unsigned)flight.airframe, wanted->name,
-                wanted_profile == AK_NAV_PROFILE_QUAD ? "quadrotor"
-                                                      : "fixed wing");
+        pf_begin(agrees ? AK_PROTO_PREFLIGHT_VERDICT_PASS
+                        : AK_PROTO_PREFLIGHT_VERDICT_FAIL,
+                 "airframe");
+        pf_write("airframe ");
+        pf_uint((unsigned)flight.airframe);
+        pf_write(": ");
+        if (agrees) {
+            pf_write("the ");
+            pf_write(wanted->name);
+            pf_write(" mix and a ");
+        } else {
+            pf_write("flying the ");
+            pf_write(flight.mixer != 0 ? flight.mixer->name : "no");
+            pf_write(" mixer with a ");
         }
+        pf_write(nav.profile == AK_NAV_PROFILE_QUAD ? "quadrotor" : "fixed wing");
+        pf_write(" return");
+        pf_end();
     }
 
     /*
@@ -1383,166 +1844,297 @@ static int preflight_run(ak_printf_fn out, int verbose)
                    flight.board_motors >= flight.needed_motors &&
                    flight.board_servos >= flight.needed_servos;
 
-        if (!fits) {
-            problems++;
-            if (verbose) {
-                if (!flight.board_outputs_known) {
-                    out("FAIL  the board has not said what its outputs are\n");
-                } else {
-                    out("FAIL  this mix needs %u motors and %u servos; the "
-                        "board drives %u and %u\n",
-                        (unsigned)flight.needed_motors,
-                        (unsigned)flight.needed_servos,
-                        (unsigned)flight.board_motors,
-                        (unsigned)flight.board_servos);
-                }
-            }
-        } else if (verbose) {
-            out("ok    outputs: %u motors, %u servos on this board, and the mix "
-                "needs %u and %u\n",
-                (unsigned)flight.board_motors, (unsigned)flight.board_servos,
-                (unsigned)flight.needed_motors,
-                (unsigned)flight.needed_servos);
+        pf_begin(fits ? AK_PROTO_PREFLIGHT_VERDICT_PASS
+                      : AK_PROTO_PREFLIGHT_VERDICT_FAIL,
+                 "mix");
+        if (!fits && !flight.board_outputs_known) {
+            pf_write("the board has not said what its outputs are");
+        } else if (!fits) {
+            pf_write("this mix needs ");
+            pf_uint((unsigned)flight.needed_motors);
+            pf_write(" motors and ");
+            pf_uint((unsigned)flight.needed_servos);
+            pf_write(" servos; the board drives ");
+            pf_uint((unsigned)flight.board_motors);
+            pf_write(" and ");
+            pf_uint((unsigned)flight.board_servos);
+        } else {
+            pf_write("outputs: ");
+            pf_uint((unsigned)flight.board_motors);
+            pf_write(" motors, ");
+            pf_uint((unsigned)flight.board_servos);
+            pf_write(" servos on this board, and the mix needs ");
+            pf_uint((unsigned)flight.needed_motors);
+            pf_write(" and ");
+            pf_uint((unsigned)flight.needed_servos);
         }
+        pf_end();
     }
 
-    /* And the gyro's offset, because the flight is flown on it: either the
-     * aircraft measured one for itself at power-up, or the number in the
-     * parameters is the one being flown with - which is a different claim. */
+    /* --- the sensors, present or absent --- */
+
+    /* The gyro's offset, because the flight is flown on it: either the aircraft
+     * measured one for itself at power-up, or the number in the parameters is
+     * the one being flown with - which is a different claim. */
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "gyro bias");
+    if (gyro_cal.done) {
+        float dps[3];
+
+        ak_gyro_cal_bias_dps(&gyro_cal, dps);
+        pf_write("gyro bias: measured (");
+        pf_uint(gyro_cal.samples);
+        pf_write(" samples): ");
+        pf_int((int)(dps[0] * 1000.0f));
+        pf_ch(' ');
+        pf_int((int)(dps[1] * 1000.0f));
+        pf_ch(' ');
+        pf_int((int)(dps[2] * 1000.0f));
+        pf_write(" mdps");
+    } else {
+        pf_write("gyro bias: not measured yet - the stored bias stands");
+    }
+    pf_end();
+
+    /* Present or absent, these are facts rather than faults. */
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "imu");
+    if (imu_ok) {
+        pf_write("imu: ");
+        pf_write(imu.driver->name);
+    } else {
+        /* One line rather than two. The console used to print the absence on a
+         * continuation line of its own; folding it in keeps the rule this whole
+         * record rests on - one record line is one console line, with nothing
+         * after it - and the `baro` command's own sentence has read
+         * `none fitted - altitude ...` for as long as there has been one. */
+        pf_write("imu: none fitted - ");
+        imu_absence_words();
+    }
+    pf_end();
+
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "baro");
+    pf_write("baro: ");
+    pf_write(baro_ok ? baro.driver->name : "none fitted");
+    pf_end();
+
+    /* The rangefinder is a fact rather than a fault for the same reason the
+     * other sensor lines are: a board without one lands on the barometer, which
+     * is what this firmware did before there was one. */
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "rangefinder");
+    if (!range_ok) {
+        pf_write("rangefinder: none fitted");
+    } else if (range.distance_mm >= 0) {
+        pf_write("rangefinder: ");
+        pf_write(range.driver->name);
+        pf_write(", the ground is ");
+        pf_int((int)(range.distance_mm / 1000));
+        pf_ch('.');
+        pf_uint((unsigned)((range.distance_mm % 1000) / 10));
+        pf_write(" m below");
+    } else {
+        pf_write("rangefinder: ");
+        pf_write(range.driver->name);
+        pf_write(", nothing in range");
+    }
+    pf_end();
+
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "altitude");
+    pf_write("altitude: ");
+    pf_write(!baro_ok ? "gps only"
+                      : (altitude.have_gps_reference
+                             ? "barometer, gps anchored"
+                             : "barometer, no gps anchor yet"));
+    pf_end();
+
+    /* A fact rather than a fault, for the same reason the sensor lines are: the
+     * count above it is the number of things that mean the firmware is wrong
+     * about *itself*, and a flat pack is not one of those. It is worth a line
+     * anyway - a pilot reading this before a flight wants to see the number that
+     * says whether to bother. */
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "battery");
+    if (!battery_ready) {
+        pf_write("battery: none fitted on this board");
+    } else if (battery.samples == 0u) {
+        pf_write("battery: no reading yet");
+    } else if (battery.state == AK_BATTERY_ABSENT) {
+        pf_write("battery: nothing connected");
+    } else {
+        pf_write("battery: ");
+        pf_uint(battery.cells);
+        pf_write("S, ");
+        pf_int((int)battery.volts);
+        pf_ch('.');
+        pf_uint((unsigned)((int)(battery.volts * 100.0f) % 100));
+        pf_write(" V, ");
+        pf_int((int)battery.volts_per_cell);
+        pf_ch('.');
+        pf_uint((unsigned)((int)(battery.volts_per_cell * 100.0f) % 100));
+        pf_write(" V a cell - ");
+        pf_write(ak_battery_state_name(battery.state));
+    }
+    pf_end();
+
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "receiver");
+    pf_write("receiver: ");
+    pf_uint(receiver.bytes);
+    pf_write(" bytes, ");
+    pf_uint(receiver.frames);
+    pf_write(" frames");
+    pf_end();
+
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "gps");
+    pf_write("gps: ");
+    pf_uint(gps.bytes);
+    pf_write(" bytes, ");
+    pf_uint(gps.fix_messages);
+    pf_write(" nav-pvt, ");
+    pf_uint(gps_config_sends);
+    pf_write(" configure attempts");
+    pf_end();
+
+    /*
+     * What the fix is, and whether the return the pilot may be trusting would
+     * actually work - which is two facts and not one: a fix can be arriving and
+     * no good to navigate on, and home is captured from the first fix the
+     * aircraft saw on the ground, so an aircraft that armed before it had one
+     * has nothing to come back to. A pilot who reads `rth_enable 1` and takes
+     * off is trusting a return that does not exist in either of those cases,
+     * and the console is where they find out.
+     */
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "fix");
+    if (!gps.have_fix) {
+        pf_write("fix: none yet");
+    } else {
+        const char *why = gps.fix.fix_type < AK_GPS_FIX_3D
+                              ? "no height (a 2D fix)"
+                          : gps.fix.satellites < gps.min_sats
+                              ? "too few satellites"
+                              : 0;
+
+        pf_write("fix: type ");
+        pf_uint(gps.fix.fix_type);
+        pf_write(", ");
+        pf_uint(gps.fix.satellites);
+        pf_write(" satellites, hacc ");
+        pf_uint(gps.fix.hacc_mm);
+        pf_write(" mm - ");
+        pf_write(why == 0 ? "usable" : "not usable by the navigator");
+        if (why != 0) {
+            /* Reason on the same line as the answer, for the same reason the
+             * `imu` line folds its absence in: the record is one line per
+             * console line and nothing may follow one. */
+            pf_write(": ");
+            pf_write(why);
+        }
+    }
+    pf_end();
+
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "return");
+    if (!rth_enable) {
+        pf_write("return: off - a lost link stops the aircraft");
+    } else if (!nav.have_home) {
+        pf_write("return: enabled, but no home yet - a lost link would stop it");
+    } else if (!ak_gps_fix_valid(&gps, ak_time_ms(), 2000u)) {
+        pf_write("return: enabled, but the fix is not usable - a lost link "
+                 "would stop it");
+    } else {
+        pf_write("return: ready, home set, ");
+        pf_uint(gps.fix.satellites);
+        pf_write(" satellites");
+    }
+    pf_end();
+
+    /* --- what it would do --- */
+
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "blackbox");
+    pf_write("blackbox: ");
+    pf_uint(blackbox.count);
+    pf_write(" records");
+    if (blackbox.overwritten > 0) { pf_write(" (wrapped)"); }
+    pf_end();
+
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "long log");
+    if (longlog == 0) {
+        pf_write(longlog_absent);
+    } else {
+        pf_write("long log: ");
+        pf_uint(longlog->count);
+        pf_write(" records in ");
+        pf_write(longlog_retained ? "retained RAM" : "ordinary RAM");
+        if (longlog_kept) { pf_write(", kept from the run before"); }
+    }
+    pf_end();
+
+    /* The one that is still there after the battery comes out, and - when it
+     * has run out of erased sectors - the one that is not recording. */
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "flash log");
+    if (flashlog_state != AK_FLASHLOG_OK) {
+        pf_write("flash log: none on this board");
+    } else {
+        pf_write("flash log: ");
+        pf_uint(ak_flashlog_count(&flashlog));
+        pf_write(" records");
+        if (flashlog.stopped) {
+            pf_write(", full - clears a sector on the ground");
+        }
+    }
+    pf_end();
+
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "link");
+    pf_write("link ");
+    pf_write(ak_flight_link_live(&flight) ? "up" : "gone");
+    pf_write(", ");
+    pf_write(ak_flight_state_name(ak_flight_state(&flight)));
+    pf_end();
+
+    /* A hand launch is somebody's two hands and a throw, so whether the switch
+     * is set at all is worth reading before the aircraft is picked up rather
+     * than after the motors stay quiet. */
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "launch");
+    if (launch_channel >= 1u && launch_channel <= AK_RC_CHANNELS) {
+        pf_write("launch: channel ");
+        pf_uint((unsigned)launch_channel);
+        pf_write(", ");
+        pf_int((int)(launch.cfg.throttle * 100.0f + 0.5f));
+        pf_write(" per cent, ");
+        pf_int((int)(launch.cfg.climb_deg + 0.5f));
+        pf_write(" degrees of climb, ");
+        pf_uint((unsigned)launch_timeout_s);
+        pf_write(" s");
+    } else {
+        pf_write("launch: off - no channel");
+    }
+    pf_end();
+
+    /* And whether the switch, on this aircraft, would actually arm it: the gates
+     * are the flight core's, the sentence is this file's, and the two cannot
+     * disagree because there is one function behind both. */
+    pf_begin(AK_PROTO_PREFLIGHT_VERDICT_FACT, "arm");
+    pf_write("arm:       ");
+    arm_write();
+    pf_end();
+
+    return (int)preflight_problems;
+}
+
+/*
+ * Print the checklist, and answer with the count.
+ *
+ * `verbose` is the boot report's question, and it is the *printing* it gates and
+ * not the checking: a board that has never been talked to is not paying for
+ * eighteen lines nobody reads, but the count it returns is the same count a
+ * `preflight` typed at the console returns, because the two are the same
+ * function's return value rather than two tallies that have to be kept equal.
+ */
+static int preflight_run(ak_printf_fn out, int verbose)
+{
+    int problems = preflight_build();
+
     if (verbose) {
-        if (gyro_cal.done) {
-            float dps[3];
-
-            ak_gyro_cal_bias_dps(&gyro_cal, dps);
-            out("--    gyro bias: measured (%u samples): %d %d %d mdps\n",
-                gyro_cal.samples, (int)(dps[0] * 1000.0f),
-                (int)(dps[1] * 1000.0f), (int)(dps[2] * 1000.0f));
-        } else {
-            out("--    gyro bias: not measured yet - the stored bias stands\n");
+        for (unsigned i = 0; i < preflight_lines_used; i++) {
+            out("%s%s\n", preflight_marker(preflight_lines[i].verdict),
+                preflight_lines[i].detail);
         }
     }
-
-    if (verbose) {
-        /* Present or absent, these are facts rather than faults. */
-        out("--    imu: %s\n", imu_ok ? imu.driver->name : "none fitted");
-        if (!imu_ok) {
-            imu_absence(out, "--    imu: ");
-        }
-        out("--    baro: %s\n",
-            baro_ok ? baro.driver->name : "none fitted");
-        /* The rangefinder is a fact rather than a fault for the same reason
-         * the other sensor lines are: a board without one lands on the
-         * barometer, which is what this firmware did before there was one. */
-        if (!range_ok) {
-            out("--    rangefinder: none fitted\n");
-        } else if (range.distance_mm >= 0) {
-            out("--    rangefinder: %s, the ground is %d.%02d m below\n",
-                range.driver->name, (int)(range.distance_mm / 1000),
-                (int)((range.distance_mm % 1000) / 10));
-        } else {
-            out("--    rangefinder: %s, nothing in range\n",
-                range.driver->name);
-        }
-        out("--    altitude: %s\n",
-            !baro_ok ? "gps only"
-                     : (altitude.have_gps_reference ? "barometer, gps anchored"
-                                                    : "barometer, no gps anchor yet"));
-        /* A fact rather than a fault, for the same reason the sensor lines
-         * are: the count above it is the number of things that mean the
-         * firmware is wrong about *itself*, and a flat pack is not one of
-         * those. It is worth a line anyway - a pilot reading this before a
-         * flight wants to see the number that says whether to bother. */
-        if (!battery_ready) {
-            out("--    battery: none fitted on this board\n");
-        } else if (battery.samples == 0u) {
-            out("--    battery: no reading yet\n");
-        } else if (battery.state == AK_BATTERY_ABSENT) {
-            out("--    battery: nothing connected\n");
-        } else {
-            out("--    battery: %uS, %d.%02d V, %d.%02d V a cell - %s\n",
-                battery.cells, (int)battery.volts,
-                (int)(battery.volts * 100.0f) % 100,
-                (int)battery.volts_per_cell,
-                (int)(battery.volts_per_cell * 100.0f) % 100,
-                ak_battery_state_name(battery.state));
-        }
-        out("--    receiver: %u bytes, %u frames\n", receiver.bytes,
-            receiver.frames);
-        out("--    gps: %u bytes, %u nav-pvt, %u configure attempts\n", gps.bytes,
-            gps.fix_messages, gps_config_sends);
-        /*
-         * What the fix is, and whether the return the pilot may be trusting
-         * would actually work - which is two facts and not one: a fix can be
-         * arriving and no good to navigate on, and home is captured from the
-         * first fix the aircraft saw on the ground, so an aircraft that armed
-         * before it had one has nothing to come back to. A pilot who reads
-         * `rth_enable 1` and takes off is trusting a return that does not
-         * exist in either of those cases, and the console is where they find
-         * out.
-         */
-        if (!gps.have_fix) {
-            out("--    fix: none yet\n");
-        } else {
-            const char *why = gps.fix.fix_type < AK_GPS_FIX_3D
-                                  ? "no height (a 2D fix)"
-                              : gps.fix.satellites < gps.min_sats
-                                  ? "too few satellites"
-                                  : 0;
-
-            out("--    fix: type %u, %u satellites, hacc %u mm - %s\n",
-                gps.fix.fix_type, gps.fix.satellites, gps.fix.hacc_mm,
-                why == 0 ? "usable" : "not usable by the navigator");
-            if (why != 0) {
-                out("--          %s\n", why);
-            }
-        }
-        if (!rth_enable) {
-            out("--    return: off - a lost link stops the aircraft\n");
-        } else if (!nav.have_home) {
-            out("--    return: enabled, but no home yet - a lost link would "
-                "stop it\n");
-        } else if (!ak_gps_fix_valid(&gps, ak_time_ms(), 2000u)) {
-            out("--    return: enabled, but the fix is not usable - a lost "
-                "link would stop it\n");
-        } else {
-            out("--    return: ready, home set, %u satellites\n",
-                gps.fix.satellites);
-        }
-        out("--    blackbox: %u records%s\n", blackbox.count,
-            blackbox.overwritten > 0 ? " (wrapped)" : "");
-        out("--    long log: %u records in %s%s\n", longlog->count,
-            longlog_retained ? "retained RAM" : "ordinary RAM",
-            longlog_kept ? ", kept from the run before" : "");
-        /* The one that is still there after the battery comes out, and - when
-         * it has run out of erased sectors - the one that is not recording. */
-        if (flashlog_state != AK_FLASHLOG_OK) {
-            out("--    flash log: none on this board\n");
-        } else {
-            out("--    flash log: %u records%s\n",
-                ak_flashlog_count(&flashlog),
-                flashlog.stopped ? ", full - clears a sector on the ground" : "");
-        }
-        out("--    link %s, %s\n",
-            ak_flight_link_live(&flight) ? "up" : "gone",
-            ak_flight_state_name(ak_flight_state(&flight)));
-        /* A hand launch is somebody's two hands and a throw, so whether the
-         * switch is set at all is worth reading before the aircraft is picked
-         * up rather than after the motors stay quiet. */
-        if (launch_channel >= 1u && launch_channel <= AK_RC_CHANNELS) {
-            out("--    launch: channel %u, %d per cent, %d degrees of climb, "
-                "%u s\n",
-                (unsigned)launch_channel, (int)(launch.cfg.throttle * 100.0f +
-                                                0.5f),
-                (int)(launch.cfg.climb_deg + 0.5f), (unsigned)launch_timeout_s);
-        } else {
-            out("--    launch: off - no channel\n");
-        }
-        /* And whether the switch, on this aircraft, would actually arm it:
-         * the gates are the flight core's, the sentence is this file's, and
-         * the two cannot disagree because there is one function behind both. */
-        arm_line(out, "--    arm:       ");
-    }
-
     return problems;
 }
 
@@ -1571,6 +2163,14 @@ static ak_proto_t    net_proto;
 static ak_proto_io_t proto_io;
 static uint32_t      telemetry_sent;
 static uint32_t      next_telemetry_ms;
+/* The log stream's own timer, and the rate it was last scheduled at. The second
+ * one is not bookkeeping: a client that restarts a stream at a higher rate than
+ * the one running would otherwise wait out the old rate's period before its
+ * first record - a whole second, if the old rate was 1 Hz - and the stream it
+ * asked for would look like it had not started. */
+static uint32_t      log_stream_sent;
+static uint32_t      next_log_stream_ms;
+static uint8_t       log_stream_scheduled_hz;
 static int           net_was_connected;
 
 static void proto_status(void *ctx, ak_proto_status_t *out)
@@ -1594,6 +2194,161 @@ static void proto_status(void *ctx, ak_proto_status_t *out)
         float motor = outputs->motor[i] * 254.0f + 0.5f;
         out->motor[i] = motor > 254.0f ? 254u : (uint8_t)motor;
     }
+}
+
+/*
+ * The checklist, as the record `preflight_build` fills.
+ *
+ * This is the one place the protocol reads the firmware's own memory rather
+ * than being handed a copy, and the contract is the one in `ak_proto.h`: the
+ * pointer stays valid until the next call with `first == 0`.
+ *
+ * Keying the rebuild on the index rather than on a "please rebuild" opener is
+ * what makes a walk readable: the first page is the request that pays for the
+ * checks - a config read, a tick measurement, the arm gate - and every page
+ * after it reads the same array, so the checklist cannot change shape halfway
+ * through being read. A client that pages to line 12 and finds eleven lines has
+ * been told something false, and there is no way for it to notice.
+ *
+ * The rebuild is also the point of the tab. The boot's copy is as old as the
+ * boot; this one answers "would this aircraft arm, now", which is the question
+ * somebody opens a safety page to ask.
+ */
+static int proto_preflight(void *ctx, unsigned first,
+                           const ak_preflight_line_t **lines, unsigned *count)
+{
+    (void)ctx;
+
+    if (lines == 0 || count == 0) {
+        return 0;
+    }
+    if (first == 0u) {
+        (void)preflight_build();
+    }
+    /* A build can fill zero lines only if a check began none, which cannot
+     * happen today and would be a firmware fault rather than an empty board -
+     * so it is reported as "this board does not answer", the same answer as a
+     * build that left the callback null. */
+    if (preflight_lines_used == 0u) {
+        return 0;
+    }
+
+    *lines = preflight_lines;
+    *count = preflight_lines_used;
+    return 1;
+}
+
+/* The mission, as MISSION asks about it and as its verbs act on it.
+ *
+ * The verbs are the console's, run against the same statics, so a `start` over
+ * the wire and a `mission start` at the console leave the aircraft in the same
+ * state - which is the whole reason this lives here and not in ak_proto.c. The
+ * console's start does not start anything: it sets `mission_console` and
+ * `mission_edge` and returns, and the flight loop starts the mission on a later
+ * pass, once the aircraft is armed and flying. A wire verb that called
+ * ak_nav_start_mission directly would be flying a mission on an aircraft nobody
+ * had asked to arm.
+ *
+ * `requested` is computed from the same two flags the flight loop computes it
+ * from rather than read out of `mission_requested`, because that variable is
+ * one loop pass behind: a `start` that had just been carried out would be
+ * reported as not requested, and the client would show the button as though it
+ * had not worked. `active` is the navigator's own answer and is never derived.
+ *
+ * The state is filled *after* the verb runs, and that ordering is the whole
+ * reason this is one function: a `start` whose reply carried the state from
+ * before it would tell a client that the button it just pressed had done
+ * nothing, and the client would be right to believe it - it has read the
+ * bytes. Every verb answers with the aircraft as it is now, so a caller never
+ * has to send a second frame to find out what its own verb did.
+ *
+ * The two refusals are the aircraft's, checked against the same facts the
+ * console checks - `wp_count` and `gps.have_fix` - so the two routes cannot
+ * disagree about whether this aircraft can do what was asked. A refusal still
+ * fills the state, because a refusal is an answer about the aircraft too. */
+static int proto_mission(void *ctx, uint8_t op, ak_proto_mission_t *out)
+{
+    (void)ctx;
+
+    int status;
+
+    switch (op) {
+    case AK_PROTO_MISSION_STATUS:
+        status = AK_PROTO_MISSION_OK;
+        break;
+
+    case AK_PROTO_MISSION_START:
+        /* The console's own two lines, in the console's own order: an empty
+         * list is refused before anything is set, so a start that had nothing
+         * to fly leaves no request behind for the flight loop to find later. */
+        if (wp_count == 0u) {
+            status = AK_PROTO_MISSION_NO_WAYPOINTS;
+            break;
+        }
+        mission_console = 1;
+        mission_edge = 1;
+        status = AK_PROTO_MISSION_OK;
+        break;
+
+    case AK_PROTO_MISSION_STOP:
+        /* Stop is available whatever the state, which is the one property this
+         * verb has to have: a client that has lost track of whether a mission
+         * is running can always send it. Stopping one that is not running is
+         * not an error and is not a no-op either - it takes the request back,
+         * which is what a person pressing it means. */
+        mission_console = 0;
+        mission_edge = 0;
+        ak_nav_stop_mission(&nav);
+        status = AK_PROTO_MISSION_OK;
+        break;
+
+    case AK_PROTO_MISSION_HOME_SET:
+        if (!gps.have_fix) {
+            status = AK_PROTO_MISSION_NO_FIX;
+            break;
+        }
+        ak_nav_set_home(&nav, gps.fix.lat_e7, gps.fix.lon_e7,
+                        altitude_msl_mm());
+        status = AK_PROTO_MISSION_OK;
+        break;
+
+    case AK_PROTO_MISSION_HOME_CLEAR:
+        /* Clearing a home that is already clear is not a refusal: there was
+         * nothing to forget, and that is the state the caller asked for. */
+        nav.have_home = 0;
+        status = AK_PROTO_MISSION_OK;
+        break;
+
+    default:
+        /* The dispatch validates the verb before it gets here, so this is
+         * unreachable from the wire - and it still answers with the state
+         * rather than leaving `out` for the caller to wonder about. */
+        return AK_PROTO_MISSION_NO_VERB;
+    }
+
+    /* `index` is deliberately out of range when no mission is running: "not
+     * flying a waypoint" and "flying waypoint zero" are the two ends of a
+     * mission, and a client that showed them the same way would draw the first
+     * waypoint as the one in progress. `hold_alt_mm` is reported only while one
+     * is running, because the field it comes from is left where the last
+     * mission put it and a number nobody is holding is not a fact about now. */
+    out->active = ak_nav_mission_active(&nav) ? 1u : 0u;
+    out->requested = (mission_switch_on || mission_console) ? 1u : 0u;
+    out->count = wp_count > 0xFFu ? (uint8_t)0xFF : (uint8_t)wp_count;
+    out->index = out->active ? (uint8_t)ak_nav_waypoint_index(&nav)
+                             : (uint8_t)AK_PROTO_MISSION_NO_INDEX;
+    out->channel = mission_channel > 0xFFu ? (uint8_t)0xFF
+                                           : (uint8_t)mission_channel;
+    out->reached = nav.waypoints_reached > 0xFFFFu
+                       ? (uint16_t)0xFFFF
+                       : (uint16_t)nav.waypoints_reached;
+    out->started = missions_started > 0xFFFFu ? (uint16_t)0xFFFF
+                                              : (uint16_t)missions_started;
+    out->cancelled = missions_cancelled > 0xFFFFu ? (uint16_t)0xFFFF
+                                                  : (uint16_t)missions_cancelled;
+    out->hold_alt_mm = out->active ? nav.hold_alt_mm : 0;
+
+    return status;
 }
 
 /* The same path the console's `save` takes, so the two cannot drift. */
@@ -1635,6 +2390,206 @@ static int proto_writable(void *ctx)
 {
     (void)ctx;
     return ak_flight_config_writable(&flight) ? 1 : 0;
+}
+
+/* The outputs, as OUTPUT_INFO asks for them.
+ *
+ * The counts come from `ak_board_output_shape` and not from AK_MAX_MOTORS and
+ * AK_MAX_SERVOS, and that is the whole value of the opcode: the timer arrays
+ * are the *firmware's* size, and the shape is the *board's* answer about which
+ * pads a wire can reach. The Feather F405 is the case that proves they differ -
+ * four DShot channels on TIM3, two of which reach the header - and a list built
+ * from AK_MAX_MOTORS would tell somebody to go looking for two ESCs that are
+ * not there.
+ *
+ * The servo plumbing is the same `servo_trim` array `output` prints and
+ * `ak_output_encode` applies. One array, read by the console, by the wire and
+ * by the encoder, so a reversal cannot be one thing on the screen and another
+ * at the surface.
+ *
+ * Returns the board's total, which may exceed `capacity`; see the contract in
+ * ak_proto.h. Nothing in this tree comes close - the largest shape is four and
+ * two - but the count is computed rather than assumed so that a board which one
+ * day does come close is refused by the dispatch instead of quietly truncated.
+ */
+static unsigned proto_outputs(void *ctx, ak_proto_output_t *out,
+                              unsigned capacity)
+{
+    (void)ctx;
+
+    if (!ak_board_output_ready()) {
+        return 0u;
+    }
+
+    unsigned motors = 0;
+    unsigned servos = 0;
+    ak_board_output_shape(&motors, &servos);
+
+    unsigned n = 0;
+    for (unsigned i = 0; i < motors; i++) {
+        if (n < capacity) {
+            out[n].kind = AK_PROTO_OUTPUT_MOTOR;
+            out[n].index = (uint8_t)i;
+            /* A motor has no linkage, so there is nothing to reverse and
+             * nothing to trim. Written as zeros rather than left alone: the
+             * dispatch copies this struct field by field and a caller's
+             * uninitialised stack is not something to send down a wire. */
+            out[n].reversed = 0;
+            out[n].trim_us = 0;
+            out[n].travel_us = 0;
+        }
+        n++;
+    }
+    for (unsigned i = 0; i < servos && i < AK_MAX_SERVOS; i++) {
+        if (n < capacity) {
+            out[n].kind = AK_PROTO_OUTPUT_SERVO;
+            out[n].index = (uint8_t)i;
+            out[n].reversed = servo_trim[i].reversed ? 1u : 0u;
+            out[n].trim_us = (int16_t)servo_trim[i].trim_us;
+            out[n].travel_us = (uint16_t)servo_trim[i].travel_us;
+        }
+        n++;
+    }
+    return n;
+}
+
+/* The wire's output test: one output, held for as long as a client keeps asking.
+ *
+ * Deliberately not `output_test_active` above. That one sweeps every output on
+ * a 1.5 s timer for a person standing at the bench with a scope; this one holds
+ * exactly one named output at a named level until the client stops naming it.
+ * They are two different verbs that happen to end in the same place - a frame
+ * built by `ak_output_encode` instead of by the flight core - so the control
+ * loop asks about both and the core writes only when neither is running.
+ *
+ * The three rules are the console's, checked here rather than inherited: it
+ * refuses while the aircraft is not disarmed, it stops by itself, and it ends
+ * with the output at zero. The first is `ak_flight_config_writable`, the same
+ * predicate `proto_writable` hands the protocol and the console's `save` hands
+ * the storage, so this opcode adds no fourth opinion about what safe means.
+ */
+static int      wire_test_active;
+static uint8_t  wire_test_kind;
+static uint8_t  wire_test_index;
+static uint8_t  wire_test_level_pct;
+static uint32_t wire_test_last_ms;
+
+static int proto_output_test(void *ctx, uint8_t op, uint8_t kind, uint8_t index,
+                             uint8_t level_pct, ak_proto_output_test_t *out)
+{
+    (void)ctx;
+
+    /* A stop is always available and is never refused for not being needed.
+     * The one verb whose job is to be reachable must not have a state in which
+     * a client cannot send it. */
+    if (op == AK_PROTO_OUTPUT_TEST_STOP) {
+        wire_test_active = 0;
+        return AK_PROTO_OUTPUT_TEST_STOPPED;
+    }
+
+    if (kind != AK_PROTO_OUTPUT_MOTOR && kind != AK_PROTO_OUTPUT_SERVO) {
+        return AK_PROTO_OUTPUT_TEST_NO_OUTPUT;
+    }
+
+    /* Against the board's shape and not the timer's, for `proto_outputs`'
+     * reason: an output whose pad does not reach a header is not one this
+     * command should claim to be driving. */
+    unsigned motors = 0;
+    unsigned servos = 0;
+    ak_board_output_shape(&motors, &servos);
+    unsigned limit = kind == AK_PROTO_OUTPUT_MOTOR ? motors : servos;
+    if (kind == AK_PROTO_OUTPUT_SERVO && limit > AK_MAX_SERVOS) {
+        limit = AK_MAX_SERVOS;
+    }
+    if (index >= limit) {
+        return AK_PROTO_OUTPUT_TEST_NO_OUTPUT;
+    }
+
+    if (!ak_board_output_ready()) {
+        return AK_PROTO_OUTPUT_TEST_NO_BOARD;
+    }
+
+    if (!ak_flight_config_writable(&flight)) {
+        /* And it stops anything already running: a hold that was legal when it
+         * started is not legal if the aircraft armed while it ran, and leaving
+         * it going would be the one thing this gate is here to prevent. */
+        wire_test_active = 0;
+        return AK_PROTO_OUTPUT_TEST_ARMED;
+    }
+
+    /* Clamped and reported, never refused and never obeyed past the cap. The
+     * client learns the number the board is driving from `out`, which is what
+     * lets a button be labelled with what is happening rather than with what
+     * was asked for. */
+    if (level_pct > AK_PROTO_OUTPUT_TEST_MAX_PCT) {
+        level_pct = AK_PROTO_OUTPUT_TEST_MAX_PCT;
+    }
+
+    /* The console's sweep and this are mutually exclusive, and the newer one
+     * wins - see the same line in `output_command`. A wire hold that took over
+     * from a bench sweep has to stop the sweep, or the loop below would be
+     * building two frames and writing whichever it built last. */
+    output_test_active = 0;
+
+    wire_test_active = 1;
+    wire_test_kind = kind;
+    wire_test_index = index;
+    wire_test_level_pct = level_pct;
+    wire_test_last_ms = ak_time_ms();
+
+    out->level_pct = level_pct;
+    /* The full window, not what is left of one: this request *is* the renewal,
+     * so the deadline it establishes is the whole timeout from now. A client
+     * that keeps asking is told the same number every time, which is the truth
+     * about a hold that is being renewed. */
+    out->remaining_ms = AK_PROTO_OUTPUT_TEST_MAX_MS;
+    return AK_PROTO_OUTPUT_TEST_OK;
+}
+
+/* Fill the frame for the wire's test, or return 0 when it is not running.
+ *
+ * The level is a percentage of full range and the servo's is a fraction of its
+ * travel, which is the same split the console's sweep makes: a motor at `d` of
+ * full throttle, a servo at `d` of half travel each way. Servos are not
+ * reversed here - `ak_output_encode` applies `servo_trim`, and doing it twice
+ * would be a surface that moves the wrong way on exactly the output somebody
+ * reversed on purpose. */
+static int wire_test_outputs(uint32_t now, ak_outputs_t *out)
+{
+    if (!wire_test_active) {
+        return 0;
+    }
+
+    /* The timeout, and the arm gate, both read at the moment of writing rather
+     * than trusted from the last request. This is the loop that actually moves
+     * the pin, so this is where "it stops by itself" has to be true. */
+    if ((uint32_t)(now - wire_test_last_ms) >= AK_PROTO_OUTPUT_TEST_MAX_MS) {
+        wire_test_active = 0;
+        return 0;
+    }
+    if (!ak_flight_config_writable(&flight)) {
+        wire_test_active = 0;
+        ak_console_write("output test: stopped - the aircraft is not "
+                         "disarmed\r\n");
+        return 0;
+    }
+
+    for (int i = 0; i < AK_MAX_MOTORS; i++) {
+        out->motor[i] = 0.0f;
+    }
+    for (int i = 0; i < AK_MAX_SERVOS; i++) {
+        out->servo[i] = 0.0f;
+    }
+
+    float level = (float)wire_test_level_pct / 100.0f;
+    if (wire_test_kind == AK_PROTO_OUTPUT_MOTOR) {
+        out->motor[wire_test_index] = level;
+    } else {
+        /* Half travel each way, the console's own number, so the same command
+         * means the same surface deflection whichever way it was sent. */
+        out->servo[wire_test_index] = level * AK_OUTPUT_TEST_SERVO;
+    }
+    return 1;
 }
 
 /* The receiver, as RC_CHANNELS asks for it.
@@ -1721,6 +2676,7 @@ static void proto_report(ak_printf_fn out)
         out("network link:\n");
         ak_proto_report(&net_proto, out);
         out("%u telemetry frames sent\n", telemetry_sent);
+        out("%u log records streamed\n", log_stream_sent);
     }
     ak_board_net_report(out);
 }
@@ -1742,7 +2698,10 @@ static int32_t proto_log_count(void *ctx, uint8_t source)
     case AK_PROTO_LOG_FAST:
         return blackbox.count;
     case AK_PROTO_LOG_LONG:
-        return longlog->count;
+        /* Absent and empty are different answers here for the same reason they
+         * are in flash: a device with no long log says so with -1, and a long
+         * log that has just started says 0. */
+        return longlog != 0 ? (int32_t)longlog->count : -1;
     case AK_PROTO_LOG_FLASH:
         /* -1 says "this device has no log in flash", which is a different
          * answer from an empty one and the one the ESP32 gives. */
@@ -1758,8 +2717,9 @@ static int proto_log_source_present(uint8_t source)
 {
     switch (source) {
     case AK_PROTO_LOG_FAST:
-    case AK_PROTO_LOG_LONG:
         return 1;
+    case AK_PROTO_LOG_LONG:
+        return longlog != 0;
     case AK_PROTO_LOG_FLASH:
         return flashlog_state == AK_FLASHLOG_OK;
     default:
@@ -1803,6 +2763,384 @@ static float gyro_bias_dps[3];
 static float accel_bias_g[3];
 static float accel_scale[3];
 
+/*
+ * Say, once, which of the chain cutoffs this loop rate cannot give the number
+ * that was asked for.
+ *
+ * The library has always reported a clamp - a cutoff above a quarter of the
+ * sample rate comes back as the quarter, `AK_FILTER_CLAMPED` - and until now
+ * nothing in the firmware read the report. Roadmap 2.2 is what made that
+ * matter: the chains took Betaflight's 5-inch defaults, two of those defaults
+ * are 500 Hz, and 500 Hz needs a loop at 2 kHz or faster. A 1600 Hz gyro with
+ * `pid_denom` 1 is a 625 us loop, whose ceiling is 400 Hz, so `gyro_lpf2_static_hz`
+ * and `gyro_lpf1_dyn_max_hz` flew as 400 - and the only place that said so was
+ * a struct field nobody read. A parameter that names a number the aircraft is
+ * not using is a document that describes a different aircraft.
+ *
+ * Printed from `apply_loop_rate` rather than once at boot, because that is the
+ * one function that runs at every moment either half of the answer can change:
+ * a `set` of a cutoff, and a `set` of `gyro_rate_hz` or `pid_denom`. A change
+ * that clamps a chain therefore says so as it happens, and a `set` that changes
+ * nothing about the answer says nothing - the last report is kept and compared,
+ * so a parameter that has nothing to do with the filters does not reprint two
+ * lines about them.
+ *
+ * The comparison is on the whole tuple and not just the count: `dyn_max` 600
+ * and 500 both clamp to 400, and the sentence is about the parameter, so
+ * moving it from one to the other is a different sentence even though the
+ * filter did not change.
+ */
+static void report_filter_clamps(void)
+{
+    ak_flight_filter_clamp_t clamps[AK_FLIGHT_FILTER_CLAMP_MAX];
+    static ak_flight_filter_clamp_t told[AK_FLIGHT_FILTER_CLAMP_MAX];
+    static unsigned told_count;
+
+    const unsigned found = ak_flight_filter_clamps(&flight, clamps,
+                                                   AK_FLIGHT_FILTER_CLAMP_MAX);
+
+    /* Only what fits was written, and only what fits can be compared - the
+     * header defines the array at the largest report there can be, so this is
+     * a belt on a pair of braces rather than a second policy. */
+    const unsigned shown = found < AK_FLIGHT_FILTER_CLAMP_MAX
+                               ? found : AK_FLIGHT_FILTER_CLAMP_MAX;
+
+    /*
+     * And then the moves this sentence cannot express, dropped.
+     *
+     * A clamp is a comparison and the comparison is exact, so a cutoff of
+     * exactly a quarter of the sample rate is *above* the ceiling whenever the
+     * sample rate is not exactly representable - a 1000 us loop is 0.001f, and
+     * 0.25f / 0.001f is a hair under 250. The library is right to say it moved
+     * the cutoff; the answer it moved it to differs from the request in the
+     * seventh decimal place. Printing that at whole hertz gave the sentence
+     * `gyro_lpf1_dyn_min_hz is 250 Hz, and this loop gives it 250 Hz`, which
+     * reads as a bug in the sentence and is one - the report's own subject is a
+     * parameter that is not the number it names, and a parameter that prints as
+     * the number it names is one this loop does give.
+     *
+     * So the two are rendered exactly as they will be printed and compared as
+     * text. A move smaller than the precision the console has is not a move the
+     * console can report, and inventing a tolerance in hertz instead would be a
+     * second opinion about what that precision is.
+     */
+    char asked[12];
+    char given[12];
+    unsigned kept = 0u;
+    for (unsigned i = 0; i < shown; i++) {
+        ak_format_fixed(clamps[i].requested_hz, 0, asked, sizeof asked);
+        ak_format_fixed(clamps[i].applied_hz, 0, given, sizeof given);
+        if (ak_str_eq(asked, given)) {
+            continue;
+        }
+        clamps[kept] = clamps[i];
+        kept++;
+    }
+
+    int same = (kept == told_count);
+    for (unsigned i = 0; same && i < kept; i++) {
+        same = clamps[i].name == told[i].name &&
+               clamps[i].requested_hz == told[i].requested_hz &&
+               clamps[i].applied_hz == told[i].applied_hz;
+    }
+    for (unsigned i = 0; i < kept; i++) {
+        told[i] = clamps[i];
+    }
+    told_count = kept;
+    if (same) {
+        return;
+    }
+
+    for (unsigned i = 0; i < kept; i++) {
+        ak_format_fixed(clamps[i].requested_hz, 0, asked, sizeof asked);
+        ak_format_fixed(clamps[i].applied_hz, 0, given, sizeof given);
+        ak_console_printf("filters:   %s is %s Hz, and this loop gives it %s "
+                          "Hz\n", clamps[i].name, asked, given);
+    }
+    if (kept > 0u) {
+        ak_console_printf("filters:   %u cutoff%s moved to what a %u us loop "
+                          "can give - lower %s or raise the loop rate\n",
+                          kept, kept == 1u ? " was" : "s were",
+                          control_period_us, kept == 1u ? "it" : "them");
+    }
+}
+
+/*
+ * What the dynamic notch is doing - and when it is doing nothing, which of the
+ * three ways that happened.
+ *
+ * Same printing discipline as `report_filter_clamps` above, and for the same
+ * reason: this is called from `apply_loop_rate`, the one function that runs at
+ * every moment any input can change. A cutoff, `gyro_rate_hz` and `pid_denom`
+ * reach it directly; the four `dyn_notch_*` parameters reach it because
+ * `parameters_changed` routes every `set` through `apply_parameters`, whose
+ * last act is this call. So a change that moves the answer says so as it
+ * happens, and a `set` of something unrelated says nothing - the last report is
+ * kept and compared.
+ *
+ * The case that makes this necessary rather than tidy is the gate. Every board
+ * in this tree boots at a 1 kHz loop, and `dyn_notch_count` defaults to 3 - so
+ * out of the box the table names three notches per axis and *nothing is
+ * notched*, because a biquad notch cannot sit above a quarter of its sample
+ * rate. Until this sentence existed, the only account of that was a struct
+ * field in a header nobody reads. A parameter naming three notches the aircraft
+ * does not have is the same defect `report_filter_clamps` was written for, one
+ * stage earlier in the chain.
+ *
+ * `dyn_notch_count` 0 is *not* reported: it is a person asking for no notches,
+ * and the aircraft is doing exactly what the number says. That is the one
+ * configuration here with nothing to explain.
+ *
+ * The engaged counts are deliberately not compared or printed. They move every
+ * window as the tracker follows a motor, and a report that reprinted on every
+ * window would turn a console into a telemetry stream. They are a live reading
+ * and their home is the protocol's debug fields, not a line printed on change.
+ */
+static void report_dyn_notch(void)
+{
+    static ak_flight_notch_report_t told;
+    static int told_valid;
+
+    ak_flight_notch_report_t r;
+    ak_flight_dyn_notch_report(&flight, &r);
+
+    const int same =
+        told_valid && told.off == r.off && told.asked == r.asked &&
+        told.measured == r.measured && told.decimation == r.decimation &&
+        told.q == r.q && told.min_hz == r.min_hz && told.max_hz == r.max_hz &&
+        told.fs_hz == r.fs_hz && told.bin_hz == r.bin_hz &&
+        told.centre_clamps == r.centre_clamps;
+    told = r;
+    told_valid = 1;
+    if (same) {
+        return;
+    }
+
+    char lo[12];
+    char hi[12];
+
+    switch (r.off) {
+    case AK_DYN_NOTCH_OFF_COUNT:
+        /* Asked for none. Nothing is wrong and there is nothing to say. */
+        return;
+
+    case AK_DYN_NOTCH_OFF_RATE:
+        ak_console_printf("notch:     dyn_notch_count is %u and this loop is "
+                          "%u Hz; a notch needs a loop at %u Hz or faster, so "
+                          "nothing is notched\n",
+                          (unsigned)r.asked,
+                          (unsigned)(1000000u / control_period_us),
+                          (unsigned)AK_DYN_NOTCH_UPDATE_MIN_HZ);
+        return;
+
+    case AK_DYN_NOTCH_OFF_BAND:
+        ak_format_fixed(r.min_hz, 0, lo, sizeof lo);
+        ak_format_fixed(r.max_hz, 0, hi, sizeof hi);
+        ak_console_printf("notch:     dyn_notch_min_hz is %s Hz and "
+                          "dyn_notch_max_hz is %s Hz; that is no band to search, "
+                          "so nothing is notched\n", lo, hi);
+        return;
+
+    case AK_DYN_NOTCH_RUNNING:
+        break;
+    }
+
+    char q[12];
+    char bin[12];
+    char fs[12];
+    ak_format_fixed(r.min_hz, 0, lo, sizeof lo);
+    ak_format_fixed(r.max_hz, 0, hi, sizeof hi);
+    /* The parameter's own units, so the line reads back what a person typed:
+     * `dyn_notch_q` is in hundredths - see ak_dyn_notch.h's decision 11. */
+    ak_format_fixed(r.q * 100.0f, 0, q, sizeof q);
+    ak_format_fixed(r.bin_hz, 1, bin, sizeof bin);
+    ak_format_fixed(r.fs_hz, 0, fs, sizeof fs);
+    ak_console_printf("notch:     %u notch%s per axis over %s-%s Hz at Q %s, a "
+                      "%s Hz analysis rate in %s Hz bins\n",
+                      (unsigned)r.asked, r.asked == 1u ? "" : "es", lo, hi, q,
+                      fs, bin);
+
+    if (!r.measured) {
+        ak_console_printf("notch:     no window has completed yet, so nothing "
+                          "is filtered so far\n");
+    }
+    if (r.centre_clamps > 0u) {
+        ak_console_printf("notch:     %u centre%s measured above what this loop "
+                          "can filter and %s moved to the nearest it can - "
+                          "lower dyn_notch_max_hz or raise the loop rate\n",
+                          (unsigned)r.centre_clamps,
+                          r.centre_clamps == 1u ? " was" : "s were",
+                          r.centre_clamps == 1u ? "was" : "were");
+    }
+}
+
+/*
+ * The gyro's rate and the loop's, kept in step with each other and with what
+ * the hardware actually took - phase 1.4.
+ *
+ * Four things have to agree for a rate to be a fact rather than a setting: the
+ * part's register, the flight core's nominal period, the profiler's nominal
+ * (which is what it measures jitter against) and the scheduler's period. This
+ * is the one place all four are written, which is the property that makes them
+ * agree - a fifth caller that set one of them itself would be a rate that is
+ * four numbers, and the failure would show up as a jitter reading rather than
+ * as a disagreement.
+ *
+ * The order matters in one place: the part is asked *first*, because what it
+ * answers is what the other three are derived from.
+ */
+static void apply_loop_rate(void)
+{
+    /*
+     * Asked only when the part is not already at the rate the table states.
+     * `imu.rate_hz` is what the part answered the last time it was asked, so
+     * when the two agree the sentence is already true - and asking again is not
+     * free: it re-writes the part's ODR registers and waits out its settling
+     * delay, and `ak_imu_set_rate` says "N Hz requested, part at N Hz" every
+     * time. Without this, `set pid_denom 4` - a parameter about the loop, not
+     * the gyro - reached into the gyro's registers and printed an IMU line,
+     * which reads as the gyro having been reconfigured. It was not.
+     *
+     * The period below is recomputed either way, because pid_denom is the other
+     * half of it and that is the parameter that just changed.
+     */
+    if (imu_ok && gyro_rate_hz != 0u && gyro_rate_hz != imu.rate_hz) {
+        const uint32_t asked = gyro_rate_hz;
+        const uint32_t took  = ak_imu_set_rate(&imu, asked, ak_console_printf);
+
+        if (took != 0u) {
+            if (took != asked) {
+                /* The parameter is what the part is at, so this corrects the
+                 * record rather than the hardware. Said out loud because a
+                 * parameter that changed itself silently is worse than one
+                 * that refuses: the next person to read the table would
+                 * otherwise find a number they did not type. */
+                ak_console_printf("rates:     %u Hz is not a rate this part "
+                                  "has; gyro_rate_hz is now %u\n",
+                                  asked, took);
+            }
+            gyro_rate_hz = took;
+        } else {
+            /* A refusal the part would not take at all, and the same rule as
+             * above in the other direction: the table must not go on saying
+             * 8000 about a part that is still at 1000. Back to whatever the
+             * part is stated to be at, which is zero - "as the driver's init
+             * left it" - for as long as nothing has succeeded. */
+            ak_console_printf("rates:     gyro_rate_hz is back to %u, which is "
+                              "the rate this part is at\n", imu.rate_hz);
+            gyro_rate_hz = imu.rate_hz;
+        }
+    }
+
+    /*
+     * Zero is "no driver has stated a rate", which is a different sentence from
+     * "zero hertz" - see ak_imu_t.rate_hz. It is also the state this runs in
+     * once at boot, when apply_parameters() is called before the IMU is open,
+     * and the honest answer there is to leave the loop exactly as it is: the
+     * period it has is the one it booted with, and the second call - the one
+     * below ak_imu_open() - is the one that sets the rate.
+     */
+    if (imu.rate_hz == 0u) {
+        /* Reported before leaving, and it is the reason this is not a bare
+         * `return`: the loop keeps the period it booted with, and a cutoff that
+         * period cannot give is one this aircraft is not running whether or not
+         * a driver ever stated a rate. The simulator's board is exactly this
+         * case - no `gyro_rate_hz` parameter, so no rate is ever stated, so the
+         * loop is at AK_FLIGHT_LOOP_US and the 500 Hz defaults clamp to 250 -
+         * and a report that only ran on a board with a rate would leave the one
+         * configuration anyone can run on this machine silent about it.
+         * `report_filter_clamps` keeps its last answer, so a later call that
+         * resolves the same cutoffs at the same period prints nothing twice. */
+        report_filter_clamps();
+        report_dyn_notch();
+        return;
+    }
+
+    uint32_t period_us =
+        (1000000u * pid_denom + imu.rate_hz / 2u) / imu.rate_hz;
+
+    ak_flight_set_loop_period_us(&flight, period_us);
+    /* Read back rather than kept, because the core clamps to
+     * AK_FLIGHT_LOOP_MIN_US..AK_FLIGHT_LOOP_MAX_US and a scheduler holding a
+     * period the core refused would be two periods for one loop. */
+    control_period_us = flight.loop_period_us;
+    if (control_period_us != period_us) {
+        ak_console_printf("rates:     %u Hz over %u is %u us, outside this "
+                          "firmware's %u..%u; the loop is at %u us\n",
+                          imu.rate_hz, pid_denom, period_us,
+                          (unsigned)AK_FLIGHT_LOOP_MIN_US,
+                          (unsigned)AK_FLIGHT_LOOP_MAX_US, control_period_us);
+    }
+    ak_perf_set_nominal_us(control_period_us);
+    if (fast_task >= 0) {
+        (void)ak_sched_set_period(fast_task, control_period_us, ak_time_us());
+    }
+
+    /* And whether the chains can be what they were configured to be at the
+     * period all four of the above now agree on. Last, because it is the one
+     * thing here that reads the answer rather than writing it. The notch is
+     * read in the same breath: it is the first stage of the gyro chain and the
+     * one whose answer depends on the loop rate most directly - a notch bank
+     * that is on at one period and off at the next has to say so at the moment
+     * the rate changes, not the next time somebody types `filters`. */
+    report_filter_clamps();
+    report_dyn_notch();
+}
+
+/* Whether a number is one of the three rates the DShot protocol has. A fact
+ * about the protocol, which is why it is spelled here rather than asked of the
+ * board - see apply_dshot_rate() for why the distinction is worth a function. */
+static int dshot_khz_is_a_rate(uint32_t khz)
+{
+    return khz == 150u || khz == 300u || khz == 600u;
+}
+
+/* The one thing about the output rate that the parameter cannot state for
+ * itself: which of the three DShot rates the board is actually generating.
+ *
+ * `ak_output_set_rate()` takes 150, 300 or 600 and *ignores* anything else,
+ * which is right - they are the rates the protocol has - but the parameter's
+ * range is 150..600, so `set dshot_khz 400` was accepted and changed nothing
+ * while the table went on saying 400. The parameter is written back to what the
+ * board is generating, for the same reason `gyro_rate_hz` is: the number in the
+ * table is read as a fact about the aircraft.
+ *
+ * Two different reasons are reachable here and they get two different
+ * sentences, because they are two different facts. The number may not be a rate
+ * DShot has - the fault is in what was typed - or it may be one the board is
+ * not generating, which is a fault in the board. The first version said "is not
+ * a DShot rate" for both, so a board that declined a perfectly legal 600 was
+ * described as if 600 were nonsense. The simulator's board is exactly that
+ * board: `ak_board_output_set_rate` there takes the argument and ignores it,
+ * and the rate stays 300. */
+static void apply_dshot_rate(void)
+{
+    const uint32_t asked = dshot_khz;
+
+    ak_board_output_set_rate(dshot_khz);
+    if (ak_board_output_dshot_period() == 0u) {
+        /* A board whose output stage never came up has no rate to report. The
+         * parameter stands as whatever the table says, and preflight is the
+         * thing that reports the stage missing. */
+        return;
+    }
+    {
+        const uint32_t at = ak_board_output_dshot_hz() / 1000u;
+
+        if (at == 0u || at == asked) {
+            return;
+        }
+        if (dshot_khz_is_a_rate(asked)) {
+            ak_console_printf("outputs:   this board is generating %u kHz, not "
+                              "%u; dshot_khz is now %u\n", at, asked, at);
+        } else {
+            ak_console_printf("outputs:   %u kHz is not a DShot rate; "
+                              "dshot_khz is now %u\n", asked, at);
+        }
+        dshot_khz = at;
+    }
+}
+
 static void apply_parameters(void)
 {
     ak_align_set(&align, align_roll_deg, align_pitch_deg, align_yaw_deg);
@@ -1829,6 +3167,10 @@ static void apply_parameters(void)
     ak_nav_set_profile(&nav, ak_mixer_for_airframe(flight.airframe)->fixed_wing
                                 ? AK_NAV_PROFILE_WING
                                 : AK_NAV_PROFILE_QUAD);
+    /* Last, because it is the only one whose effect is on timing rather than on
+     * a value: everything above is a number the loop reads, and this is how
+     * often the loop reads them. */
+    apply_loop_rate();
 }
 
 /*
@@ -2397,6 +3739,582 @@ static int calibrate(ak_printf_fn out, int argc, const char *const *argv)
 }
 
 /*
+ * The same four calibrations, over the wire, as a session rather than a call.
+ *
+ * The console can afford to block. `calibrate` above sits in a `for` loop
+ * reading the inertial sensor and sleeping a millisecond at a time until five
+ * hundred still samples have arrived, which is about three seconds for the gyro
+ * and a second for the receiver, and it is welcome to: the person who typed it
+ * is standing at the bench waiting for it, and nothing else on that board is
+ * doing anything.
+ *
+ * The protocol cannot. It is dispatched from the flight loop, the same loop that
+ * runs the attitude estimator, the failsafe, the output frame and the
+ * telemetry - so a wire `calibrate` that blocked for three seconds would stop
+ * the aircraft's control loop for three seconds, and on a bench that is an
+ * inconvenience and in the air it is a crash. The calibrations here therefore
+ * do not block: the request opens a session, the flight loop advances it one
+ * sample at a time, and every reply - including the one that opened it - is a
+ * reading of where the session has got to. That is the shape MISSION already
+ * has, and for the same reason: a client that has to learn a result over a
+ * second round trip can lose the second round trip.
+ *
+ * This is not a new pattern in this file. The gyro calibration has run this way
+ * since before the wire existed - see the block in the flight loop that feeds
+ * `gyro_cal` while the aircraft is disarmed - and what is here is that same
+ * session, with a caller who is on the other end of a cable instead of at the
+ * other end of a boot.
+ *
+ * Three gates, and they are three different gates rather than one written three
+ * times. The dispatch refuses a write verb when the protocol's own `write_allowed`
+ * is set (so the refusal is a policy status the client can render, exactly as
+ * PARAM_SAVE's is). This file's callback asks the flight core again, so the
+ * guard does not depend on the request having come through ak_proto.c. And the
+ * session re-checks on every tick it samples, which is the only one of the three
+ * that can catch the aircraft arming *during* a calibration - a calibration
+ * started on a disarmed bench and finished on an armed one, which is the case
+ * the first two gates cannot see.
+ *
+ * The one that is not a session is VBAT: it reads the pin eight times and does
+ * one division, which is bounded by the ADC rather than by a person holding
+ * still, and holding a session open across it would be machinery for nothing.
+ */
+
+/* A bound, not an expectation. Five hundred still samples at the loop's one
+ * millisecond arrive in well under a second, and the receiver's fifty frames in
+ * about a second; fifteen seconds is not a number anything should reach, it is
+ * the point past which "still waiting" has stopped meaning "almost there" and
+ * started meaning "the sensor or the receiver has stopped answering". It exists
+ * so that a wizard left open on a bench does not leave a session running
+ * forever, and so that a client polling a session that will never finish is
+ * told so instead of polling until it gives up. */
+#define WIRE_CAL_TIMEOUT_MS 15000u
+
+static void wire_cal_fill(ak_proto_calibration_t *out)
+{
+    out->active = wire_cal.active;
+    out->verb = wire_cal.verb;
+    /* The step is a face only while a face is being sampled. Between the six
+     * commands of an accelerometer flow there is no step, and NO_STEP is a
+     * number past all six so that a client cannot read "between faces" as
+     * "sampling face zero". */
+    out->step = wire_cal.active ? wire_cal.step : AK_PROTO_CALIBRATE_NO_STEP;
+
+    /* Computed from the calibration rather than stored beside it, because the
+     * six-face flow is six commands that accumulate and the accumulator is the
+     * accelerometer calibration's `samples[]` array. A second copy of which
+     * faces are done would be a second thing to keep true. Zero for the other
+     * three verbs, which is true and not a placeholder - a gyro calibration has
+     * no faces. */
+    out->faces = 0u;
+    if (wire_cal.verb == AK_PROTO_CALIBRATE_ACCEL) {
+        for (int f = 0; f < AK_ACCEL_FACES; f++) {
+            if (ak_accel_cal_have(&accel_cal, f)) {
+                out->faces |= (uint8_t)(1u << f);
+            }
+        }
+    }
+
+    out->samples = wire_cal.samples;
+    out->rejected = wire_cal.rejected;
+    for (unsigned i = 0; i < AK_PROTO_CALIBRATE_RESULT; i++) {
+        out->result[i] = wire_cal.result[i];
+    }
+}
+
+static void wire_cal_begin(uint8_t verb, uint8_t step, uint32_t now_ms)
+{
+    wire_cal.verb = verb;
+    wire_cal.active = 1u;
+    wire_cal.step = step;
+    wire_cal.outcome = AK_PROTO_CALIBRATE_OK;
+    wire_cal.started_ms = now_ms;
+    wire_cal.samples = 0u;
+    wire_cal.rejected = 0u;
+    wire_cal.fed_frames = receiver.frames;
+    for (unsigned i = 0; i < AK_PROTO_CALIBRATE_RESULT; i++) {
+        wire_cal.result[i] = 0;
+    }
+}
+
+/* How the session stops, whichever way it stopped. The samples and the result
+ * are left where they are - a client polling after the end reads the count it
+ * was stopped at, which is the reading that explains the outcome. */
+static void wire_cal_end(uint8_t outcome)
+{
+    wire_cal.active = 0u;
+    wire_cal.step = AK_PROTO_CALIBRATE_NO_STEP;
+    wire_cal.outcome = outcome;
+}
+
+/* Writes the three gyro biases into the parameter table and applies them.
+ *
+ * Into the table rather than around it, which is the console's argument and
+ * holds here for one more reason: a `calibrate` that wrote `gyro_bias_dps`
+ * directly would be a second way to set a parameter, and the protocol's whole
+ * write path - the range check, the changed count, the saved record - is the
+ * table's. `parameters_changed` is what pushes the new values into the
+ * calibration the estimator reads, so the measurement takes effect on the next
+ * sample rather than at the next boot. */
+static void wire_cal_gyro_finish(void)
+{
+    static const char *names[3] = { "gyro_bias_roll", "gyro_bias_pitch",
+                                    "gyro_bias_yaw" };
+    float bias_dps[3];
+    char text[24];
+    char message[64];
+
+    ak_gyro_cal_bias_dps(&gyro_cal, bias_dps);
+    for (int i = 0; i < 3; i++) {
+        ak_format_fixed(bias_dps[i], 3, text, sizeof text);
+        message[0] = '\0';
+        if (ak_params_set(&params, names[i], text, message, sizeof message) != 0) {
+            wire_cal_end(AK_PROTO_CALIBRATE_IMPLAUSIBLE);
+            return;
+        }
+        wire_cal.result[i] = (int32_t)(bias_dps[i] * 1000.0f);
+    }
+
+    parameters_changed();
+    wire_cal_end(AK_PROTO_CALIBRATE_OK);
+}
+
+/* The sixth face is in, so the arithmetic runs. Split from the session because
+ * it is the one part of the accelerometer flow that can fail for a reason the
+ * pilot caused and can fix: six readings that are not a gravity mean one of the
+ * faces was not flat. */
+static void wire_cal_accel_finish(void)
+{
+    static const char *bias_names[3] = { "accel_bias_x", "accel_bias_y",
+                                         "accel_bias_z" };
+    static const char *scale_names[3] = { "accel_scale_x", "accel_scale_y",
+                                          "accel_scale_z" };
+    float bias[3];
+    float scale[3];
+    char text[16];
+    char message[64];
+
+    if (!ak_accel_cal_finish(&accel_cal)) {
+        /* Thrown away rather than left half-finished: `finish` returned 0
+         * because the six readings are not a gravity, and a wizard that
+         * restarted at face 3 over the top of the first two would be measuring
+         * a correction out of readings from two different attempts. The
+         * console resets here for the same reason and says so in the same
+         * words. */
+        ak_accel_cal_reset(&accel_cal);
+        wire_cal_end(AK_PROTO_CALIBRATE_IMPLAUSIBLE);
+        return;
+    }
+
+    ak_accel_cal_get(&accel_cal, bias, scale);
+    for (int i = 0; i < 3; i++) {
+        ak_format_fixed(bias[i], 4, text, sizeof text);
+        message[0] = '\0';
+        if (ak_params_set(&params, bias_names[i], text, message,
+                          sizeof message) != 0) {
+            wire_cal_end(AK_PROTO_CALIBRATE_IMPLAUSIBLE);
+            return;
+        }
+        wire_cal.result[i] = (int32_t)(bias[i] * 1000000.0f);
+
+        ak_format_fixed(scale[i], 4, text, sizeof text);
+        message[0] = '\0';
+        if (ak_params_set(&params, scale_names[i], text, message,
+                          sizeof message) != 0) {
+            wire_cal_end(AK_PROTO_CALIBRATE_IMPLAUSIBLE);
+            return;
+        }
+        wire_cal.result[3 + i] = (int32_t)(scale[i] * 1000000.0f);
+    }
+
+    parameters_changed();
+    wire_cal_end(AK_PROTO_CALIBRATE_OK);
+}
+
+/* The receiver's centres, applied straight into the running configuration and
+ * written through the table, which is `calibrate_rc`'s two steps in the same
+ * order. The offsets are the reading: how far each of the three sticks was from
+ * where the configuration thought the middle was, which is what tells a person
+ * whether their transmitter was trimmed when they calibrated. */
+static int wire_cal_rc_finish(void)
+{
+    int32_t offset[AK_RC_CHANNELS];
+    char text[24];
+    char message[64];
+
+    if (!ak_rc_cal_apply(&rc_cal, &flight.rc_cfg, offset)) {
+        wire_cal_end(AK_PROTO_CALIBRATE_NO_SAMPLES);
+        return 0;
+    }
+
+    ak_format_uint(flight.rc_cfg.mid, 0, text, sizeof text);
+    message[0] = '\0';
+    if (ak_params_set(&params, "rc_mid", text, message, sizeof message) != 0) {
+        wire_cal_end(AK_PROTO_CALIBRATE_IMPLAUSIBLE);
+        return 0;
+    }
+
+    wire_cal.result[0] = (int32_t)flight.rc_cfg.mid;
+    wire_cal.result[1] = offset[AK_RC_ROLL];
+    wire_cal.result[2] = offset[AK_RC_PITCH];
+    wire_cal.result[3] = offset[AK_RC_YAW];
+
+    parameters_changed();
+    wire_cal_end(AK_PROTO_CALIBRATE_OK);
+    return 1;
+}
+
+/*
+ * One tick of whichever session is running. Called from the flight loop beside
+ * the gyro calibration it has always run, with the aligned sample and the loop's
+ * own clock.
+ *
+ * The order of the tests is the order of the questions. The arm gate is first
+ * and it ends the session rather than merely skipping a sample: a calibration
+ * that stops taking samples but stays open is a session a client keeps polling
+ * and a wizard keeps showing a progress bar for, and the truth is that it is
+ * over. The timeout is next for the same reason. Only then is the sample used.
+ */
+static void wire_cal_tick(const ak_imu_sample_t *sample, uint32_t now_ms)
+{
+    if (!wire_cal.active) {
+        return;
+    }
+
+    if (ak_flight_state(&flight) != AK_FLIGHT_DISARMED) {
+        /* The accelerometer's half-measured faces are thrown away with it:
+         * they were taken on a bench and the aircraft is no longer on one, and
+         * leaving them would let a wizard resume a flow across an arming. The
+         * gyro and the receiver keep nothing between ticks, so there is nothing
+         * of theirs to drop. */
+        if (wire_cal.verb == AK_PROTO_CALIBRATE_ACCEL) {
+            ak_accel_cal_reset(&accel_cal);
+        }
+        wire_cal_end(AK_PROTO_CALIBRATE_ARMED);
+        return;
+    }
+
+    if ((uint32_t)(now_ms - wire_cal.started_ms) >= WIRE_CAL_TIMEOUT_MS) {
+        if (wire_cal.verb == AK_PROTO_CALIBRATE_ACCEL) {
+            ak_accel_cal_reset(&accel_cal);
+        }
+        wire_cal_end(AK_PROTO_CALIBRATE_NO_SAMPLES);
+        return;
+    }
+
+    switch (wire_cal.verb) {
+    case AK_PROTO_CALIBRATE_GYRO:
+        (void)ak_gyro_cal_feed(&gyro_cal, sample);
+        wire_cal.samples = gyro_cal.samples;
+        wire_cal.rejected = gyro_cal.rejected;
+        if (gyro_cal.done) {
+            wire_cal_gyro_finish();
+        }
+        break;
+
+    case AK_PROTO_CALIBRATE_ACCEL: {
+        int face = (int)wire_cal.step;
+        (void)ak_accel_cal_feed(&accel_cal, sample);
+        /* `samples` is this face's count, not the flow's: the face is the unit
+         * the pilot is being asked to hold still, and a number that counted all
+         * six would jump backwards every time they turned the aircraft over. */
+        wire_cal.samples = accel_cal.samples[face];
+        wire_cal.rejected = accel_cal.rejected;
+        if (ak_accel_cal_have(&accel_cal, face)) {
+            if (ak_accel_cal_complete(&accel_cal)) {
+                wire_cal_accel_finish();
+            } else {
+                wire_cal_end(AK_PROTO_CALIBRATE_OK);
+            }
+        }
+        break;
+    }
+
+    case AK_PROTO_CALIBRATE_RC:
+        /* One sample per frame, not per loop tick. The console feeds its
+         * receiver calibration on a 5 ms timer, which is a decent impression of
+         * a frame rate and is not one; here the frame counter is the truth, so
+         * a receiver that has gone quiet stalls the calibration instead of
+         * letting it average the same stale frame fifty times into a centre.
+         * The stall is visible: `samples` stops climbing, and the timeout above
+         * is what ends it. */
+        if (receiver.frames != wire_cal.fed_frames) {
+            wire_cal.fed_frames = receiver.frames;
+            if (receiver.channels.valid) {
+                ak_rc_cal_feed(&rc_cal, &receiver.channels);
+            }
+        }
+        wire_cal.samples = rc_cal.samples;
+        wire_cal.rejected = 0u;
+        if (rc_cal.done) {
+            (void)wire_cal_rc_finish();
+        }
+        break;
+
+    default:
+        /* Not a session verb, so there is no session. Only reachable if a
+         * future verb is added to the enum and not to this switch, which the
+         * `default` turns into an ending rather than a session that never
+         * finishes. */
+        wire_cal_end(AK_PROTO_CALIBRATE_NO_VERB);
+        break;
+    }
+}
+
+/* Whether a wire gyro session owns the gyro calibration this moment. The flight
+ * loop has fed `gyro_cal` at boot since before there was a wire, and it must not
+ * also feed a session the wire is running: two callers advancing one accumulator
+ * would finish the calibration in half the time with samples the client never
+ * asked for. */
+static int wire_cal_owns_gyro(void)
+{
+    return wire_cal.active && wire_cal.verb == AK_PROTO_CALIBRATE_GYRO;
+}
+
+/*
+ * The pack's divider over the wire.
+ *
+ * Synchronous, unlike the other three, and the reason is in `calibrate_vbat`
+ * above: the input is a number the pilot read off a multimeter rather than a
+ * stillness the pilot is holding, and the work is eight conversions and one
+ * division, bounded by the ADC instead of by a hand. There is no session
+ * because there is nothing to wait for.
+ *
+ * The same range check the console makes, and it is a range check on the
+ * *input* rather than on the result: `mv` is what the pilot typed, and a value
+ * that is not a pack this aircraft flies is refused before it is divided by.
+ */
+static int wire_cal_vbat(uint32_t mv)
+{
+    if (!battery_ready) {
+        return AK_PROTO_CALIBRATE_NOTHING;
+    }
+    if (mv < 1000u || mv > 60000u) {
+        return AK_PROTO_CALIBRATE_BAD_VALUE;
+    }
+
+    float measured = (float)mv / 1000.0f;
+    float pin = 0.0f;
+    unsigned taken = 0u;
+
+    for (unsigned i = 0; i < 8u; i++) {
+        float volts = ak_board_battery_pin_volts();
+        if (volts >= 0.0f) {
+            pin += volts;
+            taken++;
+        }
+    }
+    if (taken == 0u) {
+        return AK_PROTO_CALIBRATE_NOTHING;
+    }
+    pin /= (float)taken;
+
+    /* A pin reading almost nothing is a divider with no pack on it, and
+     * dividing by it would produce a ratio made of noise. The console refuses
+     * with the pin's own number in millivolts; here the refusal is a status and
+     * the number is zero, because the client's job is to say "connect the pack"
+     * and not to render a millivolt figure it did not ask for. */
+    if (pin < 0.05f) {
+        return AK_PROTO_CALIBRATE_NOTHING;
+    }
+
+    float ratio = measured / pin;
+    char text[16];
+    char message[64];
+
+    ak_format_fixed(ratio, 3, text, sizeof text);
+    message[0] = '\0';
+    if (ak_params_set(&params, "vbat_ratio", text, message, sizeof message) != 0) {
+        return AK_PROTO_CALIBRATE_IMPLAUSIBLE;
+    }
+    parameters_changed();
+
+    wire_cal.verb = AK_PROTO_CALIBRATE_VBAT;
+    wire_cal.outcome = AK_PROTO_CALIBRATE_OK;
+    wire_cal.active = 0u;
+    wire_cal.step = AK_PROTO_CALIBRATE_NO_STEP;
+    wire_cal.samples = taken;
+    wire_cal.rejected = 0u;
+    for (unsigned i = 0; i < AK_PROTO_CALIBRATE_RESULT; i++) {
+        wire_cal.result[i] = 0;
+    }
+    wire_cal.result[0] = (int32_t)(ratio * 1000000.0f);
+    return AK_PROTO_CALIBRATE_OK;
+}
+
+/*
+ * The profiler's window, as the wire asks for it.
+ *
+ * Every field here is the console's, converted once: the averages are
+ * nanoseconds in the profiler and tenths of a microsecond on the wire, and the
+ * conversion is a division rather than a rounded float because a rounded float
+ * is a second place the same number can be wrong. `per_us` is not consulted -
+ * the profiler has already divided by the port's clock, and doing it again here
+ * would be the same arithmetic in two files.
+ *
+ * The return is the profiler's own: zero means there is no window, which the
+ * dispatch carries as NONE. It is unreachable on a board built from this file
+ * (ak_perf_init() has run before the loop, and the loop before any client can
+ * ask), and it is returned rather than asserted so that a build which one day
+ * does not start the profiler answers honestly instead of sending zeros.
+ */
+static int proto_perf(void *ctx, ak_proto_perf_t *out)
+{
+    ak_perf_snapshot_t s;
+    unsigned i;
+
+    (void)ctx;
+
+    ak_perf_snapshot(&s);
+    if (!s.started) {
+        return 0;
+    }
+
+    out->loops = s.loops;
+    out->samples = s.samples;
+    /* Clamped rather than cast. The nominal is AK_FLIGHT_LOOP_MS * 1000 and is
+     * 1000 today, so this never fires - and if a loop period ever grew past
+     * 65 ms the wire would carry 65535 rather than the low sixteen bits of
+     * something larger, which is the difference between a number that is wrong
+     * and one that is absurd. */
+    out->nominal_us = (uint16_t)(s.nominal_us > 65535u ? 65535u
+                                                        : s.nominal_us);
+    out->period_last_us = s.period_last_us;
+    out->period_min_us = s.period_min_us;
+    out->period_max_us = s.period_max_us;
+    out->late = s.late;
+    out->jitter_p50_us = s.jitter_p50_us;
+    out->jitter_p99_us = s.jitter_p99_us;
+    out->jitter_max_us = s.jitter_max_us;
+    out->jitter_over = s.jitter_over;
+    /* Same clamp, same reason: the load is a per-mille figure over a slot that
+     * is itself bounded, so it cannot reach 65 535 in any window this firmware
+     * can produce - and it must not wrap into a small number if it ever does. */
+    out->load_permille = (uint16_t)(s.load_permille > 65535u
+                                        ? 65535u
+                                        : s.load_permille);
+
+    /* The two arrays are walked over the wire's own count, not the profiler's,
+     * and that is the point of the copy: a section added to ak_perf.h and not
+     * here leaves the wire's field zero rather than reading past the end of a
+     * shorter array. A host test asserts the two counts are equal, so the
+     * mismatch cannot survive a build. */
+    for (i = 0u; i < AK_PROTO_PERF_SECTIONS; i++) {
+        uint32_t ns = i < (unsigned)AK_PERF_SECTIONS ? s.section_avg_ns[i] : 0u;
+        uint32_t max_us =
+            i < (unsigned)AK_PERF_SECTIONS ? s.section_max_us[i] : 0u;
+
+        out->section_avg_us_x10[i] = (uint16_t)(ns / 100u);
+        out->section_max_us[i] = (uint16_t)(max_us > 65535u ? 65535u : max_us);
+    }
+    return 1;
+}
+
+static int proto_calibrate(void *ctx, uint8_t verb, uint8_t face, uint32_t mv,
+                           ak_proto_calibration_t *out)
+{
+    (void)ctx;
+
+    /* Every path fills the reply, including the refusals, and it is filled from
+     * the session before anything is decided. A client that asked for a verb
+     * this board will not start is still owed the state of the session that is
+     * already running - otherwise the one screen that has to show what the
+     * aircraft is doing would go blank at the moment it refused. */
+    wire_cal_fill(out);
+
+    switch (verb) {
+    case AK_PROTO_CALIBRATE_STATUS:
+        /* Ungated on purpose. See the opcode: the two verbs that cannot start
+         * anything must not be reachable only when a write would be allowed,
+         * or a client holding an answer it cannot re-read has no way to ask
+         * again. */
+        return wire_cal.outcome;
+
+    case AK_PROTO_CALIBRATE_ABORT:
+        if (!wire_cal.active) {
+            return AK_PROTO_CALIBRATE_IDLE;
+        }
+        if (wire_cal.verb == AK_PROTO_CALIBRATE_ACCEL) {
+            ak_accel_cal_reset(&accel_cal);
+        }
+        wire_cal_end(AK_PROTO_CALIBRATE_OK);
+        wire_cal_fill(out);
+        return AK_PROTO_CALIBRATE_OK;
+
+    default:
+        break;
+    }
+
+    /* The board's second gate, so the guard holds for a caller that did not
+     * come through ak_proto.c's dispatch. The same predicate the console's
+     * three calibrations use and the same one `proto_writable` hands the
+     * protocol. */
+    if (!ak_flight_config_writable(&flight)) {
+        return AK_PROTO_CALIBRATE_ARMED;
+    }
+
+    if (wire_cal.active) {
+        return AK_PROTO_CALIBRATE_BUSY;
+    }
+
+    switch (verb) {
+    case AK_PROTO_CALIBRATE_GYRO:
+        if (!imu_ok) {
+            return AK_PROTO_CALIBRATE_NOTHING;
+        }
+        ak_gyro_cal_start(&gyro_cal);
+        wire_cal_begin(verb, AK_PROTO_CALIBRATE_NO_STEP, ak_time_ms());
+        break;
+
+    case AK_PROTO_CALIBRATE_RC:
+        /* No "nothing on this board" branch here, and its absence is the honest
+         * answer rather than an omission: there is no board in this tree whose
+         * receiver port does not exist, so `NOTHING` is not a build fact this
+         * verb can be refused with. A port with nothing plugged into it is the
+         * aircraft's answer instead - a session that takes no frames and times
+         * out as `NO_SAMPLES` - and that is the distinction the two statuses
+         * are for. `proto_rc_state` reserves the same answer for the same
+         * reason: a build that genuinely had no receiver input would clear the
+         * feature bit and leave the callback null, and the app would say so
+         * rather than showing a session that can never fill. */
+        ak_rc_cal_init(&rc_cal, 50u);
+        ak_rc_cal_start(&rc_cal);
+        wire_cal_begin(verb, AK_PROTO_CALIBRATE_NO_STEP, ak_time_ms());
+        break;
+
+    case AK_PROTO_CALIBRATE_ACCEL:
+        if (!imu_ok) {
+            return AK_PROTO_CALIBRATE_NOTHING;
+        }
+        if (face >= AK_ACCEL_FACES) {
+            return AK_PROTO_CALIBRATE_NO_FACE;
+        }
+        if (!ak_accel_cal_begin(&accel_cal, (int)face)) {
+            return AK_PROTO_CALIBRATE_NO_FACE;
+        }
+        wire_cal_begin(verb, face, ak_time_ms());
+        break;
+
+    case AK_PROTO_CALIBRATE_VBAT: {
+        /* Filled after the measurement as well as before it, because this is
+         * the one verb that finishes inside the request: the reply a client
+         * gets for `vbat` is the reading of a session that has already ended,
+         * and it should carry the ratio rather than the state from before the
+         * division. */
+        int status = wire_cal_vbat(mv);
+        wire_cal_fill(out);
+        return status;
+    }
+
+    default:
+        return AK_PROTO_CALIBRATE_NO_VERB;
+    }
+
+    wire_cal_fill(out);
+    return AK_PROTO_CALIBRATE_OK;
+}
+
+/*
  * `output` reports what the board's timers are doing; `output test` drives
  * them, one at a time, so that "the motor pads are on the right pins" and "the
  * servo horn moves the way the mixer thinks" are things somebody can watch
@@ -2412,6 +4330,19 @@ static int output_command(ak_printf_fn out, int argc, const char *const *argv)
             out("output test: stopped, everything at zero\n");
             return 0;
         }
+        /* And anything else after the word `test` is a refusal rather than a
+         * start. It used to start: the word was ignored, so `output test what`
+         * - a person checking what the command wants, which is precisely what
+         * the usage says it takes - put every motor to 15% in turn on a bench
+         * whose props are on. The command's own help line is `output test
+         * [stop]`, so there is exactly one word this accepts and it is the one
+         * that ends it. A sweep is started by typing the command, and by
+         * nothing else. */
+        if (argc > 2) {
+            out("output test: %s? 'output test' starts it, 'output test stop' "
+                "ends it\n", argv[2]);
+            return -1;
+        }
         if (ak_flight_state(&flight) != AK_FLIGHT_DISARMED) {
             out("output test: refusing - the aircraft is not disarmed\n");
             return -1;
@@ -2420,6 +4351,11 @@ static int output_command(ak_printf_fn out, int argc, const char *const *argv)
             out("output test: this board has no outputs\n");
             return -1;
         }
+        /* One output test at a time, and the newer one wins. Two things driving
+         * two different outputs from two different people - one at the bench,
+         * one on the far end of a socket - is not a state anybody can reason
+         * about, and the loop below would pick a winner by accident. */
+        wire_test_active = 0;
         output_test_active = 1;
         output_test_started_ms = ak_time_ms();
         out("output test: motors to %d%%, servos to half travel, one at a "
@@ -2446,6 +4382,62 @@ static int output_command(ak_printf_fn out, int argc, const char *const *argv)
     return 0;
 }
 
+/*
+ * What a BNO055 can say about itself and no other IMU here can: its power-on
+ * self test, its status, and the fusion processor's calibration - with the
+ * caveat that matters printed beside it, because in the raw mode the driver
+ * uses the fusion processor is idle and four zeros there are the truth about
+ * the fusion processor, not four faults in the sensors this firmware reads.
+ */
+static void bno055_report(ak_printf_fn out)
+{
+    ak_bno055_selftest_t st;
+    ak_bno055_calib_t calib;
+    uint8_t status = 0;
+    uint8_t error = 0;
+    uint8_t mode = 0;
+
+    if (ak_bno055_read_selftest(imu.bus, &st) != 0 ||
+        ak_bno055_read_calib(imu.bus, &calib) != 0 ||
+        ak_bno055_read_status(imu.bus, &status, &error) != 0 ||
+        ak_bno055_read_mode(imu.bus, &mode) != 0) {
+        out("bno055:    the part did not answer its status registers\n");
+        return;
+    }
+    out("bno055:    self test accel %s mag %s gyro %s mcu %s; mode 0x%x, "
+        "status %u, error %u\n",
+        st.accel ? "ok" : "FAIL", st.mag ? "ok" : "FAIL",
+        st.gyro ? "ok" : "FAIL", st.mcu ? "ok" : "FAIL", mode, status, error);
+    out("           fusion calibration sys %u gyro %u accel %u mag %u (of 3; "
+        "idle in raw mode, the firmware calibrates its own sensors)\n",
+        calib.sys, calib.gyro, calib.accel, calib.mag);
+    /*
+     * The mode switch this driver makes at init is the one place it does not
+     * simply believe Bosch's table: the table gives a typical, and this part is
+     * polled until it agrees instead. Printing what the poll cost is the whole
+     * reason the number is kept, so it is printed here rather than left in the
+     * driver - a boot banner on this board goes out over a USB console that
+     * re-enumerates, and is lost.
+     */
+    out("           mode switch measured at %u ms (table 3-6 gives 7 ms out "
+        "of CONFIG as a typical)\n",
+        ak_bno055_last_switch_ms());
+    /*
+     * And the rate, which is the one thing about this part the IMU interface
+     * cannot carry. The driver's `set_rate` hook is null because the datasheet
+     * gives no table pairing the AMG bandwidth it chooses at init with an
+     * output rate, so `apply_loop_rate` finds nothing to ask and the loop keeps
+     * the period it booted with - while the part updates at a rate nothing in
+     * this tree can state. The number a person can hold that against is the
+     * sample count in the `imu` line above, read against the loop count in
+     * `perf`: a part delivering at a tenth of the loop rate shows up there as
+     * ten loops per sample, and that is a reading rather than an inference.
+     */
+    out("           no set_rate hook (this part's datasheet gives no AMG rate "
+        "table), so the loop is at its boot period and the sample count "
+        "against the loop count is the only reading of the part's own rate\n");
+}
+
 static void imu_report(ak_printf_fn out)
 {
     if (!imu_ok) {
@@ -2453,8 +4445,39 @@ static void imu_report(ak_printf_fn out)
         imu_absence(out, "imu:       ");
         return;
     }
-    out("imu:       %s, %u samples, %u errors\n", imu.driver->name,
-        imu.samples, imu.errors);
+    if (ak_bus_address(imu.bus) != 0u) {
+        out("imu:       %s at 0x%02x, %u samples, %u errors\n",
+            imu.driver->name, (unsigned)ak_bus_address(imu.bus), imu.samples,
+            imu.errors);
+    } else {
+        out("imu:       %s, %u samples, %u errors\n", imu.driver->name,
+            imu.samples, imu.errors);
+    }
+    if (imu.driver == &ak_imu_bno055) {
+        bno055_report(out);
+    }
+    /* What the part is actually programmed to, and what the loop is running at
+     * - phase 1.4. Both are read from the one place each is held, so this
+     * cannot report a rate the aircraft is not at.
+     *
+     * `imu.rate_hz` is zero until something has *asked* the part for a rate and
+     * the part has taken one, and zero is "not stated" rather than "stopped" -
+     * see ak_imu_t.rate_hz. So the sentence for it names the request rather
+     * than the driver - with one exception, the BNO055, whose driver has no
+     * rate to state (its hook is null, see ak_imu_bno055.c) and which the
+     * sentence below names rather than blaming the request. */
+    if (imu.rate_hz != 0u) {
+        out("rate:      %u Hz gyro, loop at %u us (%u over %u)\n",
+            imu.rate_hz, flight.loop_period_us, imu.rate_hz, pid_denom);
+    } else if (imu.driver->set_rate == 0) {
+        out("rate:      this part's driver cannot state or set a gyro rate; "
+            "the loop is at %u us\n",
+            flight.loop_period_us);
+    } else {
+        out("rate:      no gyro rate has been asked for, so the part is at the "
+            "rate its driver's init chose; the loop is at %u us\n",
+            flight.loop_period_us);
+    }
     out("sample:    accel %d %d %d per-mille of g\n",
         (int)(imu_sample.accel[0] * 1000.0f), (int)(imu_sample.accel[1] * 1000.0f),
         (int)(imu_sample.accel[2] * 1000.0f));
@@ -2964,7 +4987,7 @@ static void parameters_changed(void)
 {
     ak_flight_apply_config(&flight);
     apply_parameters();
-    ak_board_output_set_rate(dshot_khz);
+    apply_dshot_rate();
     /* Both halves of the receiver: the parser, and the board's line settings.
      * They are one setting from the pilot's side and two from the port's. */
     ak_rc_receiver_set_protocol(&receiver, rc_protocol);
@@ -3202,6 +5225,527 @@ uint32_t ak_main_drain_max(ak_link_t link)
     return link < AK_LINK_COUNT ? drain_max_bytes[link] : 0u;
 }
 
+/*
+ * The flight core's phases, in the profiler's terms.
+ *
+ * The core announces a phase as it begins and knows nothing else about it -
+ * ak_flight.h carries the argument for why the hook exists at all, and why the
+ * marks are inside the work rather than at the top of ak_flight_step(). This is
+ * the firmware's half: it is the one place that knows both vocabularies, and it
+ * is where a phase with no section behind it is dropped rather than guessed at.
+ *
+ * The mapping is deliberately total over ak_flight_phase_t and the switch has
+ * no `default`, so a phase added to the core is a `-Wswitch` warning here
+ * rather than a section that silently reads zero on every board.
+ */
+static void flight_phase(ak_flight_phase_t which)
+{
+    switch (which) {
+    case AK_FLIGHT_PHASE_ESTIMATOR:
+        ak_perf_phase(AK_PERF_ESTIMATOR);
+        break;
+    case AK_FLIGHT_PHASE_PID:
+        ak_perf_phase(AK_PERF_PID);
+        break;
+    case AK_FLIGHT_PHASE_MIXER:
+        ak_perf_phase(AK_PERF_MIXER);
+        break;
+    }
+}
+
+/*
+ * The periodic work, as a table.
+ *
+ * Phase 1.3 of the roadmap. The superloop's `next_something_ms` variables
+ * were four deadlines nothing measured: each advanced by its period and each
+ * fired when the millisecond clock passed it, and the only statement the
+ * firmware could make about any of them was that it had run - not whether it
+ * was on time, not how late it had ever been, and not what it cost. That is
+ * what the scheduler adds, and it is the whole of what it adds: the work
+ * below is the same work, reached through a call.
+ *
+ * What is deliberately *not* here, and why:
+ *
+ * - **The two slow I2C reads**, the barometer and the rangefinder, stay in
+ *   the pass where B4 put them. They belong below the outputs on purpose (see
+ *   the note at that point in the loop), and one dispatch per pass cannot
+ *   express "this runs after that": a LOW priority would only mean it runs
+ *   last among the work that is due at the moment the scheduler is asked,
+ *   which is not the same thing at all.
+ * - **The telemetry and log streams** keep their millisecond gates. Their
+ *   periods are set by whichever client asked for the stream and go to zero
+ *   when it goes away, which is a rate the scheduler has no way to express:
+ *   ak_sched_add refuses a zero period and so does ak_sched_set_period.
+ *   Giving the table an enable is a real change to its contract, and it
+ *   belongs with phase 1.4, where the rates are the subject.
+ * - **The console, the links, the receiver and the GPS** are polled every
+ *   pass and are not periodic at all. A task that must not miss a byte cannot
+ *   have a period.
+ *
+ * The battery's period used to live in a `battery_next_ms` beside the loop;
+ * the scheduler holds it now, which is why that variable is gone rather than
+ * left behind reading zero.
+ */
+
+/*
+ * The fast task: one pass of the control loop.
+ *
+ * This is the block that used to sit behind `if ((int32_t)(now - next_loop)
+ * >= 0)` at the top of the superloop, moved here unchanged so that the
+ * scheduler can say something about it. That gate could report the loop's
+ * *period* - and ak_perf does, in cycles, and did - but nothing compared the
+ * moment a pass began with the moment it was due, so `late` and `missed` were
+ * not quantities this firmware had. They are now, per task, and this is the
+ * task the aircraft's behaviour depends on.
+ *
+ * The clock is read here rather than handed in, and it is read in *both* units,
+ * from one counter, at the top of the pass: microseconds for the control loop
+ * and milliseconds for the tick the log, the GPS window and the receiver
+ * timeout want.
+ *
+ * They are two readings rather than one divided, and that took the simulator to
+ * teach. The first version of this derived the millisecond tick as `now_us /
+ * 1000u`, on the argument that every port defines ak_arch_time_us() as
+ * `ms * 1000 + fraction` (see ak_time.h) so the quotient *is* the millisecond
+ * clock. It is - until the microsecond counter wraps. 2^32 microseconds is
+ * 71.6 minutes and 2^32 milliseconds is 49 days, so past the first of those the
+ * quotient is the millisecond clock modulo 71.6 minutes while every millisecond
+ * stamp the board holds is not, and each deadline that compares the two fires
+ * at once. `make test`'s wire-calibration case runs the simulator past 71.6
+ * minutes of virtual time, and what it reported was a gyro session that took
+ * zero samples in fifteen seconds: `now` had come back around to 879302 while
+ * the session's start was still 9469236, and the timeout is an unsigned
+ * subtraction. See docs/29-timing.md, and the header of ak_flight_step() for
+ * the same rule at the core's boundary.
+ */
+static void task_fast(void *ctx)
+{
+    const uint32_t now_ms = ak_time_ms();
+    const uint32_t now_us = ak_time_us();
+    const uint32_t now    = now_ms;
+
+    (void)ctx;
+
+    /*
+     * The profiler's bracket, and it opens here rather than at the top
+     * of the superloop because the period it measures is the control
+     * loop's, not the pass's: everything above is the console, the
+     * links and the LED, which run as often as they can and are not
+     * what a one-kilohertz period means.
+     *
+     * It closes after the outputs are written, below, so a loop's
+     * duration is the work from "the gate was reached" to "the pins
+     * moved" - which is the number a person tuning a loop wants, and
+     * the one the next milestone's scheduler has to beat.
+     */
+    ak_perf_loop_begin(ak_cycles());
+
+    /* With a sensor on the bus this is a real attitude estimate and
+     * the aircraft can arm; without one every sample is invalid and
+     * the core holds it in failsafe. Both are the same code path. */
+    if (imu_ok) {
+        ak_perf_phase(AK_PERF_IMU);
+        (void)ak_imu_read(&imu, &imu_sample);
+        /* What the sensor measured, expressed in the airframe's terms
+         * and with the offset and the scale the six-position
+         * calibration measured taken out of it. */
+        ak_align_apply(&align, &imu_sample);
+        /*
+         * A calibration runs while the aircraft is *disarmed*: that is
+         * when it is certainly on the ground and certainly not being
+         * flown, and it is where the bias a part has at the
+         * temperature of the day is measured. It is fed the aligned
+         * sample before the bias is taken out, because the accumulator
+         * holds the residual - see ak_gyro_cal.h.
+         *
+         * The threshold is what makes this safe: three degrees a
+         * second, so an aircraft being carried, or one rolling forward
+         * on a launch, has its samples refused rather than averaged in
+         * as if they were the part's offset. (The first version of
+         * this measured at *arm*, with the old twenty-degree
+         * threshold, and a wing's take-off roll was written into the
+         * bias: the fence session, which arms and launches, ended up
+         * fighting its own yaw axis with 13.6 deg/s of elevator.)
+         */
+        /* `!wire_cal_owns_gyro()` because a wire session started its own
+         * `ak_gyro_cal_start` and would otherwise be fed twice - once by
+         * this block and once by `wire_cal_tick` below - finishing the
+         * calibration on samples the client never asked for and
+         * reporting half the count it should. The wire's session is the
+         * same accumulator; only the caller differs. */
+        if (gyro_cal.running && !wire_cal_owns_gyro() &&
+            ak_flight_state(&flight) == AK_FLIGHT_DISARMED) {
+            float dps[3];
+
+            if (ak_gyro_cal_feed(&gyro_cal, &imu_sample)) {
+                ak_gyro_cal_bias_dps(&gyro_cal, dps);
+                ak_console_printf(
+                    "gyro: bias measured while disarmed: %d %d %d "
+                    "mdps (%u samples, %u rejected)\r\n",
+                    (int)(dps[0] * 1000.0f), (int)(dps[1] * 1000.0f),
+                    (int)(dps[2] * 1000.0f), gyro_cal.samples,
+                    gyro_cal.rejected);
+            }
+        }
+        /* The wire's calibrations, advanced one sample at a time
+         * instead of held in a `for` loop - see the block above
+         * `proto_calibrate`. They go here, before the two `apply` calls
+         * below and beside the boot calibration's feed, because a
+         * calibration measures the *uncorrected* sample: the
+         * accumulators hold the residual, so a bias subtracted first
+         * would be subtracted from the very thing being measured. This
+         * is the same position and the same argument as the block
+         * above, which is why they are adjacent. */
+        wire_cal_tick(&imu_sample, now);
+        ak_gyro_cal_apply(&gyro_cal, &imu_sample);
+        ak_accel_cal_apply(&accel_cal, &imu_sample);
+    } else {
+        imu_sample.valid = 0;
+    }
+    /*
+     * The sample's own timestamp, taken now rather than copied from the loop's.
+     *
+     * `now_us` is when this pass began; this is when the sensor's reading
+     * reached the core, and on a board that spends real time on the bus the two
+     * are not the same instant. Stamping the sample with the loop's clock would
+     * make the sensor's interval and the loop's interval the same number by
+     * construction, and the two counters doc 29 tells an operator to read apart
+     * - `gap_steps` for a bus that is slow and `long_loops` for a loop that is
+     * late - could then never disagree on real hardware, because there would be
+     * only one interval to count. They are separate readings so that they can
+     * separate.
+     *
+     * It is a *take* time and not a schedule time: the driver has already read
+     * the part by the time this line runs, so what it stamps is the moment the
+     * core got the sample rather than the moment the gyro measured. That is the
+     * honest resolution available without a data-ready line, and a data-ready
+     * interrupt is exactly what phase 1.1 adds.
+     */
+    imu_sample.time_us = ak_time_us();
+
+    /* Home is the take-off point, and the only moment it can be
+     * captured without asking is while the aircraft is on the ground
+     * with a fix - so that is when it happens. */
+    if (!nav.have_home && ak_gps_fix_valid(&gps, now, 2000u) &&
+        ak_flight_state(&flight) == AK_FLIGHT_DISARMED) {
+        ak_nav_set_home(&nav, gps.fix.lat_e7, gps.fix.lon_e7,
+                        altitude_msl_mm());
+        ak_console_printf("home: from the first fix while disarmed, "
+                          "%d.%07d, %d.%07d\n",
+                          nav.home_lat_e7 / 10000000,
+                          nav.home_lat_e7 % 10000000,
+                          nav.home_lon_e7 / 10000000,
+                          nav.home_lon_e7 % 10000000);
+    }
+
+    /* Decide what the navigator wants before the flight core decides
+     * what to do with it - but sense the link first, so both of them
+     * are looking at the same answer. The navigator used to read the
+     * link a step late, which meant it only ever saw the link go at
+     * the same moment the core latched the failsafe, and the return
+     * never engaged. */
+    (void)ak_flight_link_update(&flight, &receiver.channels, now, 0);
+    nav_update(now);
+    /* Only while a navigator is flying it: a pilot on the sticks is
+     * never disarmed by a barometer. */
+    {
+        int state = ak_flight_state(&flight);
+
+        flight.landed =
+            (state == AK_FLIGHT_RTH || state == AK_FLIGHT_MANAGED ||
+             state == AK_FLIGHT_DESCEND) &&
+            landing_detector(now);
+    }
+    ak_flight_step(&flight, &imu_sample, &receiver.channels, now_us, now);
+    /* And if a pilot is asking to arm and the answer is no, say why -
+     * once per attempt, not once per pass. */
+    arm_announce();
+
+    /*
+     * And once the aircraft is armed, stop measuring.
+     *
+     * The measurement itself runs while *disarmed*, which is when the
+     * aircraft is certainly on the ground and certainly not being
+     * flown; the moment the switch comes up the aircraft may be
+     * rolling, being carried to a launch, or in the air, and nothing
+     * that is moving may be written into a bias. If the measurement
+     * never completed - a power-up that was followed straight by an
+     * arm, an aircraft that was handled the whole time - the stored
+     * bias stands and the console is told, once.
+     *
+     * It is one measurement per power-up, and a second one after the
+     * flight was tried and taken out: the aircraft that has just
+     * landed is still settling, and a half second of *steady* reading
+     * from a rolling airframe is exactly the shape of a bias. Measured
+     * that way, a session with five degrees a second of real bias came
+     * back with a second measurement of 4575, 5770 and 5032 mdps on
+     * the three axes and a heading that walked 15 degrees while
+     * parked. The moment to measure is when somebody has just put the
+     * aircraft down and switched it on.
+     */
+    {
+        ak_flight_state_t state_now = ak_flight_state(&flight);
+
+        if (state_now != AK_FLIGHT_DISARMED && gyro_cal.running) {
+            ak_console_printf(
+                "gyro: no bias measured before arming (%u samples, %u "
+                "rejected as moving); the stored bias stands\r\n",
+                gyro_cal.samples, gyro_cal.rejected);
+            gyro_cal.running = 0;
+        }
+        last_flight_state = state_now;
+    }
+
+    /*
+     * The one heading measurement this aircraft has, and it only works
+     * while it is moving: the track it is making *through the air*.
+     *
+     * The module reports motion over the ground, and the difference
+     * between that and the way the aircraft is pointing is the crab
+     * angle - which in wind is tens of degrees and, at a hover, is
+     * *all* of it. So the wind is subtracted first, and the wind is
+     * the navigator's own standing term: the velocity it has learned
+     * to fly at to hold station, which is exactly the wind, in the
+     * world frame. Until the navigator has learned one the correction
+     * is zero and this is the ground track, which is what every flight
+     * in this repository before it used.
+     *
+     * It is applied after the step, so the yaw it corrects is the one
+     * this pass just integrated, and the interval it is told about is
+     * the one the step it just followed was given - read back from the
+     * core rather than assumed to be the nominal period. The correction
+     * has a time constant of seconds so the two were never far apart,
+     * but they were not the same number and the difference stops being
+     * small the moment the loop's rate does. A fix that has gone stale
+     * is not used: a course the module is no longer measuring is a
+     * course somebody is guessing.
+     */
+    if (ak_gps_fix_valid(&gps, now, 2000u)) {
+        float air_speed_m_s;
+        float air_course_rad;
+
+        ak_estimator_air_track(gps.fix.speed_mm_s, gps.fix.course_e5,
+                               nav.hold_n_m_s, nav.hold_e_m_s,
+                               &air_speed_m_s, &air_course_rad);
+        ak_estimator_aid_heading(&flight.est, air_course_rad,
+                                 air_speed_m_s,
+                                 (float)ak_flight_last_loop_us(&flight) /
+                                     1000000.0f);
+    }
+
+
+    /*
+     * The turn the wing is already making, so its yaw loop damps
+     * instead of fighting: g tan(bank) over the speed, which is what a
+     * banked turning aircraft does. The speed is the GPS's - the
+     * ground speed, which in wind is not the airspeed, and is the
+     * measurement this aircraft has.
+     *
+     * A quadrotor gets zero: its yaw has nothing to do with its bank,
+     * and telling it otherwise would have it yaw every time it leaned
+     * to translate.
+     *
+     * **`g tan(bank)/V` is a rate of change of *heading*, and this is
+     * fed to a loop whose feedback is the gyro's z axis - a rate about
+     * the body's own vertical.** Those are the same number only while
+     * the aircraft is level. In a level coordinated turn the two are
+     * related by `heading' = r / (cos(pitch) cos(roll))`, so the body
+     * rate the loop should be damping is `heading' * cos(pitch) *
+     * cos(roll)`, and it is that factor which is applied here.
+     *
+     * This was invisible until the estimator and the plant were both
+     * repaired, for the same reason the plant's own gyro was wrong in
+     * the same direction as the old estimator: the simulator reported
+     * a heading rate as if it were a body rate, and this feedforward
+     * was a heading rate. The two errors cancelled exactly, at every
+     * bank angle, in every session.
+     *
+     * Measured, on the fence session's `the motors barely had to fight
+     * the turn` check, whose threshold is 10 deg/s of differential yaw:
+     *
+     *     old estimator, old plant,
+     *       gyro in the same wrong frame    6.8 deg/s   passes, and
+     *                                                   passes because
+     *                                                   the two errors
+     *                                                   cancel
+     *     old estimator, honest gyro       10.7 deg/s   FAILS
+     *     everything repaired, this
+     *       factor taken back out          10.8 deg/s   FAILS
+     *     everything repaired               6.2 deg/s   passes
+     *
+     * The third row is an ablation, not a recollection: the same tree
+     * as the fourth with this factor alone reverted, 41 of 42 sessions
+     * passing and this one check red. So the factor is not a refinement
+     * of a session that was passing anyway - with the frames fixed
+     * everywhere else it is the entire difference, and a fence session
+     * that passed at 6.8 before passed for the reason this commit
+     * exists to remove.
+     */
+    flight.yaw_rate_ff = 0.0f;
+    if (flight.airframe == 1u &&
+        ak_gps_fix_valid(&gps, now, 2000u)) {
+        float speed_m_s = (float)gps.fix.speed_mm_s / 1000.0f;
+
+        if (speed_m_s > 3.0f) {
+            float roll = flight.est.roll;
+            float tan_roll = ak_sinf(roll) / ak_cosf(roll);
+            float heading_rate =
+                ak_clampf(9.80665f * tan_roll / speed_m_s, -1.0f, 1.0f);
+
+            flight.yaw_rate_ff = heading_rate *
+                                 ak_cosf(flight.est.pitch) *
+                                 ak_cosf(roll);
+        }
+    }
+
+    /* Every fourth iteration. The aircraft does not change
+     * meaningfully in a millisecond, and the memory is better spent on
+     * time than on resolution. */
+    if ((flight.steps % AK_LOG_EVERY) == 0u) {
+        log_iteration(now);
+    }
+
+    /*
+     * The flash log's one decision: give it room, but only while the
+     * aircraft is on the ground. Erasing a sector stops the CPU for
+     * about a second, and a second of no control loop is a crash - so
+     * the log stops instead, and this is where it is allowed to catch
+     * up. Disarmed is the only state that means that: an aircraft in
+     * failsafe may still be flying.
+     */
+    (void)ak_flashlog_service(&flashlog,
+                              ak_flight_state(&flight) ==
+                                  AK_FLIGHT_DISARMED);
+
+    /* And what the handset is told, at its own much slower rate: the
+     * pilot reads a battery voltage, not a control loop. */
+    if ((int32_t)(now - next_crsf_ms) >= 0) {
+        next_crsf_ms = now + AK_CRSF_TLM_TICK_MS;
+        telemetry_service();
+    }
+
+    /* The same outputs the flight core just decided on, in the form
+     * the timers and the ESC's see. With no sensors the core is in
+     * failsafe, so this is a stream of disarmed DShot frames and
+     * centred servos - which is exactly what a scope should show on a
+     * board that has not been armed.
+     *
+     * `output test` takes the place of the flight core here, and only
+     * here: it is the one thing that writes outputs without arming,
+     * and it stops the moment the aircraft is not disarmed. */
+    static ak_output_frame_t frame;
+    ak_perf_phase(AK_PERF_OUTPUT);
+    if (output_test_active) {
+        if (ak_flight_state(&flight) != AK_FLIGHT_DISARMED) {
+            output_test_active = 0;
+            ak_console_write("output test: stopped - the aircraft is "
+                             "not disarmed\r\n");
+        } else {
+            ak_outputs_t sweep;
+            output_test_outputs(now, &sweep);
+            ak_output_encode(&sweep, servo_trim, 0, &frame);
+        }
+    }
+    /* The wire's hold, which is the same idea for one named output and
+     * gets the same treatment: it takes the flight core's place while
+     * it runs, and it is checked here - in the loop that moves the pin
+     * - rather than only where it was asked for. */
+    static ak_outputs_t held;
+    if (wire_test_outputs(now, &held)) {
+        ak_output_encode(&held, servo_trim, 0, &frame);
+    } else if (!output_test_active) {
+        ak_output_encode(ak_flight_outputs(&flight), servo_trim, 0,
+                         &frame);
+    }
+    ak_board_output_write(&frame);
+    ak_perf_loop_end();
+}
+
+/*
+ * The flight pack, at a rate that is about the filter rather than the
+ * hardware: a conversion is 23 microseconds and the answer moves on a scale
+ * of half a second. Sampling it before anybody asks means the first `battery`
+ * at the console already has an answer, and the first reading is the estimate
+ * rather than a step towards one.
+ *
+ * Its deadline is the scheduler's now, which is a small change in when this
+ * runs rather than in what it does: the old gate compared against the `now`
+ * the loop had read on the *previous* pass - the pass reads the millisecond
+ * clock once, below the slow I/O, and this gate sat above that - so it fired
+ * up to a pass after it was due. Reading the clock here is the honest
+ * version, and it is what makes the deadline the scheduler holds mean
+ * anything.
+ */
+static void task_battery(void *ctx)
+{
+    uint32_t stamp;
+    float    dt_s;
+
+    (void)ctx;
+
+    if (!battery_ready) {
+        return;
+    }
+
+    stamp           = ak_time_ms();
+    dt_s            = (float)(stamp - battery_last_ms) / 1000.0f;
+    battery_last_ms = stamp;
+    ak_battery_sample(&battery, ak_board_battery_pin_volts(), dt_s);
+}
+
+/*
+ * The dynamic notch's measuring half - roadmap 2.3.
+ *
+ * This task is the *only* thing here that is not paced by its own period, and
+ * that is worth stating because the period looks like a rate and is not.
+ * `ak_dyn_notch_update` transforms one axis only when that axis's decimated
+ * window has filled, so the work happens once per window - 64 analysis samples
+ * of 6 loop samples each is 384 steps, about 48 ms at an 8 kHz loop - and the
+ * period below bounds the *lateness* of that transform rather than setting how
+ * often it happens. Every other call returns -1 having done nothing but a
+ * comparison.
+ *
+ * Five milliseconds against a 48 ms window is a tenth of the interval, which is
+ * the margin for a busy pass delaying this task: the window has been full for
+ * up to 5 ms by the time this runs, and the tracker's own dt comes from the
+ * microsecond clock it differences itself (see ak_dyn_notch_update), so a late
+ * call is a late measurement rather than a wrong interval.
+ *
+ * It is not on the fast path and must not be. A 64-point transform is 384
+ * `ak_sinf`/`ak_cosf` calls, which is hundreds of microseconds and a large
+ * multiple of a control period - so it goes where there is a whole task's worth
+ * of time to spend, which is the entire reason this module is split in two.
+ *
+ * `flight` is a file-scope static here, so the task reaches the module the
+ * flight core owns directly rather than through a handle. That is the same
+ * reason `task_battery` reaches `battery`; there is no second aircraft.
+ */
+static void task_dyn_notch(void *ctx)
+{
+    (void)ctx;
+    (void)ak_dyn_notch_update(&flight.dyn_notch, ak_time_us());
+}
+
+/* The lamp. It says the loop is turning and nothing else, and it is the one
+ * task in the table whose lateness could not matter less - which is itself
+ * worth knowing, because a scheduler with no unimportant task in it cannot
+ * show that a busy pass delays the unimportant work before the important. */
+static void task_led(void *ctx)
+{
+    (void)ctx;
+    ak_board_led_toggle();
+}
+
+/* The console's proof of life, and the same sentence it always printed. It
+ * reads the clock itself rather than taking the pass's, for the same reason
+ * the battery task does. */
+static void task_heartbeat(void *ctx)
+{
+    (void)ctx;
+    ak_console_printf("alive: %u ms, %u loops\n", ak_time_ms(),
+                      flight.steps);
+}
+
 int ak_firmware_main(void)
 {
     ak_board_init();
@@ -3215,6 +5759,19 @@ int ak_firmware_main(void)
     fault_report();
     selftest();
     ak_boot_mark(AK_BOOT_SELFTEST);
+
+    /*
+     * The profiler, before anything that will be measured. It starts the
+     * cycle counter and stamps the nominal period from AK_FLIGHT_LOOP_MS, so
+     * `perf` answers from the first loop rather than from a window that begins
+     * whenever somebody happened to ask.
+     *
+     * The hook is what carries the flight core's own phases into it: the core
+     * cannot time itself (no clock, ground rule 7) and the profiler cannot see
+     * inside it, so main.c - which knows both - is where the two are joined.
+     */
+    ak_perf_init();
+    ak_flight_phase_hook(flight_phase);
 
     ak_flight_init(&flight, &ak_mixer_quad_x);
     /*
@@ -3236,6 +5793,25 @@ int ak_firmware_main(void)
     count = ak_params_add_u32(param_items, count, "dshot_khz",
                               "150, 300 or 600 (applies immediately)",
                               &dshot_khz, 150u, 600u, AK_PARAM_GROUP_OUTPUTS);
+    /* The two rates phase 1.4 is about. Registered here rather than by the
+     * flight core because neither is the core's: the gyro's output data rate is
+     * the part's, and which pass of the loop it is divided by is the port's.
+     * The core is told the product, through ak_flight_set_loop_period_us().
+     *
+     * The range on `gyro_rate_hz` is a range of *requests*, not of rates: a
+     * part with no rate at or below the request refuses it and says so, and the
+     * parameter then keeps the rate the aircraft is actually at. Eight
+     * thousand is the fastest part in this tree, so a request above it is a
+     * request every board answers with its own fastest rate. */
+    count = ak_params_add_u32(param_items, count, "gyro_rate_hz",
+                              "the rate the part samples at; 0 = as the driver "
+                              "left it, otherwise the part takes its fastest "
+                              "rate at or below this",
+                              &gyro_rate_hz, 0u, 8000u, AK_PARAM_GROUP_RATES);
+    count = ak_params_add_u32(param_items, count, "pid_denom",
+                              "the loop runs once every N gyro samples "
+                              "(applies immediately)",
+                              &pid_denom, 1u, 32u, AK_PARAM_GROUP_RATES);
     /* The receiver's protocol, which is a property of the receiver rather than
      * of the aircraft: an ELRS link speaks CRSF, most receivers a person buys
      * speak SBUS, and the two do not run at the same line settings. The number
@@ -3357,21 +5933,24 @@ int ak_firmware_main(void)
     ak_log_init(&blackbox);
     ak_log_set_decimation(&blackbox, AK_LOG_EVERY);
 
-    /* The long log: retained memory if the board has any, ordinary memory if
-     * not. `resumed` is what the boot report and the preflight say about it -
-     * a log from last time is worth knowing about before the aircraft is
-     * picked up, and a board that cannot keep one should say so rather than
-     * quietly hand back an empty ring. */
+    /* The long log: the block the board hands back. Which *kind* of memory
+     * that is comes from the board, because it is a fact about the board's RAM
+     * map - and `kept` is what the boot report and the preflight then say about
+     * it, since a log from last time is worth knowing about before the aircraft
+     * is picked up. The size test is not the choice it used to be: there is no
+     * second ring here to fall back on, so a board that returns something too
+     * small gets a long log that is off and a line saying so, which is a louder
+     * answer than a silent empty ring and the honest one for a broken board. */
     unsigned retained_bytes = 0;
     longlog = ak_board_retained_ram(&retained_bytes);
-    if (longlog != 0 && retained_bytes >= sizeof *longlog) {
-        longlog_retained = 1;
-    } else {
-        longlog_retained = 0;
-        longlog = &longlog_fallback;
+    if (retained_bytes < sizeof *longlog) {
+        longlog = 0;
     }
-    longlog_kept = ak_log_resume(longlog);
-    ak_log_set_decimation(longlog, AK_LOG_EVERY * AK_LONG_EVERY);
+    longlog_retained = longlog != 0 && AK_BOARD_LOG_RETAINED;
+    longlog_kept = longlog != 0 ? ak_log_resume(longlog) : 0;
+    if (longlog != 0) {
+        ak_log_set_decimation(longlog, AK_LOG_EVERY * AK_LONG_EVERY);
+    }
 
     /* And the third log. It comes back with whatever the flash still holds
      * from every run that ever wrote to it, which is the whole point of it -
@@ -3416,13 +5995,50 @@ int ak_firmware_main(void)
      * what a parameter is, and the prose beside it - and a client that could
      * page the table but not fetch a row's help would be drawing a form with no
      * explanation of it. A board with one and not the other is not a thing worth
-     * being able to say. */
+     * being able to say.
+     *
+     * LOG_STREAM is set for the same reason PARAM_INFO is: ak_proto.c has both
+     * halves of it - the `case` that accepts a range and the frame builder the
+     * loop below drives - and the bit is a reading of this build rather than a
+     * plan. It says the *opcode* is answered. Whether a stream can be pushed at
+     * all is a separate question with its own answer, and it is `can_stream`,
+     * which the `case` consults: on the console link the bit is set and the
+     * accepted rate is zero, and those two facts are both true.
+     *
+     * OUTPUT_INFO and OUTPUT_TEST are set because ak_proto.c has both cases and
+     * the two callbacks below are what they call, which makes the pair a
+     * reading of this build rather than a plan. They are two bits and not one
+     * because they are two different promises and a client should be able to
+     * take one without the other: OUTPUT_INFO is a read of an aircraft's shape
+     * and is useful on a board nobody will ever drive from a page, and
+     * OUTPUT_TEST is the one opcode in this protocol that moves a propeller.
+     * A board built with the read and not the verb sets the first bit and
+     * leaves the second clear, and the app's Motors tab then draws a table with
+     * no button - which is the right screen, not a degraded one.
+     *
+     * CALIBRATE is set because ak_proto.c has the `case`, this file has the
+     * session the `case` calls, and the loop below is what advances it - three
+     * things, and the bit claims all three. It is the last bit that was only a
+     * reservation and not a reading: bit 10 sat in the header for two days
+     * meaning "this build might one day carry the console's calibrations",
+     * which is a plan and not a capability, and it is set from here on because
+     * the opcode behind it exists. It is one bit and not four because the four
+     * calibrations are one screen and one session machinery, and a board that
+     * could measure a gyro bias but not a receiver centre would be a board
+     * whose wizard stops halfway with no way to say why. */
     proto_io.features = AK_PROTO_FEATURE_APPLIES_ON_WRITE |
                         AK_PROTO_FEATURE_PARAM_INFO |
                         AK_PROTO_FEATURE_PARAM_DEFAULT |
                         AK_PROTO_FEATURE_GATES_ON_ARMED |
                         AK_PROTO_FEATURE_RC_CHANNELS |
-                        AK_PROTO_FEATURE_SENSOR_INFO;
+                        AK_PROTO_FEATURE_SENSOR_INFO |
+                        AK_PROTO_FEATURE_LOG_STREAM |
+                        AK_PROTO_FEATURE_OUTPUT_INFO |
+                        AK_PROTO_FEATURE_OUTPUT_TEST |
+                        AK_PROTO_FEATURE_PREFLIGHT |
+                        AK_PROTO_FEATURE_CALIBRATE |
+                        AK_PROTO_FEATURE_MISSION |
+                        AK_PROTO_FEATURE_PERF;
     proto_io.status = proto_status;
     /* The same callback the console gets, set from the same function, so a
      * parameter set over either link reaches the aircraft identically. Until
@@ -3449,6 +6065,41 @@ int ak_firmware_main(void)
     proto_io.sensor_state = proto_sensor_state;
     proto_io.log_count = proto_log_count;
     proto_io.log_record = proto_log_record;
+    /* Both set together, which is what makes OUTPUT_TEST's refusal on a board
+     * with nothing to drive a single answer rather than two that can disagree:
+     * a build that listed outputs it would not drive, or drove outputs it would
+     * not list, is not a state this file can be in. */
+    proto_io.outputs = proto_outputs;
+    proto_io.output_test = proto_output_test;
+    /* The checklist the console's `preflight` prints, from the one function
+     * that builds it. Set here rather than left for a board to opt into,
+     * because the checks it runs are this file's and every board in this tree
+     * builds them; a build that genuinely had no checklist would leave this
+     * null and clear the feature bit, and the app's Preflight tab would then
+     * say so rather than drawing an empty list. */
+    proto_io.preflight = proto_preflight;
+    /* Set on every board for the reason the calibrations themselves are: the
+     * four of them are this file's - they read this file's `imu`, its
+     * `receiver` and its `battery` - and every board in this tree builds
+     * main.c. The callback is not null on a board with no inertial sensor or no
+     * pack divider; those boards answer `NOTHING`, which is a true answer about
+     * that aircraft rather than a missing capability, and it is the answer the
+     * console gives them in the same words. */
+    proto_io.calibrate = proto_calibrate;
+    /* Set on every board, because every board in this tree builds main.c and
+     * main.c always has a navigator - a board with no GPS still has the module,
+     * it just never has a fix, and `home set` then refuses with NO_FIX, which
+     * is a true answer about that aircraft rather than a missing capability.
+     * The null callback is for a build that genuinely has no navigator, and the
+     * reply it produces (NO_NAV) is a different answer from an empty list. */
+    proto_io.mission = proto_mission;
+    /* And the profiler, which is the same argument one step further: every
+     * board in this tree builds main.c, main.c calls ak_perf_init() before the
+     * loop starts, and the callback below is therefore always able to answer.
+     * The bit and the callback are set together, as the feature word's own
+     * comment requires - a board that advertised PERF with a null callback
+     * would be telling a client to ask a question it cannot answer. */
+    proto_io.perf = proto_perf;
     proto_io.ctx = 0;
     rth_enable = 0;
     count = ak_params_add_u32(param_items, count, "rth_enable",
@@ -3624,6 +6275,13 @@ int ak_firmware_main(void)
     apply_parameters();
     ak_boot_mark(AK_BOOT_PARAMETERS);
     ak_board_output_init();
+    /* And the DShot rate the parameters asked for, now that there is an output
+     * stage to set it on. This is the boot half of `apply_dshot_rate`, and it
+     * was missing until phase 1.4: `ak_board_output_init()` brings the timer up
+     * at the compiled-in 300 kHz and nothing re-applied the parameter, so a
+     * saved `dshot_khz 600` was read, reported by `params`, and never used
+     * until something else happened to change a parameter. */
+    apply_dshot_rate();
     /* And what the board just brought up, handed to the flight core: the mix
      * the selected airframe needs and the outputs this board has are compared
      * before anything can arm. It is said here, once, right after the outputs
@@ -3667,13 +6325,19 @@ int ak_firmware_main(void)
     ak_board_battery_init();
     battery_ready = ak_board_battery_ready();
     battery_last_ms = ak_time_ms();
-    battery_next_ms = battery_last_ms;
     ak_boot_mark(AK_BOOT_BATTERY);
     ak_board_imu_init();
     /* A board without a sensor bus is a port in progress, not a fault: the
      * flight core stays in failsafe and the preflight report says why. */
     imu_ok = ak_board_imu_bus() != 0 &&
              ak_imu_open(&imu, ak_board_imu_bus(), ak_console_printf) == 0;
+    /* And the rate, which is the one parameter that could not be applied where
+     * the others were: `apply_parameters()` ran before this line, when there
+     * was no part to program, so `gyro_rate_hz` reached nothing. This is the
+     * same function that ran then, called again now that there is something to
+     * apply it to - one code path, two moments, and the second is the one that
+     * sets the loop's period before the scheduler is given one. */
+    apply_loop_rate();
     ak_boot_mark(AK_BOOT_IMU);
     /* And the barometer, if there is one. A board without one still flies: the
      * gps gives altitude, badly, and the console says which of the two this
@@ -3748,10 +6412,44 @@ int ak_firmware_main(void)
      * types anything. */
     ak_cli_prompt(&cli);
 
+    /*
+     * The task table, armed once, from the microsecond clock.
+     *
+     * The arm is what gives every task its first deadline - `now + period`,
+     * so nothing runs on the pass that starts the loop. A control law whose
+     * first act is to read a sensor nothing has sampled yet is the failure
+     * that avoids.
+     *
+     * Five adds into a twelve-slot table cannot fail. If one ever does it is
+     * a firmware bug and not a configuration, and the console says so rather
+     * than leaving an aircraft that does not fly with nothing written down
+     * to explain it. (It was four until 2.3 added the notch's slow tier; the
+     * margin is seven slots, and `AK_SCHED_MAX_TASKS` is the thing to raise if
+     * that ever stops being true.)
+     */
+    ak_sched_init();
+    /* `control_period_us`, not `AK_FLIGHT_LOOP_MS * 1000u`: since phase 1.4 the
+     * loop's period is the gyro's rate over `pid_denom`, and by this point
+     * `apply_loop_rate()` has been called twice - once where the other
+     * parameters are applied and once after the IMU opened, which is the one
+     * that knows what the part took. The id is kept because a later `set
+     * gyro_rate_hz` re-arms this task through it. */
+    fast_task = ak_sched_add("fast", task_fast, 0, control_period_us,
+                             AK_SCHED_HIGH);
+    if (fast_task < 0 ||
+        ak_sched_add("battery", task_battery, 0,
+                     AK_BATTERY_PERIOD_MS * 1000u, AK_SCHED_NORMAL) < 0 ||
+        ak_sched_add("notch", task_dyn_notch, 0, AK_DYN_NOTCH_PERIOD_US,
+                     AK_SCHED_LOW) < 0 ||
+        ak_sched_add("led", task_led, 0, AK_LED_PERIOD_MS * 1000u,
+                     AK_SCHED_LOW) < 0 ||
+        ak_sched_add("heartbeat", task_heartbeat, 0,
+                     AK_HEARTBEAT_MS * 1000u, AK_SCHED_LOW) < 0) {
+        ak_console_write("scheduler: the task table is full\r\n");
+    }
+    ak_sched_arm(ak_time_us());
+
     uint32_t now = ak_time_ms();
-    uint32_t next_led = now + AK_LED_PERIOD_MS;
-    uint32_t next_loop = now + AK_FLIGHT_LOOP_MS;
-    uint32_t next_heartbeat = now + AK_HEARTBEAT_MS;
 
 #if AK_USB_TRACE
     /* One shot, at ten seconds - see the note on usb_trace_report(). It sits
@@ -3924,6 +6622,41 @@ int ak_firmware_main(void)
             }
         }
 
+        /* The log stream, for a client that asked for a range. Two things here
+         * are not the telemetry block above and both of them matter.
+         *
+         * The rate is read *before* the frame is built. The frame that ends a
+         * range is a `DONE` frame, building it clears the rate, and a driver
+         * that read the rate afterwards would divide by zero on exactly the
+         * frame that finishes every stream.
+         *
+         * And one record goes out per tick, never a catch-up burst. The
+         * telemetry block is naturally one-per-tick because a status frame is
+         * worth nothing once it is stale; a log record is worth exactly as much
+         * late as on time, so a driver that sent whatever it owed would empty
+         * the whole flash ring onto the link in one tick after any stall - and
+         * the stall would be its own fault, because the loop above is doing the
+         * work that made it late. A stream is a rate. */
+        if (net_proto.log_stream_hz > 0u && ak_board_net_connected()) {
+            if (net_proto.log_stream_hz != log_stream_scheduled_hz) {
+                next_log_stream_ms = ak_time_ms();   /* a new rate starts now */
+            }
+            if ((int32_t)(ak_time_ms() - next_log_stream_ms) >= 0) {
+                uint8_t rate = net_proto.log_stream_hz;
+                uint8_t frame[AK_PROTO_FRAME_MAX];
+                unsigned length = ak_proto_log_stream_frame(&net_proto, &proto_io,
+                                                            frame, sizeof frame);
+                if (length > 0) {
+                    ak_board_net_write((const char *)frame, length);
+                    log_stream_sent++;
+                }
+                next_log_stream_ms = ak_time_ms() + (1000u / rate);
+                log_stream_scheduled_hz = rate;
+            }
+        } else {
+            log_stream_scheduled_hz = 0u;
+        }
+
         /* The receiver and the GPS get the same quota. Their byte rates are
          * bounded by their own hardware rather than by a client, but "bounded
          * by the part" is an assumption about a part that may be faulty or
@@ -3971,301 +6704,21 @@ int ak_firmware_main(void)
         gps_configure(ak_time_ms());
 
         /*
-         * The flight pack, at a rate that is about the filter rather than the
-         * hardware: a conversion is 23 microseconds and the answer moves on a
-         * scale of half a second. Sampling it before anybody asks means the
-         * first `battery` at the console already has an answer, and the first
-         * reading is the estimate rather than a step towards one.
+         * Everything periodic that is due, in one dispatch.
+         *
+         * It sits exactly where the fast loop's gate sat, and that is the
+         * point: the two phases this pass has are still two phases. The
+         * control step and the small work around it run here, ahead of the
+         * blocking I2C reads below, and nothing slow has been moved above
+         * them.
+         *
+         * The work itself is unchanged - the same bodies, reached through a
+         * function call each - but the scheduler now knows what each one was
+         * due at, so a report can ask whether the fast task met its deadline
+         * and by how much it ever missed. That question could not be asked of
+         * the four `next_*_ms` variables this replaces.
          */
-        if (battery_ready && (int32_t)(now - battery_next_ms) >= 0) {
-            uint32_t stamp = ak_time_ms();
-            float dt_s = (float)(stamp - battery_last_ms) / 1000.0f;
-
-            battery_next_ms = now + AK_BATTERY_PERIOD_MS;
-            battery_last_ms = stamp;
-            ak_battery_sample(&battery, ak_board_battery_pin_volts(), dt_s);
-        }
-
-        now = ak_time_ms();
-
-        if ((int32_t)(now - next_led) >= 0) {
-            next_led += AK_LED_PERIOD_MS;
-            ak_board_led_toggle();
-        }
-
-        if ((int32_t)(now - next_loop) >= 0) {
-            next_loop += AK_FLIGHT_LOOP_MS;
-            /* With a sensor on the bus this is a real attitude estimate and
-             * the aircraft can arm; without one every sample is invalid and
-             * the core holds it in failsafe. Both are the same code path. */
-            if (imu_ok) {
-                (void)ak_imu_read(&imu, &imu_sample);
-                /* What the sensor measured, expressed in the airframe's terms
-                 * and with the offset and the scale the six-position
-                 * calibration measured taken out of it. */
-                ak_align_apply(&align, &imu_sample);
-                /*
-                 * A calibration runs while the aircraft is *disarmed*: that is
-                 * when it is certainly on the ground and certainly not being
-                 * flown, and it is where the bias a part has at the
-                 * temperature of the day is measured. It is fed the aligned
-                 * sample before the bias is taken out, because the accumulator
-                 * holds the residual - see ak_gyro_cal.h.
-                 *
-                 * The threshold is what makes this safe: three degrees a
-                 * second, so an aircraft being carried, or one rolling forward
-                 * on a launch, has its samples refused rather than averaged in
-                 * as if they were the part's offset. (The first version of
-                 * this measured at *arm*, with the old twenty-degree
-                 * threshold, and a wing's take-off roll was written into the
-                 * bias: the fence session, which arms and launches, ended up
-                 * fighting its own yaw axis with 13.6 deg/s of elevator.)
-                 */
-                if (gyro_cal.running &&
-                    ak_flight_state(&flight) == AK_FLIGHT_DISARMED) {
-                    float dps[3];
-
-                    if (ak_gyro_cal_feed(&gyro_cal, &imu_sample)) {
-                        ak_gyro_cal_bias_dps(&gyro_cal, dps);
-                        ak_console_printf(
-                            "gyro: bias measured while disarmed: %d %d %d "
-                            "mdps (%u samples, %u rejected)\r\n",
-                            (int)(dps[0] * 1000.0f), (int)(dps[1] * 1000.0f),
-                            (int)(dps[2] * 1000.0f), gyro_cal.samples,
-                            gyro_cal.rejected);
-                    }
-                }
-                ak_gyro_cal_apply(&gyro_cal, &imu_sample);
-                ak_accel_cal_apply(&accel_cal, &imu_sample);
-            } else {
-                imu_sample.valid = 0;
-            }
-            imu_sample.time_ms = now;
-
-            /* Home is the take-off point, and the only moment it can be
-             * captured without asking is while the aircraft is on the ground
-             * with a fix - so that is when it happens. */
-            if (!nav.have_home && ak_gps_fix_valid(&gps, now, 2000u) &&
-                ak_flight_state(&flight) == AK_FLIGHT_DISARMED) {
-                ak_nav_set_home(&nav, gps.fix.lat_e7, gps.fix.lon_e7,
-                                altitude_msl_mm());
-                ak_console_printf("home: from the first fix while disarmed, "
-                                  "%d.%07d, %d.%07d\n",
-                                  nav.home_lat_e7 / 10000000,
-                                  nav.home_lat_e7 % 10000000,
-                                  nav.home_lon_e7 / 10000000,
-                                  nav.home_lon_e7 % 10000000);
-            }
-
-            /* Decide what the navigator wants before the flight core decides
-             * what to do with it - but sense the link first, so both of them
-             * are looking at the same answer. The navigator used to read the
-             * link a step late, which meant it only ever saw the link go at
-             * the same moment the core latched the failsafe, and the return
-             * never engaged. */
-            (void)ak_flight_link_update(&flight, &receiver.channels, now, 0);
-            nav_update(now);
-            /* Only while a navigator is flying it: a pilot on the sticks is
-             * never disarmed by a barometer. */
-            {
-                int state = ak_flight_state(&flight);
-
-                flight.landed =
-                    (state == AK_FLIGHT_RTH || state == AK_FLIGHT_MANAGED ||
-                     state == AK_FLIGHT_DESCEND) &&
-                    landing_detector(now);
-            }
-            ak_flight_step(&flight, &imu_sample, &receiver.channels, now);
-            /* And if a pilot is asking to arm and the answer is no, say why -
-             * once per attempt, not once per pass. */
-            arm_announce();
-
-            /*
-             * And once the aircraft is armed, stop measuring.
-             *
-             * The measurement itself runs while *disarmed*, which is when the
-             * aircraft is certainly on the ground and certainly not being
-             * flown; the moment the switch comes up the aircraft may be
-             * rolling, being carried to a launch, or in the air, and nothing
-             * that is moving may be written into a bias. If the measurement
-             * never completed - a power-up that was followed straight by an
-             * arm, an aircraft that was handled the whole time - the stored
-             * bias stands and the console is told, once.
-             *
-             * It is one measurement per power-up, and a second one after the
-             * flight was tried and taken out: the aircraft that has just
-             * landed is still settling, and a half second of *steady* reading
-             * from a rolling airframe is exactly the shape of a bias. Measured
-             * that way, a session with five degrees a second of real bias came
-             * back with a second measurement of 4575, 5770 and 5032 mdps on
-             * the three axes and a heading that walked 15 degrees while
-             * parked. The moment to measure is when somebody has just put the
-             * aircraft down and switched it on.
-             */
-            {
-                ak_flight_state_t state_now = ak_flight_state(&flight);
-
-                if (state_now != AK_FLIGHT_DISARMED && gyro_cal.running) {
-                    ak_console_printf(
-                        "gyro: no bias measured before arming (%u samples, %u "
-                        "rejected as moving); the stored bias stands\r\n",
-                        gyro_cal.samples, gyro_cal.rejected);
-                    gyro_cal.running = 0;
-                }
-                last_flight_state = state_now;
-            }
-
-            /*
-             * The one heading measurement this aircraft has, and it only works
-             * while it is moving: the track it is making *through the air*.
-             *
-             * The module reports motion over the ground, and the difference
-             * between that and the way the aircraft is pointing is the crab
-             * angle - which in wind is tens of degrees and, at a hover, is
-             * *all* of it. So the wind is subtracted first, and the wind is
-             * the navigator's own standing term: the velocity it has learned
-             * to fly at to hold station, which is exactly the wind, in the
-             * world frame. Until the navigator has learned one the correction
-             * is zero and this is the ground track, which is what every flight
-             * in this repository before it used.
-             *
-             * It is applied after the step, so the yaw it corrects is the one
-             * this pass just integrated, and the step it is told about is the
-             * loop's own period - the correction has a time constant of
-             * seconds, so being a millisecond out about it is not a thing that
-             * matters. A fix that has gone stale is not used: a course the
-             * module is no longer measuring is a course somebody is guessing.
-             */
-            if (ak_gps_fix_valid(&gps, now, 2000u)) {
-                float air_speed_m_s;
-                float air_course_rad;
-
-                ak_estimator_air_track(gps.fix.speed_mm_s, gps.fix.course_e5,
-                                       nav.hold_n_m_s, nav.hold_e_m_s,
-                                       &air_speed_m_s, &air_course_rad);
-                ak_estimator_aid_heading(&flight.est, air_course_rad,
-                                         air_speed_m_s,
-                                         (float)AK_FLIGHT_LOOP_MS / 1000.0f);
-            }
-
-
-            /*
-             * The turn the wing is already making, so its yaw loop damps
-             * instead of fighting: g tan(bank) over the speed, which is what a
-             * banked turning aircraft does. The speed is the GPS's - the
-             * ground speed, which in wind is not the airspeed, and is the
-             * measurement this aircraft has.
-             *
-             * A quadrotor gets zero: its yaw has nothing to do with its bank,
-             * and telling it otherwise would have it yaw every time it leaned
-             * to translate.
-             *
-             * **`g tan(bank)/V` is a rate of change of *heading*, and this is
-             * fed to a loop whose feedback is the gyro's z axis - a rate about
-             * the body's own vertical.** Those are the same number only while
-             * the aircraft is level. In a level coordinated turn the two are
-             * related by `heading' = r / (cos(pitch) cos(roll))`, so the body
-             * rate the loop should be damping is `heading' * cos(pitch) *
-             * cos(roll)`, and it is that factor which is applied here.
-             *
-             * This was invisible until the estimator and the plant were both
-             * repaired, for the same reason the plant's own gyro was wrong in
-             * the same direction as the old estimator: the simulator reported
-             * a heading rate as if it were a body rate, and this feedforward
-             * was a heading rate. The two errors cancelled exactly, at every
-             * bank angle, in every session.
-             *
-             * Measured, on the fence session's `the motors barely had to fight
-             * the turn` check, whose threshold is 10 deg/s of differential yaw:
-             *
-             *     old estimator, old plant,
-             *       gyro in the same wrong frame    6.8 deg/s   passes, and
-             *                                                   passes because
-             *                                                   the two errors
-             *                                                   cancel
-             *     old estimator, honest gyro       10.7 deg/s   FAILS
-             *     everything repaired, this
-             *       factor taken back out          10.8 deg/s   FAILS
-             *     everything repaired               6.2 deg/s   passes
-             *
-             * The third row is an ablation, not a recollection: the same tree
-             * as the fourth with this factor alone reverted, 41 of 42 sessions
-             * passing and this one check red. So the factor is not a refinement
-             * of a session that was passing anyway - with the frames fixed
-             * everywhere else it is the entire difference, and a fence session
-             * that passed at 6.8 before passed for the reason this commit
-             * exists to remove.
-             */
-            flight.yaw_rate_ff = 0.0f;
-            if (flight.airframe == 1u &&
-                ak_gps_fix_valid(&gps, now, 2000u)) {
-                float speed_m_s = (float)gps.fix.speed_mm_s / 1000.0f;
-
-                if (speed_m_s > 3.0f) {
-                    float roll = flight.est.roll;
-                    float tan_roll = ak_sinf(roll) / ak_cosf(roll);
-                    float heading_rate =
-                        ak_clampf(9.80665f * tan_roll / speed_m_s, -1.0f, 1.0f);
-
-                    flight.yaw_rate_ff = heading_rate *
-                                         ak_cosf(flight.est.pitch) *
-                                         ak_cosf(roll);
-                }
-            }
-
-            /* Every fourth iteration. The aircraft does not change
-             * meaningfully in a millisecond, and the memory is better spent on
-             * time than on resolution. */
-            if ((flight.steps % AK_LOG_EVERY) == 0u) {
-                log_iteration(now);
-            }
-
-            /*
-             * The flash log's one decision: give it room, but only while the
-             * aircraft is on the ground. Erasing a sector stops the CPU for
-             * about a second, and a second of no control loop is a crash - so
-             * the log stops instead, and this is where it is allowed to catch
-             * up. Disarmed is the only state that means that: an aircraft in
-             * failsafe may still be flying.
-             */
-            (void)ak_flashlog_service(&flashlog,
-                                      ak_flight_state(&flight) ==
-                                          AK_FLIGHT_DISARMED);
-
-            /* And what the handset is told, at its own much slower rate: the
-             * pilot reads a battery voltage, not a control loop. */
-            if ((int32_t)(now - next_crsf_ms) >= 0) {
-                next_crsf_ms = now + AK_CRSF_TLM_TICK_MS;
-                telemetry_service();
-            }
-
-            /* The same outputs the flight core just decided on, in the form
-             * the timers and the ESC's see. With no sensors the core is in
-             * failsafe, so this is a stream of disarmed DShot frames and
-             * centred servos - which is exactly what a scope should show on a
-             * board that has not been armed.
-             *
-             * `output test` takes the place of the flight core here, and only
-             * here: it is the one thing that writes outputs without arming,
-             * and it stops the moment the aircraft is not disarmed. */
-            static ak_output_frame_t frame;
-            if (output_test_active) {
-                if (ak_flight_state(&flight) != AK_FLIGHT_DISARMED) {
-                    output_test_active = 0;
-                    ak_console_write("output test: stopped - the aircraft is "
-                                     "not disarmed\r\n");
-                } else {
-                    ak_outputs_t sweep;
-                    output_test_outputs(now, &sweep);
-                    ak_output_encode(&sweep, servo_trim, 0, &frame);
-                }
-            }
-            if (!output_test_active) {
-                ak_output_encode(ak_flight_outputs(&flight), servo_trim, 0,
-                                 &frame);
-            }
-            ak_board_output_write(&frame);
-        }
+        (void)ak_sched_run(ak_time_us());
 
         /*
          * The two reads that block, and they are here - after the control step
@@ -4381,9 +6834,5 @@ int ak_firmware_main(void)
             }
         }
 
-        if ((int32_t)(now - next_heartbeat) >= 0) {
-            next_heartbeat += AK_HEARTBEAT_MS;
-            ak_console_printf("alive: %u ms, %u loops\n", now, flight.steps);
-        }
     }
 }

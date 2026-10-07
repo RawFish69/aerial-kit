@@ -1,5 +1,7 @@
 #include "ak_estimator.h"
 
+#include <float.h>
+
 #include "ak_math.h"
 
 /* Outside this band the accelerometer is measuring manoeuvre, not gravity. */
@@ -22,9 +24,46 @@
  * rather than wrong ones.
  *
  * The threshold is well above the float noise of that round trip and far below
- * any attitude a caller could mean.
+ * any attitude a caller could mean - for roll and pitch, which are always
+ * inside (-pi, pi] and so have a fixed resolution. Yaw does not, and needs the
+ * one below instead.
  */
 #define AK_ATT_SYNC_EPS 1.0e-5f
+
+/*
+ * The same threshold for yaw, which is the one published angle with no bound on
+ * it: `est->yaw` grows for as long as the aircraft keeps turning one way, and
+ * so does the spacing between the floats that can hold it.
+ *
+ * A fixed epsilon stops being a test at all once that spacing is larger than
+ * it. At AK_ATT_SYNC_EPS the crossover is around 140 rad, twenty-two turns -
+ * and what it produces above there is not a small error. `est_resync` sees a
+ * caller write on *every step*, rebuilds the quaternion from the euler angles,
+ * and the round trip yaw -> sin/cos -> q -> atan2 -> yaw injects a bias every
+ * time it runs. Measured, a pure yaw rotation at 500 Hz, against the angle it
+ * should have reached:
+ *
+ *      60 rad    0.0002 deg        160 rad      3.19 deg
+ *     100 rad    0.025  deg       1000 rad    174.9  deg
+ *
+ * which is a heading that is wrong by half a turn, arrived at by flying
+ * straight. The audit that found this called it "loses precision after ~20
+ * turns"; the turn count was about right and the consequence was much worse
+ * than precision.
+ *
+ * So the tolerance is the resolution of the number being compared, plus the
+ * fixed slack the small-angle case has always had. The slack term keeps the
+ * behaviour at small yaw exactly as it was - a caller writing a yaw near zero
+ * is still caught at 1e-5 - and the second is a few times the spacing between
+ * the floats around `yaw`, which is the largest error this comparison can have
+ * and still be about anything. Above the crossover it is the second term that
+ * carries, and `est_resync` goes back to meaning "a caller wrote this", which
+ * is the only thing it was ever supposed to mean.
+ */
+static float att_sync_eps_yaw(float yaw)
+{
+    return AK_ATT_SYNC_EPS + 4.0f * ak_absf(yaw) * FLT_EPSILON;
+}
 
 /*
  * Below this the gyro is reporting nothing worth calling a rotation, and the
@@ -210,7 +249,7 @@ static void est_resync(ak_estimator_t *est)
 
     if (ak_absf(roll - est->roll) < AK_ATT_SYNC_EPS &&
         ak_absf(pitch - est->pitch) < AK_ATT_SYNC_EPS &&
-        ak_absf(ak_wrap_pi(psi - est->yaw)) < AK_ATT_SYNC_EPS) {
+        ak_absf(ak_wrap_pi(psi - est->yaw)) < att_sync_eps_yaw(est->yaw)) {
         return;
     }
 

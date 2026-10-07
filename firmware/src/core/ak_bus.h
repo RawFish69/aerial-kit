@@ -37,6 +37,19 @@ typedef struct {
                        unsigned len);
     void (*delay_ms)(void *ctx, unsigned ms);
     void *ctx;
+    /*
+     * Optional. The 7-bit I2C address this bus is talking to, for a report to
+     * print - null on SPI, and on an I2C bus whose address nobody needs to see.
+     *
+     * A driver never calls it: which address a part answers on is the board's
+     * business, the same as which pins. It exists because one board probes for
+     * its IMU's address rather than stating it (the Feather, where a BNO055
+     * can be strapped to 0x28 or 0x29 and an LSM6DSO to 0x6A or 0x6B), and the
+     * address the probe settled on is the one fact a bench session needs to
+     * see before it checks a strap or a cable. A function rather than a field
+     * because that address is chosen at run time and the bus is const.
+     */
+    uint8_t (*address)(void *ctx);
 } ak_bus_t;
 
 static inline int ak_bus_read(const ak_bus_t *bus, uint8_t reg, uint8_t *buf,
@@ -71,6 +84,16 @@ static inline void ak_bus_delay_ms(const ak_bus_t *bus, unsigned ms)
     if (bus->delay_ms != 0) {
         bus->delay_ms(bus->ctx, ms);
     }
+}
+
+/* The address the bus reports, or 0 when it reports none (0 is the general
+ * call address, which no part in this firmware is strapped to). */
+static inline uint8_t ak_bus_address(const ak_bus_t *bus)
+{
+    if (bus->address != 0) {
+        return bus->address(bus->ctx);
+    }
+    return 0;
 }
 
 #endif /* AK_CORE_AK_BUS_H */

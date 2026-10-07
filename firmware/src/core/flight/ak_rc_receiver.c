@@ -57,6 +57,39 @@ void ak_rc_receiver_report(const ak_rc_receiver_t *rx, const ak_rc_config_t *cfg
     } else {
         out("crsf:      %u crc errors, %u rejected\n", rx->crsf.crc_errors,
             rx->crsf.rejected);
+
+        /* What the receiver says about its own link, if it says anything. This
+         * is the one line in this report that does not come from a channel
+         * frame, and it is printed before the `channels.valid` early return
+         * below because a receiver can describe its link before it has managed
+         * to deliver a single set of channels - which is the case a bench
+         * session is most likely to be looking at.
+         *
+         * **The two RSSIs are negated for display and nowhere else.** The wire
+         * carries dBm * -1 (ak_crsf.h says why the struct keeps the wire's
+         * numbers); a console that printed the wire's 70 beside the word dBm
+         * would be describing a kilowatt transmitter, so this is the one place
+         * the sign is applied, and it is a rendering rather than a conversion
+         * of anything carried.
+         *
+         * The absent case is its own sentence rather than a row of zeros: the
+         * zeros would spell out `up -0/-0 dBm lq 0%`, and 0 % quality is what
+         * a dead link looks like while 0 dBm on a negated field is the
+         * strongest reading there is. Those cannot both be true, so a receiver
+         * that has never sent the frame - and every SBUS receiver - must not
+         * appear as a reading at all. */
+        if (rx->crsf.stats_frames == 0) {
+            out("link stat: this receiver has not sent one\n");
+        } else {
+            const ak_crsf_link_stats_t *s = &rx->crsf.stats;
+
+            out("link stat: %u frames, up -%u/-%u dBm lq %u%% snr %d, "
+                "down -%u lq %u%% snr %d, ant %u rf %u tx %u\n",
+                rx->crsf.stats_frames, s->uplink_rssi_1, s->uplink_rssi_2,
+                s->uplink_lq, (int)s->uplink_snr, s->downlink_rssi,
+                s->downlink_lq, (int)s->downlink_snr, s->active_antenna,
+                s->rf_mode, s->uplink_tx_power);
+        }
     }
     out("link:      %s\n", rx->channels.valid ? "framing" : "no frames yet");
 

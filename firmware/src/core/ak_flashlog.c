@@ -384,7 +384,16 @@ int ak_flashlog_service(ak_flashlog_t *log, int may_erase)
      * here that ever removes records. */
     sector_scan_t scan;
 
-    scan_sector(log, log->pending_sector, &scan);
+    /* Only a sector that was ever *ours* held records the count includes:
+     * resume counts sectors with a valid header and nothing else. A sector
+     * with another firmware's bytes in it was never counted, and scanning it
+     * here subtracted its non-erased slots anyway - after two foreign sectors
+     * the count read 11 for 31 records, and LOG_INFO and LOG_STREAM, which
+     * clamp to it, could not reach the newest ones until a reboot. */
+    memset(&scan, 0, sizeof scan);
+    if (header_read(log, log->pending_sector, 0, 0)) {
+        scan_sector(log, log->pending_sector, &scan);
+    }
     if (log->store->erase(log->pending_sector) != 0) {
         return AK_FLASHLOG_WRITE_FAILED;
     }
@@ -494,12 +503,9 @@ uint32_t ak_flashlog_dump(const ak_flashlog_t *log, ak_printf_fn out)
     }
     out("\n");
     out("# oldest first; this one outlives the battery\n");
-    out("# units: gyro 0.1 dps, accel 0.001 g, attitude 0.1 deg, "
-        "alt mm above the take-off reference, sticks per-mille, torque "
-        "percent, motor 0..254\n");
-    out("time_ms,gyro_x,gyro_y,gyro_z,accel_x,accel_y,accel_z,roll,pitch,yaw,"
-        "alt_mm,stick_roll,stick_pitch,stick_yaw,stick_throttle,torque_roll,"
-        "torque_pitch,torque_yaw,motor1,motor2,motor3,motor4,state,flags\n");
+    /* The ring's own header, for the reason ak_log.h gives: this dump used to
+     * carry its own copy and the copy had gone stale. */
+    ak_log_write_header(out);
 
     for (unsigned i = 0u; i < found; i++) {
         for (unsigned slot = 0u; slot < scan[i].used; slot++) {

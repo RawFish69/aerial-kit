@@ -215,16 +215,44 @@ unsigned ak_board_param_table(ak_param_t *items, unsigned count);
 void ak_board_net_start(void);
 
 /*
- * A block of RAM that startup does not clear, for records that should outlive
- * a reset - the fault record is one, the long log is another. Returns the
- * address and sets `bytes`, or returns 0 on a board that has none (in which
- * case the core uses ordinary memory and the log simply does not survive).
+ * The block the long log lives in - a region startup does not clear, so that
+ * the log is still there after the reset it is explaining. Returns the address
+ * and sets `bytes`.
+ *
+ * **It must not return 0, and `bytes` must be at least a whole log ring.** A
+ * board with no retained RAM returns ordinary memory it owns and declares
+ * itself through `AK_BOARD_LOG_RETAINED` below. The core used to do that job
+ * itself: it kept a *second* full ring in ordinary RAM and chose between the
+ * two with a pointer taken at run time. That choice cannot be made at link
+ * time, so the fallback was placed in every image - including every board that
+ * has retained RAM and therefore cannot reach it. On the F405 the image said
+ * so out loud: `blackbox`, `retained_log` and `longlog_fallback`, 27,672 bytes
+ * each, one of them dead. Moving the fallback to the board that needs it is
+ * what freed those bytes; a board that has no retained RAM declares a ring in
+ * its own board.c and pays for it there, where the cost is attributed to the
+ * board that incurred it.
  *
  * What it does *not* survive is losing power. A log across a power cycle wants
  * flash, and saying so here is better than letting a bench session assume a
  * battery-backed something that is not there.
  */
 void *ak_board_retained_ram(unsigned *bytes);
+
+/*
+ * Whether the block above is retained RAM (1) or ordinary RAM (0).
+ *
+ * It chooses nothing and changes no layout - the pointer comes from the hook
+ * either way. The core asks because two things a person reads depend on the
+ * answer: the boot report, and the preflight line that says which kind of
+ * memory the long log is in. "Kept from the run before" is a claim that is
+ * only true of the first kind.
+ *
+ * A board that leaves this 0 must return its own ordinary ring from the hook,
+ * because the core no longer keeps one.
+ */
+#ifndef AK_BOARD_LOG_RETAINED
+#define AK_BOARD_LOG_RETAINED 0
+#endif
 
 /*
  * Flash for the blackbox, or 0 for a board whose log is RAM-sized. The core

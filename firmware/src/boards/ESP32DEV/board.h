@@ -39,6 +39,14 @@
 #define AK_BOARD_MOTORS 4u
 #define AK_BOARD_SERVOS 2u
 
+/*
+ * The long log's ring is the block ak_board_retained_ram() returns, and on this
+ * board that is RTC no-init memory: it survives a reset and not a power cycle,
+ * which is what the boot report's "from the run before" means. See ak_board.h
+ * for what the core does with the answer.
+ */
+#define AK_BOARD_LOG_RETAINED 1
+
 #define AK_BOARD_MOTOR1_GPIO 25
 #define AK_BOARD_MOTOR2_GPIO 26
 #define AK_BOARD_MOTOR3_GPIO 27

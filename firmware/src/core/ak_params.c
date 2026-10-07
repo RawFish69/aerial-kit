@@ -86,8 +86,10 @@ void ak_params_init(ak_params_t *params, ak_param_t *items, unsigned count)
     params->changed = 0;
     params->load_applied = 0;
     params->load_unknown = 0;
+    params->load_renamed = 0;
     params->load_unmentioned = params->count;
     params->load_unknown_name[0] = '\0';
+    params->load_renamed_name[0] = '\0';
     params->load_unmentioned_name[0] = '\0';
     params->load_have_report = 0;
 }
@@ -325,8 +327,20 @@ int ak_params_set(ak_params_t *params, const char *name, const char *text,
 unsigned ak_params_format_value(const ak_param_t *item, ak_param_value_t value,
                                 char *buf, unsigned len)
 {
+    /* A zero-length buffer is a caller saying there is no room for a
+     * terminator, and the answer is to write nothing at all. This used to
+     * write `buf[0]` anyway, which is one byte into a region of size zero by
+     * the caller's own account - and it is the only one of the three functions
+     * here that did: `ak_params_get_value` and `ak_params_get_default_text`
+     * both return without touching the buffer, and `ak_format_fixed` does the
+     * same one level down. No caller can reach this today, because all three
+     * sites measure their own room before calling, so the cost so far is a
+     * `-Wstringop-overflow` on the call in `describe_range` and a trap for the
+     * next caller of a function this header publishes. ASan is not the
+     * instrument for it: a caller that passes zero still owns the bytes at that
+     * address, so the write is only out of bounds by the caller's declaration
+     * rather than by the allocation. The test is a canary byte. */
     if (len == 0u) {
-        buf[0] = '\0';
         return 0u;
     }
     if (item->type == AK_PARAM_U32) {
@@ -434,6 +448,52 @@ void ak_params_mark_saved(ak_params_t *params)
     params->changed = 0;
 }
 
+/*
+ * A float as the saved record carries it: with every decimal that is still
+ * exact in the formatter's float arithmetic (the scaled value under 2^24), up
+ * to seven, and then trailing zeros trimmed back to the display precision.
+ *
+ * The record used to be written at the display precision itself, so the table
+ * flew one value until the next boot and another after it: `rate_ki` set to
+ * 0.0004 at three decimals was saved as "0.000" and loaded back as zero, and a
+ * whole-number trim of 12.4 came back as 12. What is displayed - and the
+ * config hash, which is computed from the displayed text on purpose - are
+ * unchanged; only the round trip through flash is.
+ */
+static void format_for_record(const ak_param_t *item, char *buf, unsigned len)
+{
+    const float value = *(const float *)item->value;
+    const float magnitude = value < 0.0f ? -value : value;
+    unsigned decimals = 7u;
+    float scaled = magnitude * 10000000.0f;
+
+    while (decimals > item->decimals && scaled >= 16000000.0f) {
+        decimals--;
+        scaled *= 0.1f;
+    }
+    ak_format_fixed(value, decimals, buf, len);
+
+    /* Trim: "0.2500000" is "0.250" at three display decimals, and a value
+     * that needed none of the extra digits reads exactly as it always did. */
+    unsigned n = ak_strlen(buf);
+    unsigned dot = n;
+    for (unsigned i = 0; i < n; i++) {
+        if (buf[i] == '.') {
+            dot = i;
+        }
+    }
+    if (dot < n) {
+        unsigned keep = dot + 1u + item->decimals;
+        while (n > keep && buf[n - 1u] == '0') {
+            n--;
+        }
+        if (n == dot + 1u) {
+            n = dot; /* no decimals at all: no point either */
+        }
+        buf[n] = '\0';
+    }
+}
+
 unsigned ak_params_serialize(ak_params_t *params, char *buf, unsigned len)
 {
     unsigned pos = 0;
@@ -447,8 +507,13 @@ unsigned ak_params_serialize(ak_params_t *params, char *buf, unsigned len)
         const ak_param_t *item = &params->items[i];
         const char *name = item->name;
         /* The real value, not the displayed one: the password has to survive
-         * the round trip even though nothing prints it. */
-        (void)ak_params_get_value(item, value, sizeof value);
+         * the round trip even though nothing prints it - and nor does a float
+         * set more finely than it is displayed (format_for_record). */
+        if (item->type == AK_PARAM_FLOAT) {
+            format_for_record(item, value, sizeof value);
+        } else {
+            (void)ak_params_get_value(item, value, sizeof value);
+        }
 
         while (*name != '\0' && pos + 1u < len) {
             buf[pos++] = *name++;
@@ -511,6 +576,54 @@ int ak_params_save(ak_params_t *params, char *buf, unsigned len,
     return length;
 }
 
+/* Parameters this build renamed, and what the record used to call them.
+ *
+ * A rename is not a cosmetic act here. `gyro_lpf_hz` becoming
+ * `gyro_lpf1_static_hz` (roadmap 2.2, so that Betaflight tuning knowledge
+ * transfers by name) means a configuration saved by the build before it
+ * carries a name this one does not have - and the loader's answer to a name it
+ * does not have is to skip it and count it. The aircraft would come up flying
+ * the *default* gyro filter, with the console reporting one unknown parameter
+ * and the person reading that as an upgrade note rather than as "your gyro
+ * filter is gone".
+ *
+ * So the old spelling is translated rather than dropped, and the load reports
+ * it as its own category: not `applied` (the record did not use this name),
+ * not `unknown` (the parameter is not missing), but `renamed`. The value is
+ * carried across in full, so nothing about the aircraft's behaviour changes at
+ * the moment of the upgrade - which is the whole point of having this table
+ * rather than a note in a release message.
+ *
+ * Entries are one-way, oldest name to current, and are never removed: a
+ * record written three renames ago still loads. That is a few bytes of flash
+ * in exchange for the property that a saved configuration cannot silently lose
+ * a filter, and it is why this lives in the loader rather than in a migration
+ * step somebody has to remember to run. */
+typedef struct {
+    const char *was;   /* the name the record may carry */
+    const char *now;   /* the name this build registers */
+} ak_param_rename_t;
+
+static const ak_param_rename_t param_renames[] = {
+    /* Roadmap 2.2: the gyro and D-term chains took Betaflight's names. */
+    { "gyro_lpf_hz",  "gyro_lpf1_static_hz"  },
+    { "d_cutoff_hz",  "dterm_lpf1_static_hz" },
+};
+
+#define PARAM_RENAME_COUNT \
+    (sizeof param_renames / sizeof param_renames[0])
+
+/* The current spelling of `name`, or null when this build never renamed it. */
+static const char *renamed_to(const char *name)
+{
+    for (unsigned i = 0; i < PARAM_RENAME_COUNT; i++) {
+        if (ak_str_eq(name, param_renames[i].was)) {
+            return param_renames[i].now;
+        }
+    }
+    return 0;
+}
+
 int ak_params_deserialize(ak_params_t *params, const char *text, char *msg,
                           unsigned msg_len)
 {
@@ -524,7 +637,20 @@ int ak_params_deserialize(ak_params_t *params, const char *text, char *msg,
     }
     params->load_applied = 0;
     params->load_unknown = 0;
+    params->load_renamed = 0;
     params->load_unknown_name[0] = '\0';
+    params->load_renamed_name[0] = '\0';
+
+    /* The first value refused, reported after the whole record has been read.
+     * Stopping at it - which this did until 2026-10-06 - left the lines before
+     * it applied and the lines after it at their defaults, and the caller then
+     * skipped applying the change at all: a boot with one value an upgraded
+     * build no longer accepts flew a mixture nobody had chosen. Now every value
+     * that is valid is loaded, each refused one keeps its current value, and
+     * the refusal is still an error the caller reports. */
+    int refused = 0;
+    char first_refusal[64];
+    first_refusal[0] = '\0';
 
     while (*p != '\0') {
         const char *line_end = p;
@@ -561,13 +687,62 @@ int ak_params_deserialize(ak_params_t *params, const char *text, char *msg,
             value[value_len] = '\0';
 
             ak_param_t *item = ak_params_find(params, name);
+            int renamed = 0;
+
+            /* A name this build renamed is not a name this build lacks. Try
+             * the current spelling before deciding the record carried
+             * something from a build we cannot speak to. */
+            if (item == 0) {
+                const char *now = renamed_to(name);
+
+                if (now != 0) {
+                    item = ak_params_find(params, now);
+                    renamed = (item != 0);
+                }
+            }
 
             if (item != 0) {
-                if (ak_params_set(params, name, value, msg, msg_len) != 0) {
-                    return -1;
+                /* Set under the *current* name: the record's spelling is a
+                 * historical fact and does not go back into the table. */
+                char why[48];
+                why[0] = '\0';
+                if (ak_params_set(params, item->name, value, why, sizeof why) != 0) {
+                    if (refused == 0) {
+                        /* Named: "out of range 0.000..2.000" alone does not
+                         * say which of forty-five parameters it was. */
+                        unsigned at = 0;
+                        for (const char *c = item->name;
+                             *c != '\0' && at + 1u < sizeof first_refusal; c++) {
+                            first_refusal[at++] = *c;
+                        }
+                        for (const char *c = ": ";
+                             *c != '\0' && at + 1u < sizeof first_refusal; c++) {
+                            first_refusal[at++] = *c;
+                        }
+                        for (const char *c = why;
+                             *c != '\0' && at + 1u < sizeof first_refusal; c++) {
+                            first_refusal[at++] = *c;
+                        }
+                        first_refusal[at] = '\0';
+                    }
+                    refused++;
+                    goto next_line;
                 }
                 item->flags |= AK_PARAM_SEEN;
                 params->load_applied++;
+                if (renamed) {
+                    params->load_renamed++;
+                    if (params->load_renamed_name[0] == '\0') {
+                        unsigned i = 0;
+
+                        while (name[i] != '\0' &&
+                               i + 1u < sizeof params->load_renamed_name) {
+                            params->load_renamed_name[i] = name[i];
+                            i++;
+                        }
+                        params->load_renamed_name[i] = '\0';
+                    }
+                }
             } else {
                 /* An unknown name is skipped on purpose - and remembered,
                  * because "one parameter in the record is not in this build"
@@ -586,6 +761,7 @@ int ak_params_deserialize(ak_params_t *params, const char *text, char *msg,
             }
         }
 
+    next_line:
         p = (*line_end == '\0') ? line_end : line_end + 1;
     }
 
@@ -610,6 +786,16 @@ int ak_params_deserialize(ak_params_t *params, const char *text, char *msg,
         }
     }
     params->load_have_report = 1;
+    if (refused > 0) {
+        if (msg != 0 && msg_len > 0u) {
+            unsigned at = 0;
+            for (const char *c = first_refusal; *c != '\0' && at + 1u < msg_len; c++) {
+                msg[at++] = *c;
+            }
+            msg[at] = '\0';
+        }
+        return -1;
+    }
     return 0;
 }
 
@@ -619,8 +805,10 @@ void ak_params_load_report(const ak_params_t *params,
     out->total = params->count;
     out->applied = params->load_applied;
     out->unknown = params->load_unknown;
+    out->renamed = params->load_renamed;
     out->unmentioned = params->load_unmentioned;
     out->unknown_name = params->load_unknown_name;
+    out->renamed_name = params->load_renamed_name;
     out->unmentioned_name = params->load_unmentioned_name;
 }
 

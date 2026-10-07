@@ -20,6 +20,11 @@ pymavlink (`upstream/pymavlink-2.4.49/`) and compares
   vehicle *built on pymavlink* - so the heartbeat, the streamed state and the
   parameter list all arrive from the reference implementation.
 
+The exception is `self_contained()` at the bottom of this file, which runs
+first and needs none of that: it is the byte layer, checked from this client's
+own table and its own frames, so a machine with no pymavlink checkout still
+checks the part of this file that was last wrong.
+
 Three of the client's message formats were wrong when this file was first run
 (`PARAM_VALUE`'s sixteen-byte id, `STATUSTEXT`'s fifty-byte text and
 `AUTOPILOT_VERSION`'s three byte-arrays). The reference's *generated* file has
@@ -30,6 +35,7 @@ pass any check that only asks the client about itself.
 
 import os
 import select
+import struct
 import subprocess
 import sys
 import time
@@ -63,8 +69,15 @@ def expect(name, condition, detail=""):
 
 
 def skip(reason):
-    print("the MAVLink client: not checked here - %s" % reason)
-    return 0
+    """What to say when the reference half cannot run.
+
+    Not the same thing as a pass: `self_contained()` above runs whatever the
+    oracle's absence, so this reports *its* verdict rather than returning a
+    cheerful zero for a file that checked nothing.
+    """
+    print("the MAVLink client: not checked against the reference here - %s"
+          % reason)
+    return 1 if failures else 0
 
 
 def oracle():
@@ -149,7 +162,114 @@ def oracle_frame(common, name, fields):
     return cls(**filled).pack(mav)
 
 
+def self_contained():
+    """The half of this file that needs no reference implementation.
+
+    Everything below runs behind `oracle()`, and it has to: a message id and a
+    `crc_extra` can only be checked against the thing that defines them. The
+    cost is that on a machine which has not run
+    `scripts/fetch-upstreams.sh pymavlink-2.4.49` this file checks *nothing*
+    and says so in one sentence that is easy to read as "fine".
+
+    What can be checked without an oracle is the byte layer, and that is where
+    the client was last wrong. So: a frame it builds is a frame it reads back;
+    a payload *shorter* than the message is padded rather than refused (a v2
+    sender truncates a payload's trailing zero bytes); a payload *longer* than
+    it is read from its prefix (a newer dialect appends extension fields after
+    `<extensions/>`, and those are excluded from `crc_extra` - so the checksum
+    that has just verified proves the base fields still agree, and the extras
+    are bytes this client cannot name rather than a frame it should reject);
+    and a frame whose checksum does not match is refused either way, which is
+    what makes reading the prefix safe rather than merely lenient.
+    """
+    print("AerialKit's MAVLink client, without a reference implementation")
+
+    # `SYS_STATUS` is the message the length defect was found on: the table
+    # here carries its 31-byte pre-extension form and PX4 1.17.0 sends 43.
+    name = "SYS_STATUS"
+    _id, _extra, fmt, names = mavlink.MESSAGES[name]
+    full = struct.calcsize(fmt)
+    fields = values_for(name)
+    frame = mavlink.build(name, fields)
+    head = 10 if frame[0] == mavlink.MAGIC_V2 else 6
+
+    def reads(frame):
+        """`(name, fields)` from a frame, or the string that says why not.
+
+        A client that raises where it should read comes back as a *value* here
+        rather than a traceback, because that is exactly what the defect this
+        section was written for did: the reader threw once per frame for the
+        life of the link, and a check that died with it would have reported the
+        same nothing the rest of this file used to.
+        """
+        try:
+            got, values, _header = mavlink.parse(frame)
+        except Exception as error:                              # noqa: BLE001
+            return "refused: %s" % error
+        return (got, values)
+
+    def why(read):
+        return " (%s)" % (read if isinstance(read, str) else "read")
+
+    read = reads(frame)
+    expect("a frame this client builds is a frame it reads back",
+           read == (name, fields),
+           why(read) if isinstance(read, str)
+           else " (%s, %u payload bytes)" % (name, frame[1]))
+
+    def reframe(payload):
+        """The same frame around a different payload, length and checksum
+        recomputed - what a sender with a different idea of the message would
+        actually put on the wire."""
+        body = bytes([len(payload)]) + frame[2:head] + payload
+        return bytes([frame[0]]) + body + \
+            struct.pack("<H", mavlink.frame_crc(body, name))
+
+    # A newer dialect: PX4 1.17.0's `SYS_STATUS` carries three more uint32s
+    # after the base fields, and the checksum still covers them.
+    extra = 12
+    grown = reframe(frame[head:head + frame[1]] + bytes(extra))
+    read = reads(grown)
+    expect("a payload longer than the message is read from its first %u bytes "
+           "rather than refused" % full,
+           read == (name, fields),
+           why(read) if isinstance(read, str)
+           else " (%u payload bytes for a %u-byte message, all %u fields "
+                "unchanged)" % (len(grown) - head, full, len(names)))
+
+    # A v2 sender truncates the trailing zero bytes, so the same values with a
+    # zeroed tail are a *shorter* payload on the wire - and the reader has to
+    # pad them back, which is what the reference implementation does too.
+    zeroed = dict(fields)
+    for field in names[-2:]:
+        zeroed[field] = 0
+    whole = mavlink.build(name, zeroed)
+    tail = whole[head:head + whole[1]].rstrip(b"\x00")
+    short = reframe(tail)
+    read = reads(short)
+    expect("a payload truncated of its trailing zero bytes is padded back, not "
+           "refused",
+           read == (name, zeroed) and len(short) < len(whole),
+           why(read) if isinstance(read, str)
+           else " (%u payload bytes for a %u-byte message)" % (len(tail), full))
+
+    # Tolerance for length must not become tolerance for corruption. The bit is
+    # flipped inside the extension region - the one part of the frame this
+    # client models nothing of - so a reader that had stopped checking the tail
+    # would still be catching this.
+    broken = bytearray(grown)
+    broken[head + full] ^= 0x01
+    try:
+        mavlink.parse(bytes(broken))
+        refused = False
+    except ValueError:
+        refused = True
+    expect("and a longer frame whose checksum does not match is still refused",
+           refused)
+
+
 def main():
+    self_contained()
     common = oracle()
     if common is None:
         return skip("no pymavlink at %s (run scripts/fetch-upstreams.sh "

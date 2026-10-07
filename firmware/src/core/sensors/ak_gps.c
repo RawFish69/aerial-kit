@@ -161,6 +161,14 @@ int ak_gps_feed(ak_gps_t *gps, uint8_t byte, uint32_t now_ms)
              * than storing a frame it cannot hold. */
             gps->bad_length++;
             gps->state = AK_GPS_STATE_SYNC1;
+        } else if (gps->expected == 0u) {
+            /* No payload: the next byte is the checksum. Going through the
+             * payload state stored the checksum as a payload byte and read the
+             * second checksum byte as the first, losing the frame and the
+             * sync with it. */
+            gps->payload_a = gps->checksum_a;
+            gps->payload_b = gps->checksum_b;
+            gps->state = AK_GPS_STATE_CK_A;
         } else {
             gps->state = AK_GPS_STATE_PAYLOAD;
         }

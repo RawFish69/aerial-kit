@@ -159,9 +159,18 @@ def main():
     window.fetch_one()
     pump(root, lambda: "failsafe_throttle" in window.message.cget("text"), 10.0)
     said = window.message.cget("text")
+    # `pgn=8193`, which looks wrong and is right. This check said `pgn=21` until
+    # 2026-10-02, and 21 is not a number any Betaflight board prints:
+    # `PG_REGISTER_I` in `src/main/pg/pg.h` stores `.pgn = _pgn | (_version <<
+    # 12)` and `src/main/flight/failsafe.c` registers `failsafeConfig` at
+    # version 2, so `cliGetSettingInfoByName` prints `1 | (2 << 12)` = 8193.
+    # The stand-in answered 21 -- its own invention -- and this check agreed
+    # with it, which is the shape of a check that is testing the fixture rather
+    # than the board. Correcting the stand-in to the release's own arithmetic
+    # turned this red, which is what it was for.
     expect("typing a setting's name and pressing return shows what the board "
            "says about it",
-           "failsafe_throttle = 1050" in said and "pgn=21" in said and
+           "failsafe_throttle = 1050" in said and "pgn=8193" in said and
            "max=2000" in said, " (%s)" % said.replace("\n", " / "))
     window.filter.delete(0, "end")
     window.fill_table()
@@ -264,9 +273,31 @@ def main():
         window2.fetch_one()
         pump(root2, lambda: "nav_rth_altitude" in window2.message.cget("text"),
              10.0)
-        expect("and a name from that list is answered the same way",
-               "no setting called" in window2.message.cget("text"),
+        # This check used to assert `"no setting called" in text`, and passed.
+        # It was passing for the wrong reason twice over: the window sent
+        # *Betaflight's* `MSP2_CLI_SETTING` (0x3010) to an INAV board, the
+        # stand-in answered it in INAV mode as though the two firmwares shared
+        # a settings protocol, and the sentence it matched on was the
+        # *window's* wrapper around whatever came back. `nav_rth_altitude` is a
+        # name INAV has, so "no setting called" was never the right answer.
+        # What is true is that this window does not read INAV's settings
+        # protocol at all, and the thing to check is that it says so itself,
+        # in its own voice, instead of asking an INAV board a Betaflight
+        # question.
+        expect("and a name the INAV box offers is refused in the window's own "
+               "voice rather than by asking an INAV board Betaflight's "
+               "question",
+               window2.message.cget("text").startswith("not read:") and
+               "0x3010" not in window2.message.cget("text") and
+               "parameter groups" in window2.message.cget("text"),
                " (%s)" % window2.message.cget("text").replace("\n", " / "))
+        # And the box says so before anything is typed into it, because a box
+        # that invites a person to press return has to say when return cannot
+        # work.
+        expect("and the box above it says the same thing rather than inviting "
+               "a press it cannot answer",
+               "Betaflight board only" in window2.table_label.cget("text"),
+               " (%s)" % window2.table_label.cget("text"))
     else:
         print("  ----     the INAV names: not checked here - %s"
               % window2.table_label.cget("text"))

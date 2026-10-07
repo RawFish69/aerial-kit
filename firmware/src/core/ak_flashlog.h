@@ -32,24 +32,44 @@
  *
  * Layout, and why each piece is where it is:
  *
- *   sector:  [32-byte header][record slots, 60 bytes each]
+ *   sector:  [32-byte header][record slots, 96 bytes each]
  *   header:  magic, version|slot bytes, sector index, sequence, first ms,
  *            reserved, reserved, checksum        (8 words)
- *   slot:    magic, payload checksum, 51-byte record, 1 byte of padding
+ *   slot:    magic, payload checksum, 87-byte record, 1 byte of padding
  *
  * The sequence in the header is what makes "newest" a fact rather than a
  * guess: the reader takes the sector with the highest sequence as the one
  * being written, and reads the others in sequence order behind it. The
  * checksums are what make a half-written header or a slot the power cut in
  * half *skippable*: a record that does not check out is reported as torn
- * rather than decoded into a plausible-looking lie. And the slot size is 60
- * because a 128 KB sector holds exactly 2184 of them after the header - the
+ * rather than decoded into a plausible-looking lie. And the slot size is 96
+ * because a 128 KB sector holds exactly 1365 of them after the header - the
  * arithmetic is a property of the part, and it is better for it to divide
  * evenly than to leave a tail nobody accounts for. (It was 48 until the record
  * grew a yaw and an altitude, which is the pair a bad landing is judged by,
- * then 52; 60 is the next size that still divides a sector exactly, and the
- * price is 336 fewer records per sector - about seven minutes of logging at
- * five a second, which is a flight.)
+ * then 52, then 60; 80 is the size roadmap 2.4's debug fields reach, and it is
+ * the *smallest* one that works rather than the next one: a slot is programmed
+ * a word at a time, so its size has to be a multiple of four, and of the sizes
+ * above the record's 74 bytes that divide a sector exactly, 80 is the first -
+ * so a sector held 1638 records until 4.1 rather than the 2184 a 60-byte slot gave it,
+ * which is 546 fewer: at five records a second a sector is five and a half
+ * minutes of flight where it was seven. The six bytes between the record and
+ * the end of its slot are padding rather than a field - and closing them by
+ * growing the record would spend 6,912 bytes of the part on six bytes nobody
+ * reads, because the record is held *three* times in RAM: the fast ring, the
+ * long ring's fallback and the retained one, 384 records each. See ak_log.h.)
+ *
+ * **96 since 2026-10-05** (roadmap 4.1's fields, log version 4): the record is
+ * 87 bytes and its slot 95, and of the multiples of four from there that
+ * divide 131,040 exactly, 96 is the first - one byte of padding. A sector holds
+ * 1365 records where it held 1638, and the F405's four-sector region 5460 where
+ * it held 6552: eighteen minutes at five records a second where it was
+ * twenty-two. The RAM cost is the record's growth times 384 times *two* now,
+ * the fallback ring having gone in 4.1's first half.
+ *
+ * An 80-byte ring a previous build left in flash is not read by this one -
+ * `version|slot bytes` is checked together, so a log written under the old
+ * geometry is refused rather than parsed at the new stride.
  *
  * The record itself is stored in the explicit little-endian layout
  * `ak_log_encode_record` writes, not as a C struct: a log that only the
@@ -59,9 +79,9 @@
 
 #define AK_FLASHLOG_MAGIC      0x414B464Cu /* "AKFL" */
 #define AK_FLASHLOG_SLOT_MAGIC 0x414B4653u /* "AKFS" */
-#define AK_FLASHLOG_VERSION    2u
+#define AK_FLASHLOG_VERSION    4u
 #define AK_FLASHLOG_HEADER_BYTES 32u
-#define AK_FLASHLOG_SLOT_BYTES   60u
+#define AK_FLASHLOG_SLOT_BYTES   96u
 /* The most regions a store may offer. Eight was the F405's six with room; the
  * ESP32's partition is eleven 64 KB regions, so it is sixteen - and an arch
  * that offers more than this gets a compile-time answer rather than a log that

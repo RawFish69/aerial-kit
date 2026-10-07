@@ -17,7 +17,11 @@ void ak_console_write(const char *text);
 
 /* Minimal printf: %s %c %d %i %u %x %X %p %%, with '-' and '0' flags and a
  * field width. No floats, no length modifiers - the point is to have no
- * dependency on libc at all, not to reimplement printf. */
+ * dependency on libc at all, not to reimplement printf.
+ *
+ * Returns how many characters the call produced. A line longer than the
+ * formatter's own buffer is handed to the sink in several pieces rather than
+ * cut short; see console.c for why, and for what that costs. */
 int ak_console_printf(const char *fmt, ...);
 
 #endif /* AK_CORE_AK_CONSOLE_H */

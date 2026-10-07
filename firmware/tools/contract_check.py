@@ -68,8 +68,22 @@ TELEMETRY_PREFIX_BYTES = 4
 
 # u32 time_ms, i16 gyro[3], i16 accel[3], i16 attitude[2], i16 yaw, i32 alt_mm,
 # i16 stick[4], i8 torque[3], u8 motor[4], u8 state, u8 flags,
-# i32 lat_e7, i32 lon_e7
-LOG_WIRE_BYTES = 51
+# i32 lat_e7, i32 lon_e7                                        = 51 bytes
+# i16 gyro_filtered[3], u16 notch_hz[3], u8 notch_engaged[3]     = 15 more
+# u32 time_us, i16 rate_setpoint[3], i8 pid_p[3], i8 pid_i[3], i8 pid_d[3],
+# u16 vbat_mv                                                    = 21 more
+#
+# The first 51 are version 2's and the next 15 version 3's, unmoved, and the
+# checks below assert both: a client built before roadmap 2.4, or before 4.1,
+# decodes a correct prefix rather than a record with every field after the
+# shift misread.
+LOG_WIRE_BYTES = 87
+LOG_V2_WIRE_BYTES = 51
+LOG_V3_WIRE_BYTES = 66
+# The struct's internal padding - the two bytes before alt_mm and the three
+# before lat_e7 - which the wire does not carry. Named because several checks
+# below are about the difference between the two layouts.
+LOG_STRUCT_PADDING = 5
 
 
 def expect(name, condition, detail=""):
@@ -143,6 +157,10 @@ def u8(value):
 
 def i16(value):
     return struct.pack("<h", value)
+
+
+def u16(value):
+    return struct.pack("<H", value & 0xFFFF)
 
 
 def i32(value):
@@ -322,7 +340,8 @@ def check_telemetry(document):
 # Group 3: the blackbox record.
 # ---------------------------------------------------------------------------
 
-def encode_log_record(record):
+def encode_log_record_v2(record):
+    """Version 2's record, which is version 3's first 51 bytes."""
     return b"".join([
         struct.pack("<I", record["time_ms"]),
         b"".join(i16(v) for v in record["gyro"]),
@@ -340,6 +359,26 @@ def encode_log_record(record):
     ])
 
 
+def encode_log_record_v3(record):
+    return encode_log_record_v2(record) + b"".join([
+        b"".join(i16(v) for v in record["gyro_filtered"]),
+        b"".join(u16(v) for v in record["notch_hz"]),
+        b"".join(u8(v) for v in record["notch_engaged"]),
+    ])
+
+
+def encode_log_record(record):
+    """Version 4: version 3 plus the controller's columns (roadmap 4.1)."""
+    return encode_log_record_v3(record) + b"".join([
+        struct.pack("<I", record["time_us"]),
+        b"".join(i16(v) for v in record["rate_setpoint"]),
+        b"".join(i8(v) for v in record["pid_p"]),
+        b"".join(i8(v) for v in record["pid_i"]),
+        b"".join(i8(v) for v in record["pid_d"]),
+        u16(record["vbat_mv"]),
+    ])
+
+
 def check_log_record(document):
     group = document["log_record"]
     record = group["record"]
@@ -354,16 +393,33 @@ def check_log_record(document):
            "\n        contract: %s\n        firmware: %s"
            % (wire.hex(), group["wire_hex"]))
 
+    # And the compatibility story, which is a claim about the bytes and so is
+    # checked against the bytes: roadmap 2.4 appended the filtering fields, so
+    # version 2's fifty-one bytes are still there, unmoved, at the front.
+    v2 = encode_log_record_v2(record)
+    expect("version 2's record is a prefix of version 3's",
+           wire[:LOG_V2_WIRE_BYTES] == v2)
+    expect("and the last of version 2's fields still ends where it did",
+           v2[-4:] == struct.pack("<i", record["lon_e7"]))
+    # And version 3's sixty-six, for the same reason: 4.1 appended too.
+    v3 = encode_log_record_v3(record)
+    expect("version 3's record is a prefix of version 4's",
+           wire[:LOG_V3_WIRE_BYTES] == v3 and len(v3) == LOG_V3_WIRE_BYTES)
+
     # The struct is *not* the wire format, and a client that assumes it is
     # reads every field after the first misaligned one as noise. The firmware
     # states both numbers; this is the check that they stay different and that
-    # the difference is the padding.
+    # the difference is the padding: the two gaps internal to version 2's
+    # fields (five bytes), the byte that aligns version 4's `time_us` after
+    # version 3's byte-sized tail, the byte that aligns `vbat_mv` after the
+    # nine P/I/D bytes, and the two the struct's end is rounded up by to its
+    # four-byte alignment. 5 + 1 + 1 + 2 = 9.
     expect("the C struct is larger than the wire record",
            group["sizeof_record"] > LOG_WIRE_BYTES,
            "(%d vs %d)" % (group["sizeof_record"], LOG_WIRE_BYTES))
     expect("the difference is padding, %d bytes"
            % (group["sizeof_record"] - LOG_WIRE_BYTES),
-           group["sizeof_record"] - LOG_WIRE_BYTES == 5)
+           group["sizeof_record"] - LOG_WIRE_BYTES == LOG_STRUCT_PADDING + 4)
 
     # The offsets are the struct's, and the wire has none of the gaps: every
     # offset after the first padded field is smaller on the wire. Checked by
@@ -373,12 +429,32 @@ def check_log_record(document):
     expect("the struct's field order is the wire's field order",
            order == ["time_ms", "gyro", "accel", "attitude", "yaw", "alt_mm",
                      "stick", "torque", "motor", "state", "flags", "lat_e7",
-                     "lon_e7"],
+                     "lon_e7", "gyro_filtered", "notch_hz", "notch_engaged",
+                     "time_us", "rate_setpoint", "pid_p", "pid_i", "pid_d",
+                     "vbat_mv"],
            "(%s)" % ", ".join(order))
     expect("alt_mm is padded in the struct but not on the wire",
            offsets["alt_mm"] == 24 and offsets["yaw"] + 2 == 22)
-    expect("the last field ends at the wire length",
-           offsets["lon_e7"] + 4 == LOG_WIRE_BYTES + 5)
+    expect("version 3's last field ends where version 3's wire did",
+           offsets["notch_engaged"] + 3 == LOG_V3_WIRE_BYTES + LOG_STRUCT_PADDING)
+    # The tail is appended, so the version-2 fields' struct offsets are
+    # exactly what they were and the new trio starts after them. A field
+    # inserted anywhere earlier would pass every check above and fail this one.
+    expect("the appended fields start where version 2's struct ended",
+           offsets["gyro_filtered"] == offsets["lon_e7"] + 4)
+    expect("and the tail is packed with no padding of its own",
+           offsets["notch_hz"] == offsets["gyro_filtered"] + 6
+           and offsets["notch_engaged"] == offsets["notch_hz"] + 6)
+    # Version 4's tail: appended after version 3's, its only gaps the two
+    # alignment bytes counted above, so a field inserted inside it shows here.
+    expect("version 4's fields start after version 3's, aligned",
+           offsets["time_us"] == offsets["notch_engaged"] + 3 + 1)
+    expect("and run in wire order with only vbat_mv's alignment byte between",
+           offsets["rate_setpoint"] == offsets["time_us"] + 4
+           and offsets["pid_p"] == offsets["rate_setpoint"] + 6
+           and offsets["pid_i"] == offsets["pid_p"] + 3
+           and offsets["pid_d"] == offsets["pid_i"] + 3
+           and offsets["vbat_mv"] == offsets["pid_d"] + 3 + 1)
 
 
 # ---------------------------------------------------------------------------
@@ -531,13 +607,32 @@ def self_test(document):
         doc["telemetry"]["frame_hex"] = "".join(hexed)
 
     def set_wire(doc):
-        doc["log_record"]["wire_hex"] = doc["log_record"]["wire_hex"][:-2] + "00"
+        # Flip a nibble in the middle of the record, at a byte the vector
+        # actually pins. Not the last byte: roadmap 2.4 gave the record a tail
+        # whose final byte is `notch_engaged[2]`, which this vector sets to
+        # zero, so "replace the last byte with 00" - which is what this
+        # mutation used to do - changed nothing and left the self-test
+        # reporting a mutation it had not made. The middle of the version-2
+        # fields is pinned by definition and cannot be zeroed by accident.
+        hexed = list(doc["log_record"]["wire_hex"])
+        at = (LOG_V2_WIRE_BYTES // 2) * 2
+        hexed[at] = "0" if hexed[at] != "0" else "1"
+        doc["log_record"]["wire_hex"] = "".join(hexed)
 
     def set_sizeof(doc):
-        doc["log_record"]["sizeof_record"] = 51
+        doc["log_record"]["sizeof_record"] = LOG_WIRE_BYTES
 
     def set_offset(doc):
         doc["log_record"]["offsets"]["alt_mm"] = 22
+
+    def set_tail_offset(doc):
+        # The new fields moved one byte earlier in the struct - which would be
+        # a field inserted ahead of the append, the one edit the compatibility
+        # story does not allow.
+        doc["log_record"]["offsets"]["gyro_filtered"] = 52
+
+    def set_notch(doc):
+        doc["log_record"]["record"]["notch_hz"][1] += 1
 
     def set_quat(doc):
         doc["ned_enu"]["attitudes"][3]["q_enu_wxyz"][1] += 0.01
@@ -553,6 +648,9 @@ def self_test(document):
     grouped("log_record", "a byte in the blackbox wire record", set_wire)
     grouped("log_record", "the struct and the wire conflated", set_sizeof)
     grouped("log_record", "a field offset moved", set_offset)
+    grouped("log_record", "an appended field placed earlier than the append",
+            set_tail_offset)
+    grouped("log_record", "a notch centre off by one hertz", set_notch)
     grouped("ned_enu", "a rotated attitude", set_quat)
     grouped("ned_enu", "the yaw origin off by a quarter turn", set_heading)
     grouped("ned_enu", "a position mapped the wrong way", set_position)

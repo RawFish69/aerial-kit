@@ -96,8 +96,39 @@
  * a burst therefore repeats between its own samples, which is a fact about
  * this part's configuration that a caller choosing a loop rate wants to know
  * about. */
-#define LSM6DSO_ODR_833HZ    0x07u /* accel, at gyro/8 */
-#define LSM6DSO_ODR_6664HZ   0x0Au /* gyro */
+#define LSM6DSO_ODR_833HZ    0x07u /* accel, at gyro/8; the gyro's own table
+                                    * below carries the codes it can take. */
+
+/*
+ * The rates the gyro can be put at by phase 1.4's `gyro_rate_hz`, and the four
+ * are the ones the pinned reference names for this part: the LSM6DSO's own init
+ * file in Betaflight 2026.6.1 (accgyro_spi_lsm6dso_init.c) carries ODR833 =
+ * 0x07, ODR1667 = 0x08, ODR3332 = 0x09 and ODR6664 = 0x0A for both CTRL1_XL and
+ * CTRL2_G - the same four codes in either register, which is why one table
+ * serves both here. The register map has codes below 833 Hz; nothing in this
+ * tree names them, so a request for one is refused rather than guessed.
+ *
+ * The accelerometer is not moved by `set_rate`. It stays at the 833 Hz `init`
+ * put it at, which is the reference's arrangement and one gyro sample in eight:
+ * the estimator's accelerometer correction is a slow outer loop that 833 Hz is
+ * eight times more than enough for, and this is the one part here whose two
+ * sensors are *meant* to run at different rates. A caller that wants the
+ * accelerometer faster has no way to ask for it yet, and that is a gap this
+ * milestone leaves stated rather than closed.
+ */
+typedef struct {
+    uint32_t hz;
+    uint8_t  code;
+} lsm6dso_odr_t;
+
+static const lsm6dso_odr_t lsm6dso_gyro_odr[] = {
+    { 6664u, 0x0Au },
+    { 3332u, 0x09u },
+    { 1660u, 0x08u },
+    {  833u, 0x07u },
+};
+
+#define LSM6DSO_DEFAULT_ODR_HZ 6664u
 
 #define LSM6DSO_FS_16G       0x01u
 #define LSM6DSO_FS_2000DPS   0x03u
@@ -162,6 +193,26 @@ static int lsm6dso_write_wait(const ak_bus_t *bus, uint8_t reg, uint8_t value,
 }
 
 /*
+ * The gyro's data-ready on interrupt pin 1, or off.
+ *
+ * INT1_CTRL's bit 1 is the gyro's data-ready enable, and it is the whole of
+ * this call: there is no pulse shape to set on this part, because the line is
+ * a push-pull pulse the part raises for the configured duration by itself.
+ *
+ * The pair of writes `init` used to make directly still happens here and in the
+ * same order - this is the same register with the same value written the same
+ * way, reached through a name rather than spelled out twice. What it buys is
+ * that a board with no INT pad can turn the line off through the same call the
+ * other three drivers implement, instead of the driver having no off switch.
+ */
+static int lsm6dso_configure_drdy(const ak_bus_t *bus, int enable)
+{
+    return lsm6dso_write_wait(bus, LSM6DSO_INT1_CTRL,
+                              enable ? LSM6DSO_INT_DRDY_G : 0x00u,
+                              LSM6DSO_CONFIG_DELAY_MS);
+}
+
+/*
  * Read a configuration register, replace the bits this driver owns, write it
  * back, wait.
  *
@@ -190,6 +241,31 @@ static int lsm6dso_write_bits(const ak_bus_t *bus, uint8_t reg, uint8_t mask,
                               delay_ms);
 }
 
+/* Phase 1.4's hook. Only CTRL2_G is written: the accelerometer's rate is
+ * CTRL1_XL's and this driver leaves it where `init` put it - see the table's
+ * comment. The full-scale field goes back in with the rate because the two
+ * share a byte, and the write is a read-free constant rather than a
+ * read-modify-write for the same reason `init`'s is. */
+static uint32_t lsm6dso_set_rate(const ak_bus_t *bus, uint32_t hz,
+                                 ak_printf_fn out)
+{
+    (void)out;
+
+    for (unsigned i = 0;
+         i < sizeof lsm6dso_gyro_odr / sizeof lsm6dso_gyro_odr[0]; i++) {
+        if (hz >= lsm6dso_gyro_odr[i].hz) {
+            if (lsm6dso_write_wait(bus, LSM6DSO_CTRL2_G,
+                                   (uint8_t)((lsm6dso_gyro_odr[i].code << 4) |
+                                             (LSM6DSO_FS_2000DPS << 2)),
+                                   LSM6DSO_CONFIG_DELAY_MS) != 0) {
+                return 0;
+            }
+            return lsm6dso_gyro_odr[i].hz;
+        }
+    }
+    return 0;
+}
+
 static int lsm6dso_init(const ak_bus_t *bus, ak_printf_fn out)
 {
     /* Reset first, and wait the hundred milliseconds it asks for. Every write
@@ -205,8 +281,7 @@ static int lsm6dso_init(const ak_bus_t *bus, ak_printf_fn out)
         return -1;
     }
 
-    if (lsm6dso_write_wait(bus, LSM6DSO_INT1_CTRL, LSM6DSO_INT_DRDY_G,
-                           LSM6DSO_CONFIG_DELAY_MS) != 0 ||
+    if (lsm6dso_configure_drdy(bus, 1) != 0 ||
         lsm6dso_write_wait(bus, LSM6DSO_INT2_CTRL, 0x00u,
                            LSM6DSO_CONFIG_DELAY_MS) != 0 ||
         lsm6dso_write_wait(bus, LSM6DSO_CTRL1_XL,
@@ -214,10 +289,7 @@ static int lsm6dso_init(const ak_bus_t *bus, ak_printf_fn out)
                                      (LSM6DSO_FS_16G << 2) |
                                      (LSM6DSO_XL_LPF1 << 1)),
                            LSM6DSO_CONFIG_DELAY_MS) != 0 ||
-        lsm6dso_write_wait(bus, LSM6DSO_CTRL2_G,
-                           (uint8_t)((LSM6DSO_ODR_6664HZ << 4) |
-                                     (LSM6DSO_FS_2000DPS << 2)),
-                           LSM6DSO_CONFIG_DELAY_MS) != 0 ||
+        lsm6dso_set_rate(bus, LSM6DSO_DEFAULT_ODR_HZ, 0) == 0u ||
         lsm6dso_write_bits(bus, LSM6DSO_CTRL3_C, LSM6DSO_CTRL3_MASK,
                            LSM6DSO_CTRL3_BDU | LSM6DSO_CTRL3_IF_INC,
                            LSM6DSO_CONFIG_DELAY_MS) != 0 ||
@@ -279,4 +351,6 @@ const ak_imu_driver_t ak_imu_lsm6dso = {
     .whoami_value = LSM6DSO_WHOAMI_VALUE,
     .init = lsm6dso_init,
     .read = lsm6dso_read,
+    .configure_drdy = lsm6dso_configure_drdy,
+    .set_rate = lsm6dso_set_rate,
 };

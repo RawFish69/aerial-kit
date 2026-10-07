@@ -57,8 +57,22 @@
  * in the record is a configuration that saves itself by halves: `save` is
  * refused outright when the text does not fit (see ak_cli.c), rather than
  * writing a prefix that loads back as a mixture of two configurations.
+ *
+ * It grew again for roadmap 2.2, and that is worth writing down because the
+ * way it was found is the argument for the headroom rather than an argument
+ * against it. The gyro and D-term chains turned two parameters into eight, so
+ * the table went from 96 used to 100 needed - and what the console said was
+ * "4 parameters did not fit", with `launch_channel` among them. Four settings
+ * that have nothing to do with filters stopped existing, and the only reason
+ * anybody noticed is that a simulator scenario happens to throw a launch
+ * switch. A limit that is *just* big enough is a limit that silently deletes
+ * whatever was registered last, and the registration order is a maintenance
+ * accident. 128 is the round number above the arithmetic with room for the
+ * rest of the roadmap's chain work; `ak_params_overflow()` still reports, and
+ * the simulator now treats a nonzero count as a failure rather than a line to
+ * scroll past.
  */
-#define AK_PARAMS_MAX      96
+#define AK_PARAMS_MAX      128
 #define AK_PARAMS_TEXT_MAX 2048
 /* The longest value a text parameter can hold, including its terminator. A
  * Wi-Fi password is up to 63 characters and an SSID up to 32, and 64 is the
@@ -162,12 +176,16 @@ typedef struct {
      * record was written by a build that may have had different parameters.
      * `applied` is what came from the record, `unknown` is what the record
      * carried and this build does not have, and `unmentioned` is this build's
-     * and the record never saw. The first name of each, because a count says
-     * something happened and a name says what. */
+     * and the record never saw. `renamed` is the third thing a value in the
+     * record can be: a name this build knows under a different spelling, whose
+     * value was carried across rather than dropped. The first name of each,
+     * because a count says something happened and a name says what. */
     unsigned    load_applied;
     unsigned    load_unknown;
+    unsigned    load_renamed;
     unsigned    load_unmentioned;
     char        load_unknown_name[AK_PARAM_NAME_MAX];
+    char        load_renamed_name[AK_PARAM_NAME_MAX]; /* as the record spelt it */
     char        load_unmentioned_name[AK_PARAM_NAME_MAX];
     int         load_have_report;
 } ak_params_t;
@@ -177,8 +195,11 @@ typedef struct {
     unsigned    total;      /* parameters this build has */
     unsigned    applied;    /* of them, that the record set */
     unsigned    unknown;    /* in the record, not in this build */
+    unsigned    renamed;    /* in the record under an older name of the same
+                             * parameter; the value was carried across */
     unsigned    unmentioned;/* in this build, never in the record */
     const char *unknown_name;      /* "" when there were none */
+    const char *renamed_name;      /* the record's spelling */
     const char *unmentioned_name;
 } ak_params_load_report_t;
 
@@ -363,7 +384,9 @@ int ak_params_save(ak_params_t *params, char *buf, unsigned len,
 
 /* Reads what serialize() wrote. Unknown names are skipped - a file from a newer
  * build should not stop an older one - while an invalid value for a known name
- * is an error. Returns 0 on success, -1 with `msg` set otherwise. */
+ * is an error: every valid value in the record is still loaded, the refused
+ * one keeps its current value, and the call returns -1 with `msg` naming the
+ * first refusal ("name: why"). Returns 0 when every known value was taken. */
 int ak_params_deserialize(ak_params_t *params, const char *text, char *msg,
                           unsigned msg_len);
 

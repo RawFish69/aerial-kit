@@ -85,6 +85,19 @@ void ak_spi_init(uint32_t spi, ak_pin_t sck, ak_pin_t miso, ak_pin_t mosi,
                  uint8_t af);
 int  ak_spi_transfer(uint32_t spi, const uint8_t *tx, uint8_t *rx, unsigned len);
 
+/* The DMA path (spi.c, roadmap phase 1.2). `_start` programs the streams and
+ * returns with the receive stream's interrupt armed; the bytes are in `rx`
+ * when it fires. `ak_spi_transfer_dma` is start-then-wait, for a caller that
+ * wants the read finished before it goes on.
+ *
+ * Only SPI1 has a stream on this part, and a bus without one is refused rather
+ * than served slowly - the table and its two refusals are in spi.c, and they
+ * are the reason this is not simply `ak_spi_transfer` with a flag. */
+int  ak_spi_transfer_dma_start(uint32_t spi, const uint8_t *tx, uint8_t *rx,
+                               unsigned len);
+int  ak_spi_transfer_dma(uint32_t spi, const uint8_t *tx, uint8_t *rx,
+                         unsigned len);
+
 /* ADC (adc.c). One channel, one conversion at a time, polled: the caller sets
  * a pin up as analog with ak_pin_analog() and then asks for counts. */
 void ak_adc_init(uint32_t adc, uint32_t channel);
@@ -114,9 +127,27 @@ int  ak_i2c_write_reg(uint32_t i2c, uint8_t address, uint8_t reg, uint8_t value)
 int ak_i2c_bus_recover(uint32_t i2c, ak_pin_t scl, ak_pin_t sda, uint8_t af,
                        uint32_t speed_hz);
 
-/* SysTick (systick.c) */
+/* SysTick (systick.c). The microsecond reading is the millisecond one plus the
+ * fraction SysTick is holding - see the note on ak_arch_time_us for the
+ * rollover it has to read around. On the host build both come from one counter
+ * a test moves, and `ak_host_tick_advance_us` is the finer of the two steps. */
 void     ak_arch_time_init(void);
 uint32_t ak_arch_time_ms(void);
+uint32_t ak_arch_time_us(void);
+
+/* Host only: the tick is a variable no timer moves there, so a test has to move
+ * it. `ak_host_tick_advance` steps whole milliseconds and every caller of it
+ * predates the microsecond clock, so it leaves the fraction alone rather than
+ * clearing it; the `_us` form is the finer step and exists for the scheduler's
+ * deadlines, which a millisecond cannot express.
+ *
+ * Declared unconditionally rather than behind `#ifdef AK_HOST_TICK`: that flag
+ * is set per *object* (see the Makefile's two rules for it) and no header
+ * defines it, so a guard here would hide these from the very tests that need
+ * them. A target build that calls one gets an undefined reference, which is the
+ * right failure - there is no SysTick to move on a board that has one running. */
+void ak_host_tick_advance(uint32_t ms);
+void ak_host_tick_advance_us(uint32_t us);
 
 /* Startup support (startup.c) */
 void ak_fpu_enable(void);

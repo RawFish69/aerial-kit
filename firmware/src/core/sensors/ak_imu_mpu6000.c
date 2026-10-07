@@ -69,7 +69,30 @@
 /* DLPF 42 Hz, which puts the gyro's output rate at 1 kHz - and with a 1 kHz
  * output rate, a sample-rate divider of zero is 1 kHz. */
 #define MPU_DLPF_42HZ       0x03
-#define MPU_DIVIDER_1KHZ    0x00
+
+/*
+ * The rate the sample divider is set to, and the rates it can be set to.
+ *
+ * The register's own definition, quoted in the pinned reference
+ * (Betaflight 2026.6.1, accgyro_mpu6050.c: "SMPLRT_DIV = 0 Sample Rate =
+ * Gyroscope Output Rate / (1 + SMPLRT_DIV)"), is the whole of the arithmetic
+ * below: with the DLPF above the output rate is 1 kHz, so the divisor for a
+ * wanted rate is 1000/hz - 1.
+ *
+ * The list is the rates that divide 1000 exactly. Every other value between
+ * them is a rate the part can be *near* and not at, and a firmware that
+ * answered "3 kHz" with a divider of 0 would be claiming a rate it does not
+ * have; one asked for 3000 Hz gets the 1000 it already had, by name.
+ *
+ * One divider drives both sensors on this part, so unlike the BMI270 the
+ * accelerometer cannot be left behind - whatever the gyro is at, the
+ * accelerometer is at too.
+ */
+#define MPU_DEFAULT_RATE_HZ 1000u
+
+static const uint32_t mpu_rates[] = {
+    1000u, 500u, 250u, 200u, 125u, 100u, 50u, 25u, 20u, 10u, 5u,
+};
 
 #define MPU_GYRO_FS_2000DPS 0x18
 #define MPU_ACCEL_FS_16G    0x18
@@ -97,6 +120,52 @@ static int mpu_write(const ak_bus_t *bus, uint8_t reg, uint8_t value)
     return 0;
 }
 
+/* Phase 1.4's hook: the fastest rate in `mpu_rates` that is not above `hz`,
+ * written as a divider - see the table's comment for the arithmetic. The
+ * output rate the part is configured for is 1 kHz and is not itself settable,
+ * so a request above it lands on 1000. */
+static uint32_t mpu_set_rate(const ak_bus_t *bus, uint32_t hz, ak_printf_fn out)
+{
+    (void)out;
+
+    for (unsigned i = 0; i < sizeof mpu_rates / sizeof mpu_rates[0]; i++) {
+        if (hz >= mpu_rates[i]) {
+            const uint8_t divider =
+                (uint8_t)(MPU_DEFAULT_RATE_HZ / mpu_rates[i] - 1u);
+            if (mpu_write(bus, MPU_SMPLRT_DIV, divider) != 0) {
+                return 0;
+            }
+            return mpu_rates[i];
+        }
+    }
+    return 0;
+}
+
+/*
+ * The data-ready interrupt on the part's INT pin, or off.
+ *
+ * Two registers, and they are a pair on this part: INT_PIN_CFG says what the
+ * pin does - here, that any register read clears the latch (ANYRD_CLEAR), so
+ * the line does not stay asserted after the handler has read the sample it was
+ * raised for - and INT_ENABLE says which of the part's internal sources is
+ * allowed to drive it. Neither is meaningful without the other.
+ *
+ * This comment is older than this function and said as much: "Nothing here
+ * reads the pin, but a board that fits one later should not find it stuck."
+ * The board that fits one later now has a call to reach this by.
+ */
+static int mpu_configure_drdy(const ak_bus_t *bus, int enable)
+{
+    if (!enable) {
+        return mpu_write(bus, MPU_INT_ENABLE, 0x00);
+    }
+    if (mpu_write(bus, MPU_INT_PIN_CFG, MPU_INT_ANYRD_CLEAR) != 0 ||
+        mpu_write(bus, MPU_INT_ENABLE, MPU_INT_DATA_RDY) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
 static int mpu_init(const ak_bus_t *bus, ak_printf_fn out)
 {
     /* The order is the reference implementation's: clock, then the I2C bus off,
@@ -109,12 +178,11 @@ static int mpu_init(const ak_bus_t *bus, ak_printf_fn out)
 
     if (mpu_write(bus, MPU_USER_CTRL, MPU_I2C_IF_DIS) != 0 ||
         mpu_write(bus, MPU_PWR_MGMT_2, 0x00) != 0 ||
-        mpu_write(bus, MPU_SMPLRT_DIV, MPU_DIVIDER_1KHZ) != 0 ||
+        mpu_set_rate(bus, MPU_DEFAULT_RATE_HZ, 0) == 0u ||
         mpu_write(bus, MPU_CONFIG, MPU_DLPF_42HZ) != 0 ||
         mpu_write(bus, MPU_GYRO_CONFIG, MPU_GYRO_FS_2000DPS) != 0 ||
         mpu_write(bus, MPU_ACCEL_CONFIG, MPU_ACCEL_FS_16G) != 0 ||
-        mpu_write(bus, MPU_INT_PIN_CFG, MPU_INT_ANYRD_CLEAR) != 0 ||
-        mpu_write(bus, MPU_INT_ENABLE, MPU_INT_DATA_RDY) != 0) {
+        mpu_configure_drdy(bus, 1) != 0) {
         return -1;
     }
 
@@ -161,6 +229,8 @@ const ak_imu_driver_t ak_imu_mpu6000 = {
     .whoami_value = MPU_WHOAMI_6000,
     .init = mpu_init,
     .read = mpu_read,
+    .configure_drdy = mpu_configure_drdy,
+    .set_rate = mpu_set_rate,
 };
 
 /* The same driver, two more parts. Same register map, same initialisation, same
@@ -172,6 +242,8 @@ const ak_imu_driver_t ak_imu_mpu6500 = {
     .whoami_value = MPU_WHOAMI_6500,
     .init = mpu_init,
     .read = mpu_read,
+    .configure_drdy = mpu_configure_drdy,
+    .set_rate = mpu_set_rate,
 };
 
 const ak_imu_driver_t ak_imu_mpu9250 = {
@@ -180,4 +252,6 @@ const ak_imu_driver_t ak_imu_mpu9250 = {
     .whoami_value = MPU_WHOAMI_9250,
     .init = mpu_init,
     .read = mpu_read,
+    .configure_drdy = mpu_configure_drdy,
+    .set_rate = mpu_set_rate,
 };

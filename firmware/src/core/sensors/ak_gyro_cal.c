@@ -48,6 +48,13 @@ int ak_gyro_cal_feed(ak_gyro_cal_t *cal, const ak_imu_sample_t *sample)
     if (!cal->running) {
         return 0;
     }
+    /* A sample the driver could not read is not a sample. The caller's buffer
+     * still holds the previous one - already aligned and bias-corrected - and
+     * feeding it again subtracted the bias twice and counted towards `wanted`.
+     * The accelerometer's calibration has always asked this. */
+    if (!sample->valid) {
+        return 0;
+    }
 
     /* Compensated first, so the accumulator holds the residual and a second
      * calibration refines rather than doubles the correction. */
