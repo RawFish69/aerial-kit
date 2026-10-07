@@ -10,7 +10,7 @@ describe('configuration workflow', () => {
   it('keeps edits separate from saving and offers a review across tabs', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: 'Explore demo' }));
+    await user.click(screen.getByRole('button', { name: 'Open demo' }));
     await screen.findByText('aerialkit-demo');
     await user.click(screen.getByRole('button', { name: 'Parameters' }));
     await user.type(await screen.findByRole('textbox', { name: 'rate_kp_roll, new value' }), '0.500');
@@ -30,7 +30,7 @@ describe('configuration workflow', () => {
     await user.click(screen.getByRole('button', { name: 'Review edits (1)' }));
     expect(screen.queryByRole('textbox', { name: 'rate_kp_pitch, new value' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Disconnect' }));
-    await user.click(await screen.findByRole('button', { name: 'Explore demo' }));
+    await user.click(await screen.findByRole('button', { name: 'Open demo' }));
     await screen.findByText('aerialkit-demo');
     expect(screen.getByRole('heading', { level: 1, name: 'Attitude' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Parameters' }));

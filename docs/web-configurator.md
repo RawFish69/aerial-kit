@@ -1,8 +1,25 @@
-# AerialKit web configurator
+# Aerial Kit web configurator
 
 [App source](../apps/configurator) · [Full build/deployment guide](../apps/configurator/docs/BUILD-AND-DEPLOY.md) · [Firmware](flight-controller-firmware.md)
 
 A standalone React/TypeScript app for board identity, attitude, live diagnostics and parameter configuration. It detects supported firmware and exposes capabilities reported by the connected board. The built app is static files; the optional local bridge is a separate helper.
+
+## Open the configurator
+
+[Launch Aerial Kit Configurator](https://rawfish69.github.io/aerial-kit/) · [Download source](https://github.com/RawFish69/aerial-kit/archive/refs/heads/main.zip)
+
+No installation is needed for the hosted app. Choose **Demo board**, then **Explore demo** to try it without hardware. Readings are simulated and edits reset on disconnect.
+
+For a physical board:
+
+1. Build and flash the correct [firmware profile](flight-controller-firmware.md). The public profiles are Feather F405 and ESP32DEV; a profile does not establish that external sensors or wiring work.
+2. Open the app in a desktop browser that supports Web Serial, such as Chrome or Edge, and plug in a USB data cable.
+3. Close other applications using the serial port. Select **USB serial**, click **Connect via USB**, and choose the board in the browser's permission dialog.
+4. Confirm the board identity. Inspect attitude and sensor readings before editing parameters.
+
+The page requests a device only after you click Connect. It does not flash firmware automatically. A board in ROM DFU mode must first be flashed and booted into the firmware's USB console. Safari and Firefox users can explore the demo or use a supported browser for USB.
+
+**Local bridge:** GitHub Pages serves HTTPS. Browsers can block an insecure `ws://` bridge from that page. Run the app locally with the loopback helper, or configure a trusted secure `wss://` endpoint using the [bridge guide](../apps/configurator/docs/BUILD-AND-DEPLOY.md). GitHub Pages hosts static assets and cannot run the bridge or firmware builds.
 
 ## Run locally
 
@@ -47,13 +64,21 @@ Writes are gated by armed state and freshness. An echoed value does not prove th
 ```sh
 npm test
 npm run build
-AK_BASE=/aerialkit/configurator/ npm run build
+AK_BASE=/aerial-kit/ npm run build
 npm run verify:deploy
 ```
 
 `dist/` is the static site. `AK_BASE` sets an optional hosting subpath and also covers logo/favicon URLs. Live SITL tests require the simulator specified by `AERIALKIT_SITL`; without it those cases are skipped. The drift checks compare source citations, demo metadata and MAVLink dialect generation against `../../firmware/`. The public tree does not include the large C host simulator; Local bridge and live SITL workflows require an externally built simulator or a real serial bridge.
 
-Publishing source in this repo does not deploy a hosted configurator. See the deployment guide for serving it over HTTPS and running the loopback bridge.
+## GitHub Pages deployment
+
+[The Pages workflow](../.github/workflows/configurator-pages.yml) tests and builds the app on relevant pushes to `main`; pull requests build without deploying. It publishes `apps/configurator/dist` with `AK_BASE=/aerial-kit/`, including the logo and favicon beneath that path.
+
+In repository **Settings → Pages**, use **GitHub Actions** as the source. Run **Configurator and GitHub Pages** manually when enabling it for the first time. The deployment job needs `pages: write`, `id-token: write`, and the `github-pages` environment. A successful deployment exposes the app at the launch link above. See [GitHub's custom workflow guide](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) for repository settings.
+
+## Connect Python to firmware
+
+The [read-only Python example](../examples/firmware/) reads board identity and attitude over USB or a firmware TCP endpoint, then converts the firmware's NED/FRD attitude into the Python stack's ENU/FLU quaternion convention. It uses the same protocol client as the firmware tools. It is a telemetry example, not a flight-control loop.
 
 ## Brand and licence
 

@@ -25,6 +25,18 @@ import { BoardLink, makeBoard, realParameters } from './helpers';
  * nobody has.
  */
 
+/**
+ * How many rows the demo board's fixture table holds.
+ *
+ * Read from the fixture rather than written down. It was a literal 33 until the
+ * firmware's eight chain parameters replaced two and made it 39, at which point
+ * every `33` in this file asserted the old table against the new one — the same
+ * way `meta_def[16]` asserted a 96-row maximum against a 128-row one. The
+ * fixture is regenerated from the running firmware by `capture-fixtures.py`, so
+ * this number moves when the board's table does, and that is the point.
+ */
+const ROWS = realParameters().length;
+
 let clients: AerialKitClient[] = [];
 
 function clientOn(link: BoardLink): AerialKitClient {
@@ -60,14 +72,14 @@ function tooBig(nameLength = 90): DemoParameter {
 
 describe('param info', () => {
   it('pages, and says on each page how many entries it actually carried', async () => {
-    // 33 rows of ~30 bytes do not fit one 96-byte frame, so a walk that came
+    // 39 rows of ~30 bytes do not fit one 96-byte frame, so a walk that came
     // back with all of them would be a walk that had not happened.
     const board = makeBoard();
     const client = clientOn(new BoardLink(board));
     const first = await client.paramInfo(0);
     expect(first.status).toBe(InfoStatus.OK);
     expect(first.entries.length).toBeGreaterThan(0);
-    expect(first.entries.length).toBeLessThan(33);
+    expect(first.entries.length).toBeLessThan(ROWS);
     expect(first.first).toBe(0);
     // The first entry is the row at index 0, described — not the row after it,
     // and not a row from anywhere else.
@@ -85,7 +97,7 @@ describe('param info', () => {
     const names: string[] = [];
     let index = 0;
     let pages = 0;
-    while (index < 33) {
+    while (index < ROWS) {
       const page = await client.paramInfo(index);
       expect(page.first, `page starting at ${index}`).toBe(index);
       if (page.entries.length === 0) break;
@@ -94,13 +106,13 @@ describe('param info', () => {
       pages++;
       expect(pages).toBeLessThan(40);
     }
-    expect(names.length).toBe(33);
+    expect(names.length).toBe(ROWS);
     expect(new Set(names).size).toBe(names.length);
     // And the same names, in the same order, as the value walk the app does
     // first. Two enumerations of one table that disagree is how this table has
     // failed before.
     const values: string[] = [];
-    for (let i = 0; i < 33; i++) {
+    for (let i = 0; i < ROWS; i++) {
       const item = await client.paramGet(i);
       // `null` is the board saying there is no such index, which would make
       // this comparison vacuous — so it is asserted rather than asserted away.
@@ -113,7 +125,7 @@ describe('param info', () => {
   it('reports a row too large to fit one frame, and does not stop there', async () => {
     // The failure this guards is the quiet one: `carried == 0` with status 0
     // means "the end of the table", and a client that read status 2 the same way
-    // would render a 33-row table as one row shorter and never say so.
+    // would render a 39-row table as one row shorter and never say so.
     const board = makeBoard({ parameters: [tooBig(), ...realParameters().slice(0, 2)] });
     const client = clientOn(new BoardLink(board));
 
@@ -207,12 +219,12 @@ describe('a board from before any of this', () => {
     const client = clientOn(new BoardLink(oldBoard()));
     const hello = await client.hello();
     expect(hello.features).toBeNull();
-    expect(hello.parameterCount).toBe(33);
+    expect(hello.parameterCount).toBe(ROWS);
     const row = await client.paramGet(0);
     expect(row).not.toBeNull();
     expect(row!.name).toBe('rate_kp_roll');
     expect(row!.value).toBe('0.250');
-    await expect(client.paramInfoList(33)).rejects.toThrow(/0x7[fF]/);
+    await expect(client.paramInfoList(ROWS)).rejects.toThrow(/0x7[fF]/);
   });
 
   it('is not a board with a word that says zero', async () => {

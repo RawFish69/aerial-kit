@@ -1,4 +1,10 @@
-import { CRC_EXTRA, frameChecksum, mavLayout, MavlinkDecoder } from '../src/protocol/mavlink';
+import {
+  CRC_EXTRA,
+  frameChecksum,
+  mavLayout,
+  MavlinkDecoder,
+  paramValueOf,
+} from '../src/protocol/mavlink';
 import type { Transport } from '../src/transport/types';
 import fixture from './fixtures/mavlink.json';
 
@@ -204,6 +210,25 @@ export class MavFixtureVehicle {
    *  thing a request can come to. */
   answersCommandLong = true;
 
+  /** Whether the vehicle answers a `PARAM_SET` with a `PARAM_VALUE` at all.
+   *
+   *  False models the case MAVLink cannot distinguish from agreement by
+   *  silence alone: the frame went out and nothing came back, so the write
+   *  stands unresolved. That is a real outcome on a lossy link and the app has
+   *  to be able to say so rather than assume the best. */
+  answersParamSet = true;
+
+  /** Whether the vehicle *takes* the value it was sent.
+   *
+   *  True is an ordinary writable parameter. **False is the shape ArduPilot
+   *  actually uses for a read-only one**: `GCS_Param.cpp` does not error, it
+   *  sends the parameter's own current value back as an ordinary `PARAM_VALUE`,
+   *  and a client that only looked for "did a value come back" would record
+   *  that as agreement. So this knob is what makes the read-back test able to
+   *  fail — set false and an app that trusted the mere arrival of a
+   *  `PARAM_VALUE` reports a write that never happened. */
+  acceptsParamSet = true;
+
   /** The last frame `say()` put on the wire, so a test can mangle a copy of it. */
   lastSaid: Uint8Array | null = null;
 
@@ -279,6 +304,27 @@ export class MavFixtureVehicle {
           }),
         );
       }
+    }
+
+    if (first.msgid === 23 && this.answersParamSet) {
+      // `PARAM_SET`. The vehicle echoes a `PARAM_VALUE` — and that is the whole
+      // of MAVLink's answer, because there is no separate ack message. Which
+      // value comes back is the vehicle's decision, and this is where a real
+      // autopilot's two behaviours live: it takes the value, or it keeps its
+      // own. ArduPilot does the second for a read-only parameter, silently.
+      const sent = paramValueOf(first);
+      const held = this.parameters.find((parameter) => parameter.id === sent.paramId);
+      const value = this.acceptsParamSet ? sent.paramValue : (held?.value ?? sent.paramValue);
+      if (this.acceptsParamSet && held !== undefined) held.value = value;
+      this.deliver(
+        patchedFrame('PARAM_VALUE', {
+          param_id: sent.paramId,
+          param_value: value,
+          param_type: sent.paramType,
+          param_count: this.parameters.length,
+          param_index: this.parameters.findIndex((parameter) => parameter.id === sent.paramId),
+        }),
+      );
     }
 
     if (first.msgid === 76 && this.answersCommandLong) {

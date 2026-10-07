@@ -8,7 +8,7 @@ import {
   type ClientOptions,
 } from '../src/protocol/client';
 import { buildFrame } from '../src/protocol/frame';
-import { BoardLink, ManualLink, makeBoard, settle } from './helpers';
+import { BoardLink, ManualLink, makeBoard, realParameters, settle } from './helpers';
 
 /**
  * The client, against a board that answers like the firmware.
@@ -43,13 +43,15 @@ describe('requesting', () => {
     const client = clientOn(new BoardLink(makeBoard()));
     const hello = await client.hello();
     expect(hello.product).toBe('aerialkit-demo');
-    // The demo board's fixture table, which is the firmware's own 33-row table
-    // as `capture-fixtures.py` read it off the wire. This number was 32 while
-    // the fixture was a hand-copied snapshot missing `arm_accel_lpf_hz`, and
-    // nothing failed — the file was internally consistent and every consumer
-    // joined it to the board by name. `npm run verify:drift` is what catches it
-    // now; this number is the second, cruder alarm.
-    expect(hello.parameterCount).toBe(33);
+    // The demo board's fixture table, which is the firmware's own table as
+    // `capture-fixtures.py` read it off the wire. This number was 32 while the
+    // fixture was a hand-copied snapshot missing `arm_accel_lpf_hz`, and nothing
+    // failed — the file was internally consistent and every consumer joined it
+    // to the board by name. `npm run verify:drift` is what catches it now; this
+    // is the second, cruder alarm. Read from the fixture rather than written
+    // down, so a table that grows does not leave this asserting the old one —
+    // it was a literal 33 when the firmware's chain parameters made it 39.
+    expect(hello.parameterCount).toBe(realParameters().length);
   });
 
   it('serialises requests, because the wire correlates by command byte alone', async () => {

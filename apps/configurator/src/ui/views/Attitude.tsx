@@ -1,6 +1,8 @@
 import { Button, Tag } from '@blueprintjs/core';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { LiveView } from '../../session/types';
 import { buildAirframe } from './airframes';
 
@@ -15,6 +17,9 @@ import { buildAirframe } from './airframes';
  */
 
 const DEG = Math.PI / 180;
+
+/** STATUS carries each motor output as one byte, 0 to 254 (main.c scales by 254). */
+const MOTOR_FULL = 254;
 
 /** jsdom (the unit tests' browser) has no canvas or WebGL and logs an error for
  *  every attempt; the views draw nothing there instead. */
@@ -40,6 +45,8 @@ export function AttitudeView({
   const status = live.status;
   const [yawZero, setYawZero] = useState(0);
   const [followHeading, setFollowHeading] = useState(false);
+  /** Spins the props on screen only; nothing is sent to the board. */
+  const [spinPreview, setSpinPreview] = useState(false);
 
   useEffect(() => {
     onWatch(true);
@@ -71,6 +78,7 @@ export function AttitudeView({
           yaw={followHeading ? 0 : yaw}
           airframe={airframe}
           motors={motors}
+          spinPreview={spinPreview}
         />
         <div className="viewport-hud">
           <Tag intent={live.stale || status === null ? 'warning' : 'success'} minimal round>
@@ -83,6 +91,16 @@ export function AttitudeView({
           </Button>
           <Button type="button" icon="compass" active={followHeading} aria-pressed={followHeading} onClick={() => setFollowHeading((on) => !on)}>
             {followHeading ? 'Showing roll and pitch only' : 'Hide heading'}
+          </Button>
+          <Button
+            type="button"
+            icon="refresh"
+            active={spinPreview}
+            aria-pressed={spinPreview}
+            onClick={() => setSpinPreview((on) => !on)}
+            title="Spin the props on screen to check their direction. Nothing is sent to the board."
+          >
+            Spin props
           </Button>
         </div>
       </div>
@@ -120,16 +138,18 @@ function Scene({
   yaw,
   airframe,
   motors,
+  spinPreview,
 }: {
   roll: number;
   pitch: number;
   yaw: number;
   airframe: number | null;
   motors: readonly number[];
+  spinPreview: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const target = useRef({ roll, pitch, yaw, motors });
-  target.current = { roll, pitch, yaw, motors };
+  const target = useRef({ roll, pitch, yaw, motors, spinPreview });
+  target.current = { roll, pitch, yaw, motors, spinPreview };
 
   useEffect(() => {
     const element = host.current;
@@ -143,25 +163,36 @@ function Scene({
       return;
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     element.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
+    // A studio environment, so metal and clear-coated carbon have something to reflect.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = environment;
+    scene.environmentIntensity = 0.7;
     const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
     camera.position.set(1.9, 1.45, 2.5);
     camera.lookAt(0, 0, 0);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x252a31, 1.2));
-    const key = new THREE.DirectionalLight(0xffffff, 1.6);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x252a31, 0.5));
+    const key = new THREE.DirectionalLight(0xffffff, 1.8);
     key.position.set(3, 5, 2);
     scene.add(key);
     // A rim light from behind, so dark carbon still has an edge.
-    const rim = new THREE.DirectionalLight(0x8abbff, 1.2);
+    const rim = new THREE.DirectionalLight(0x8abbff, 1.4);
     rim.position.set(-3, 2, -4);
     scene.add(rim);
 
     const grid = new THREE.GridHelper(8, 16, 0x5f6b7c, 0x383e47);
     grid.position.y = -0.9;
+    const gridMaterial = grid.material as THREE.Material;
+    gridMaterial.transparent = true;
+    gridMaterial.opacity = 0.55;
     scene.add(grid);
+    scene.add(contactShadow(-0.895));
 
     // A fixed north arrow on the ground, so heading reads against something.
     const north = new THREE.Mesh(
@@ -180,8 +211,25 @@ function Scene({
     // Frame the model by its size: a wing is twice as wide as a quad, and one
     // fixed camera cannot suit both.
     const radius = new THREE.Box3().setFromObject(model.group).getSize(new THREE.Vector3()).length() / 2;
-    camera.position.set(1.9, 1.45, 2.5).normalize().multiplyScalar(radius * 2.6);
+    const home = new THREE.Vector3(1.9, 1.45, 2.5).normalize().multiplyScalar(radius * 2.25);
+    camera.position.copy(home);
     camera.lookAt(0, 0, 0);
+
+    // Drag to orbit, scroll or pinch to zoom, right-drag to pan; double-click
+    // puts the camera back where it started.
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.12;
+    controls.minDistance = radius * 0.9;
+    controls.maxDistance = radius * 6;
+    controls.target.set(0, 0, 0);
+    controls.update();
+    const resetView = () => {
+      camera.position.copy(home);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    };
+    renderer.domElement.addEventListener('dblclick', resetView);
 
     const current = new THREE.Quaternion();
     const wanted = new THREE.Quaternion();
@@ -214,9 +262,15 @@ function Scene({
       pivot.quaternion.copy(current);
 
       model.props.forEach((prop, i) => {
-        const level = Math.max(0, Math.min(1000, t.motors[i] ?? 0)) / 1000;
-        if (level > 0 && !reduceMotion) prop.rotateY((i % 2 === 0 ? 1 : -1) * level * dt * 60);
+        const reported = Math.max(0, Math.min(MOTOR_FULL, t.motors[i] ?? 0)) / MOTOR_FULL;
+        const level = t.spinPreview ? Math.max(reported, 0.35) : reported;
+        if (level > 0 && !reduceMotion) prop.rotateY((model.spins[i] ?? 1) * level * dt * 60);
+        // The disc fills in as a prop speeds up, the way a spinning prop reads.
+        const disc = prop.userData.disc as THREE.Mesh | undefined;
+        if (disc !== undefined) (disc.material as THREE.MeshBasicMaterial).opacity = 0.05 + level * 0.18;
       });
+
+      controls.update();
 
       renderer.render(scene, camera);
       frame = requestAnimationFrame(tick);
@@ -225,20 +279,54 @@ function Scene({
 
     return () => {
       cancelAnimationFrame(frame);
+      renderer.domElement.removeEventListener('dblclick', resetView);
+      controls.dispose();
       observer.disconnect();
-      renderer.dispose();
       scene.traverse((object) => {
         const mesh = object as THREE.Mesh;
         mesh.geometry?.dispose();
         const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
-        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-        else mat?.dispose();
+        const free = (m: THREE.Material) => {
+          (m as THREE.MeshStandardMaterial).map?.dispose();
+          m.dispose();
+        };
+        if (Array.isArray(mat)) mat.forEach(free);
+        else if (mat !== undefined) free(mat);
       });
+      environment.dispose();
+      pmrem.dispose();
+      renderer.dispose();
       element.removeChild(renderer.domElement);
     };
   }, [airframe]);
 
-  return <div className="scene" ref={host} aria-label="3D view of the airframe at the board's reported attitude" role="img" />;
+  return (
+    <>
+      <div className="scene" ref={host} aria-label="3D view of the airframe at the board's reported attitude" role="img" />
+      <div className="viewport-hint" aria-hidden="true">Drag to rotate · scroll to zoom · right-drag to pan · double-click to reset</div>
+    </>
+  );
+}
+
+/** A soft round shadow on the ground under the model; fixed, like a studio floor. */
+function contactShadow(y: number): THREE.Mesh {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (ctx !== null) {
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, 'rgba(0,0,0,0.55)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+  }
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(3, 3),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false }),
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y;
+  return mesh;
 }
 
 /** A primary-flight-display style horizon with a roll scale and a heading strip. */

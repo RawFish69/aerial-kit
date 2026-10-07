@@ -34,6 +34,8 @@ Standalone Python sim (Matplotlib 3D, follow camera):
 
 ### Web configurator
 
+[**Open the configurator**](https://rawfish69.github.io/aerial-kit/) · [Guide](docs/web-configurator.md)
+
 Live attitude and parameter editing in the browser. Screenshots use the built-in demo board.
 
 <table>
@@ -88,6 +90,8 @@ The ROS-free control package is also on [PyPI](https://pypi.org/project/aerial-k
 | Run a simulator or controller | [Software guide](docs/SOFTWARE_GUIDE.md) · [Examples](docs/EXAMPLE_USAGE.md) |
 | Build AK firmware | [Firmware quick start & board status](docs/flight-controller-firmware.md) |
 | Configure a board | [Web configurator quick start](docs/web-configurator.md) · [Build & deployment](apps/configurator/docs/BUILD-AND-DEPLOY.md) |
+| Connect Python to firmware | [USB telemetry and attitude example](examples/firmware/) |
+| Hardware designs and overlays | [Hardware workspace](hardware/) |
 | Understand the stack | [Architecture, airframes, ROS 2 and roadmap](docs/STACK-GUIDE.md) |
 | Connect hardware | [Hardware guide](docs/HARDWARE.md) · [Radio firmware](firmware/legacy/README.md) |
 | Use the logo | [Branding & SVG assets](docs/branding.md) |

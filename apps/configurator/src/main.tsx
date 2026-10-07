@@ -3,9 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
 import '@blueprintjs/core/lib/css/blueprint.css';
 import './styles.css';
+import { applyTheme, loadTheme } from './ui/theme';
 
-// Blueprint's dark theme, for the whole page (portals included).
-document.body.classList.add('bp5-dark');
+applyTheme(loadTheme());
 
 const host = document.getElementById('root');
 if (host === null) {

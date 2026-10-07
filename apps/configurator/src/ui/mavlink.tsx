@@ -115,11 +115,7 @@ export function MavWorkspace({ board }: { board: MavBoard }) {
           </dl>
         )}
         {firmware === null && (
-          <p className="muted small">
-            The vehicle has not sent an <span className="mono">AUTOPILOT_VERSION</span>. Nothing
-            here asks for it: this app sends a vehicle only what the vehicle would have answered
-            anyway, and a message it does not stream is a message this page does without.
-          </p>
+          <p className="muted small">The vehicle has not sent AUTOPILOT_VERSION.</p>
         )}
       </Panel>
 
@@ -173,12 +169,7 @@ export function MavWorkspace({ board }: { board: MavBoard }) {
               : live.servos.servos.slice(0, 8).map((value) => `${value}`).join('  ')}
           </Fact>
         </dl>
-        <p className="muted small">
-          A field the vehicle has not sent shows a question mark, and a field it sent as “I do not
-          know” says so in words. The heading is the one to watch: `0xffff` in
-          <span className="mono"> GLOBAL_POSITION_INT</span> means the vehicle has no heading, and
-          that is not the same as pointing north.
-        </p>
+        <p className="muted small">? = not sent by the vehicle. A heading of 0xffff means no heading, not north.</p>
       </Panel>
 
       <Panel
@@ -191,10 +182,7 @@ export function MavWorkspace({ board }: { board: MavBoard }) {
         }
       >
         {snapshot.parameters.length === 0 ? (
-          <p className="muted small">
-            Nothing read yet. Unlike MSP, MAVLink has one command that really does return the whole
-            table — so this is a button rather than a guess at names.
-          </p>
+          <p className="muted small">Nothing read yet.</p>
         ) : (
           <HTMLTable compact striped className="data-table">
             <tbody>
@@ -242,11 +230,7 @@ export function MavWorkspace({ board }: { board: MavBoard }) {
             </Button>
           ))}
         </div>
-        <p className="muted small">
-          This is a write, and it is the only one on this page. It changes how often the vehicle
-          <em> reports</em> something. It cannot change how the aircraft flies, and a rate of zero is
-          refused by the protocol layer rather than sent.
-        </p>
+        <p className="muted small">Changes only how often the vehicle reports. Rate 0 is refused.</p>
         {snapshot.acks.length > 0 && (
           <HTMLTable compact striped className="data-table">
             <tbody>
@@ -289,8 +273,8 @@ export function MavWorkspace({ board }: { board: MavBoard }) {
         )}
         <p className="muted small">
           {unread.length === 0
-            ? `Every message this vehicle has sent is one this app carries a definition for. ${snapshot.counts.frames} frames read, ${snapshot.counts.issues} refused.`
-            : `${unread.length} of these the app cannot read. That is not a fault in the vehicle: MAVLink's checksum needs a constant per message that is not on the wire, so a message with no definition here cannot be verified and is counted rather than guessed at.`}
+            ? `${snapshot.counts.frames} frames read, ${snapshot.counts.issues} refused.`
+            : `${unread.length} message type(s) have no definition here and are counted, not decoded.`}
           {snapshot.counts.signed > 0 && ` ${snapshot.counts.signed} frames were signed.`}
         </p>
       </Panel>

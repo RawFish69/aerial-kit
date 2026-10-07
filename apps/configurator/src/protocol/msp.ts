@@ -13,9 +13,37 @@
  * (`tools/capture-msp-fixtures.py`), which is itself written from the same
  * source.
  *
- * **Read-only, deliberately.** Parameter *writes* to somebody else's firmware
- * are how a tool crashes an aircraft. Nothing in this file has a write command,
- * and the interface says so rather than offering a button that does nothing.
+ * **This file used to be read-only on principle, and now it can write.** The
+ * overturn is deliberate and its reasoning is worth keeping, because the
+ * argument that produced the old rule has not gone away.
+ *
+ * The old rule was: *parameter writes to somebody else's firmware are how a
+ * tool crashes an aircraft.* That is still true, and it is why the write added
+ * here is not a general one. What changed is that refusing to write turned out
+ * to cost more than it saved — a person with a Betaflight board and a laptop
+ * has a configurator already, and the honest choices were to write parameters
+ * carefully or to be the one tool that cannot. So the write is added with the
+ * four properties that make it safe, each of which is a test that fails if
+ * removed:
+ *
+ *  1. **It is gated on the board's own armed state**, read from the status
+ *     frame, and a state that has gone stale counts as unknown and not as
+ *     disarmed. This is the *foreign* board's armed bit, a different fact from
+ *      our own board's, and the two are never conflated.
+ *  2. **It is reported as applied only after the board agrees.** Betaflight
+ *     confirms a set in the reply itself, so that reply *is* the read-back;
+ *     INAV answers an empty ACK, so the read-back is a second read and the
+ *     write stands as *unconfirmed* until it lands. A write that cannot be
+ *     confirmed is drawn as unconfirmed, never as done.
+ *  3. **Persisting is a separate act.** A set changes the running
+ *     configuration; `MSP_EEPROM_WRITE` is what makes it survive a battery
+ *     change, and this app will not do it on the back of a write.
+ *  4. **There is no general command builder.** The message ids that can leave
+ *     this file are still a closed, named set.
+ *
+ * The one thing the old rule was right about and this keeps: **nothing here
+ * arms, disarms, or sets an output.** There is no command for any of them, and
+ * that is a property of the file rather than a policy of the interface.
  *
  * Three differences from our own protocol are worth knowing before reading on:
  *
@@ -67,6 +95,140 @@ export enum MspCommand {
 export const MSP2_CLI_SETTING = 0x3010;
 export const MSP2_CLI_SETTING_INFO = 0x3011;
 
+/**
+ * INAV's settings commands, from its own `msp_protocol_v2_common.h`.
+ *
+ * **These are not Betaflight's, and this app used to send Betaflight's to
+ * INAV.** `inav-9.1.0` has no `msp_protocol_v2_betaflight.h` at all and no
+ * case for `0x3010` anywhere under `src/main/`, so a setting read from an INAV
+ * board was answered with silence, timed out, and was reported as *the board
+ * does not have a setting by that name* — a wrong answer given confidently,
+ * which is the worst kind this project has a rule about. The pinned sources
+ * settle it in one grep; assuming the two firmwares share a command is what
+ * went wrong, so the two are now separate constants selected by the variant
+ * the board reported rather than by what this file hoped.
+ */
+export const MSP2_COMMON_SETTING = 0x1003;
+export const MSP2_COMMON_SET_SETTING = 0x1004;
+export const MSP2_COMMON_SETTING_INFO = 0x1007;
+
+/**
+ * `MSP_EEPROM_WRITE` (250) — the separate act that makes a changed setting
+ * survive losing the battery.
+ *
+ * It is 250 in **both** firmwares (`msp_protocol.h` in each), and it is the
+ * only one of the three commands they do agree on. Both refuse it while armed —
+ * `betaflight-2026.6.1/src/main/msp/msp.c:3578` and
+ * `inav-9.1.0/src/main/fc/fc_msp.c:2852` each open with an arming check and
+ * return `MSP_RESULT_ERROR` — so the foreign board enforces its own gate here
+ * and this app does not have to be the only thing standing between a person and
+ * a flash write on an armed aircraft. It still asks first, because a round trip
+ * saved is not the point; being told *why* is.
+ */
+export const MSP_EEPROM_WRITE = 250;
+
+/** Which firmware's settings commands to speak. Not a guess: `FC_VARIANT`
+ *  answers `BTFL` or `INAV` and this is that answer, narrowed. */
+export type SettingFamily = 'betaflight' | 'inav';
+
+export interface SettingCommands {
+  readonly family: SettingFamily;
+  /** Ask for one setting by name. */
+  readonly read: number;
+  /** Change one. */
+  readonly write: number;
+  /** The description behind a name. */
+  readonly info: number;
+  /**
+   * How a value crosses the wire, which is the whole of the disagreement.
+   *
+   * `text` is Betaflight's: the payload is the CLI line `name = value` and the
+   * reply is the same line with the value the board now holds — **the reply to
+   * a write is the read-back**, so a write needs no second round trip.
+   *
+   * `typed` is INAV's: the value goes as its native binary width, chosen from
+   * the type the *description* reports, and the reply is an empty ACK that says
+   * nothing about the value. A read-back there is a second `read`, and until it
+   * comes back the write is *unconfirmed* — which is a different thing from
+   * failed and has to be drawn as one.
+   */
+  readonly encoding: 'text' | 'typed';
+}
+
+/**
+ * The commands for the firmware the board said it was, or null for one this app
+ * cannot read settings from.
+ *
+ * Null rather than a default, because defaulting is what produced the wrong
+ * answer above: a board whose settings commands this app does not know is a
+ * board to say so about, not a board to guess at.
+ */
+export function settingCommandsFor(variant: MspFcVariant): SettingCommands | null {
+  if (variant.variant === 'BTFL') {
+    return {
+      family: 'betaflight',
+      read: MSP2_CLI_SETTING,
+      write: MSP2_CLI_SETTING,
+      info: MSP2_CLI_SETTING_INFO,
+      encoding: 'text',
+    };
+  }
+  if (variant.variant === 'INAV') {
+    return {
+      family: 'inav',
+      read: MSP2_COMMON_SETTING,
+      write: MSP2_COMMON_SET_SETTING,
+      info: MSP2_COMMON_SETTING_INFO,
+      encoding: 'typed',
+    };
+  }
+  return null;
+}
+
+/**
+ * INAV's value types, `inav-9.1.0/src/main/fc/settings.h:21-29`.
+ *
+ * **The byte on the wire is masked.** `SETTING_INFO` sends `setting->type`
+ * whole, and that field packs the section into bits 3-5 and the mode into bits
+ * 6-7 (`SETTING_TYPE_OFFSET`/`_SECTION_OFFSET`/`_MODE_OFFSET`), so a profile
+ * setting arrives as `0x08 | VAR_UINT8` and a decoder that switched on the raw
+ * byte would call the commonest setting on the board an unknown type. The
+ * firmware masks with `SETTING_TYPE_MASK` before switching
+ * (`settings.h:73`); this does the same, and a test feeds it `0x28` to prove it.
+ */
+export enum InavSettingType {
+  UINT8 = 0,
+  INT8 = 1,
+  UINT16 = 2,
+  INT16 = 3,
+  UINT32 = 4,
+  FLOAT = 5,
+  STRING = 6,
+}
+
+export const SETTING_TYPE_MASK = 0x07;
+export const SETTING_SECTION_MASK = 0x38;
+export const SETTING_MODE_MASK = 0xc0;
+
+/** How many bytes a value of this type occupies, or null for one this app will
+ *  not encode — `STRING` is a pointer into the board's own storage and writing
+ *  one is not a thing to do from here. */
+export function inavValueSize(type: InavSettingType): number | null {
+  switch (type) {
+    case InavSettingType.UINT8:
+    case InavSettingType.INT8:
+      return 1;
+    case InavSettingType.UINT16:
+    case InavSettingType.INT16:
+      return 2;
+    case InavSettingType.UINT32:
+    case InavSettingType.FLOAT:
+      return 4;
+    case InavSettingType.STRING:
+      return null;
+  }
+}
+
 /** `crc8_calc` — poly 0xD5, init 0. The checksum of every v2 frame. */
 export function crc8DvbS2(bytes: Uint8Array): number {
   let crc = 0;
@@ -79,13 +241,20 @@ export function crc8DvbS2(bytes: Uint8Array): number {
   return crc;
 }
 
-/** The XOR MSP v1 defines: size, command, every payload byte. */
+/** The XOR MSP v1 defines: size, command, every payload byte. The size is the
+ *  payload's length alone - Betaflight's `mspHeaderV1_t` is `{size, cmd}` and
+ *  `dataSize = size` - which this file, aerialkit's Python client and its fake
+ *  board all had as length + 1 until 2026-10-06: consistent with each other,
+ *  so every fixture agreed, and with no real board. */
 function checksumV1(command: number, payload: Uint8Array): number {
-  let value = (payload.length + 1) & 0xff;
+  let value = payload.length & 0xff;
   value ^= command & 0xff;
   for (const byte of payload) value ^= byte;
   return value;
 }
+
+/** The largest v2 payload this decoder will wait for. */
+export const MSP_MAX_PAYLOAD_V2 = 4096;
 
 export function buildRequest(command: number, payload: Uint8Array = new Uint8Array(0)): Uint8Array {
   if (payload.length > MSP_MAX_PAYLOAD_V1) {
@@ -95,7 +264,7 @@ export function buildRequest(command: number, payload: Uint8Array = new Uint8Arr
   out[0] = 0x24;
   out[1] = 0x4d;
   out[2] = 0x3c;
-  out[3] = payload.length + 1;
+  out[3] = payload.length;
   out[4] = command & 0xff;
   out.set(payload, 5);
   out[5 + payload.length] = checksumV1(command, payload);
@@ -137,7 +306,9 @@ export interface MspFrame {
 
 export type MspIssue =
   | { readonly kind: 'checksum'; readonly version: 1 | 2 }
-  | { readonly kind: 'truncated'; readonly version: 1 | 2 };
+  | { readonly kind: 'truncated'; readonly version: 1 | 2 }
+  /** A header whose size no board sends: corrupted, and skipped. */
+  | { readonly kind: 'oversize'; readonly version: 2; readonly size: number };
 
 export interface MspDecodeResult {
   readonly frames: MspFrame[];
@@ -186,14 +357,15 @@ export class MspDecoder {
       //
       // `$M` and `$X` are told apart by their **second** byte. Their third
       // does not do it: `$M>` and `$X>` both end in `>`, and 0x3e on its own
-      // says nothing about which framing is talking.
+      // says nothing about which framing is talking. `!` is the third byte of
+      // an *error* frame in both, which is why it appears twice below.
       let start = -1;
       let v2 = false;
       for (let i = 0; i + 2 < this.buffer.length; i++) {
         if (this.buffer[i] !== 0x24) continue;
         const second = this.buffer[i + 1];
         const third = this.buffer[i + 2];
-        if (second === 0x4d && (third === 0x3c || third === 0x3e)) {
+        if (second === 0x4d && (third === 0x3c || third === 0x3e || third === 0x21)) {
           start = i;
           v2 = false;
           break;
@@ -225,20 +397,28 @@ export class MspDecoder {
   private tryV1(): number {
     if (this.buffer.length < 6) return 0;
     const size = this.buffer[3]!;
-    const total = 3 + 1 + size + 1;
+    // Marker (3), size, command, `size` payload bytes, checksum.
+    const total = 3 + 1 + 1 + size + 1;
     if (this.buffer.length < total) return 0;
     const command = this.buffer[4]!;
-    const payload = Uint8Array.from(this.buffer.slice(5, 5 + size - 1));
-    const received = this.buffer[5 + size - 1]!;
+    const payload = Uint8Array.from(this.buffer.slice(5, 5 + size));
+    const received = this.buffer[5 + size]!;
     if (checksumV1(command, payload) !== received) {
       this.problems.push({ kind: 'checksum', version: 1 });
       return -1;
     }
+    const refused = this.buffer[2] === 0x21;
     this.buffer.splice(0, total);
-    // v1 has no error frame: `$M!` is not a thing Betaflight sends. A v1 board
-    // that will not answer says so by saying nothing, which is what the client's
-    // deadline is for. Only v2 has a refusal to report.
-    this.pending.push({ version: 1, command, refused: false, payload });
+    // **v1 does have an error frame, and this file said it did not.** The claim
+    // was that a v1 board which will not answer says so by saying nothing. That
+    // is wrong: Betaflight picks the third byte from `packet->result` in
+    // `msp_serial.c:329`, so a refused v1 command comes back as `$M!` with the
+    // original command and an empty payload. Reading every `$M` as `$M>` meant a
+    // refusal was decoded as a *successful answer with no data* — the worst
+    // possible reading, because the caller then reports the command as having
+    // been accepted. Found by capturing a real `MSP_EEPROM_WRITE` refusal from
+    // the stand-in and watching this decoder drop the frame on the floor.
+    this.pending.push({ version: 1, command, refused, payload });
     return total;
   }
 
@@ -247,6 +427,14 @@ export class MspDecoder {
     const refused = this.buffer[2] === 0x21;
     const function_ = this.buffer[4]! | (this.buffer[5]! << 8);
     const size = this.buffer[6]! | (this.buffer[7]! << 8);
+    // A size no board sends is a corrupted header, not a frame to wait for:
+    // trusting it made the decoder buffer up to 64 KiB of every later frame
+    // before giving up. Betaflight's and INAV's receive buffers are a few
+    // hundred bytes; 4 KiB is well past any reply either sends.
+    if (size > MSP_MAX_PAYLOAD_V2) {
+      this.problems.push({ kind: 'oversize', version: 2, size });
+      return -1;
+    }
     const total = 3 + 5 + size + 1;
     if (this.buffer.length < total) return 0;
     const payload = Uint8Array.from(this.buffer.slice(8, 8 + size));
@@ -321,11 +509,32 @@ class Reader {
     return value >= 0x8000 ? value - 0x10000 : value;
   }
 
+  u32(): number {
+    this.need(4);
+    const view = new DataView(this.bytes.buffer, this.bytes.byteOffset + this.at, 4);
+    this.at += 4;
+    return view.getUint32(0, true);
+  }
+
   i32(): number {
     this.need(4);
     const view = new DataView(this.bytes.buffer, this.bytes.byteOffset + this.at, 4);
     this.at += 4;
     return view.getInt32(0, true);
+  }
+
+  /** A NUL-terminated string, which is how INAV writes a setting's name
+   *  (`sbufWriteDataSafe(dst, name_buf, strlen(name_buf) + 1)`). Not
+   *  `pstring` — a length byte and a NUL are different wire formats, and
+   *  reading one as the other gives a name with a stray byte on the front. */
+  cstring(): string {
+    const end = this.bytes.indexOf(0, this.at);
+    if (end < 0) {
+      throw new MspProtocolError(`${this.what}: a name that is never terminated`);
+    }
+    const text = new TextDecoder().decode(this.bytes.subarray(this.at, end));
+    this.at = end + 1;
+    return text;
   }
 
   /** A length byte and that many characters — `sbufWritePString`. */
@@ -541,6 +750,156 @@ export interface MspSettingInfo {
   readonly fields: Readonly<Record<string, string>>;
 }
 
+/**
+ * INAV's description of a setting, `mspSettingInfoCommand`
+ * (`inav-9.1.0/src/main/fc/fc_msp.c:3970`), which is a **binary struct** and not
+ * the text Betaflight answers with. Same command number in neither case — INAV's
+ * is 0x1007 and Betaflight's is 0x3011 — so the two never had to agree, and they
+ * do not: one is `key=value` lines in an output buffer, the other is this.
+ *
+ * The layout, in order, from the source: the name NUL-terminated, then `pgn`
+ * (u16), then `type`, `section` and `mode` (u8 each), then `min` (i32) and `max`
+ * (u32), then the absolute index (u16), and finally **two bytes that are always
+ * present** — the current profile and the profile count for a profile-based
+ * setting, or two zeroes for a master one. Those last two are the reason a
+ * decoder cannot stop at the index: the board promises them so a client can
+ * assume a fixed length, and a reader that treated them as absent would be
+ * reading a shorter struct than the board wrote.
+ */
+export interface InavSettingInfo {
+  readonly name: string;
+  readonly pgn: number;
+  /** The masked value type — see `InavSettingType` for why it is masked. */
+  readonly type: InavSettingType;
+  /** The raw byte, kept so a caller can report the section and mode too. */
+  readonly typeByte: number;
+  readonly section: number;
+  readonly mode: number;
+  readonly min: number;
+  readonly max: number;
+  readonly index: number;
+  readonly profile: number;
+  readonly profileCount: number;
+}
+
+export function parseInavSettingInfo(payload: Uint8Array): InavSettingInfo {
+  const reader = new Reader(payload, 'MSP2_COMMON_SETTING_INFO');
+  const name = reader.cstring();
+  const pgn = reader.u16();
+  const typeByte = reader.u8();
+  const section = reader.u8();
+  const mode = reader.u8();
+  const min = reader.i32();
+  const max = reader.u32();
+  const index = reader.u16();
+  const profile = reader.u8();
+  const profileCount = reader.u8();
+  return {
+    name,
+    pgn,
+    type: (typeByte & SETTING_TYPE_MASK) as InavSettingType,
+    typeByte,
+    section,
+    mode,
+    min,
+    max,
+    index,
+    profile,
+    profileCount,
+  };
+}
+
+/**
+ * An INAV value as its native bytes, or a sentence saying why it will not go.
+ *
+ * The number is parsed strictly and then range-checked against the min and max
+ * the *board* reported, because INAV's own `mspSetSettingCommand` does exactly
+ * that and rejects the write if it is out of range — so sending one is a
+ * guaranteed refusal, and refusing it here is the same answer one round trip
+ * earlier with a better sentence. It is not a second authority: the bounds are
+ * the board's, and the board's copy of them is still what decides.
+ *
+ * Floats go as IEEE-754 little-endian, which is what `sbufReadF32Safe` reads.
+ * An integer type is **not** rounded or truncated to fit — a value that does not
+ * survive the round trip is refused rather than silently altered, because a
+ * parameter that came back different from what was typed is how a person learns
+ * not to trust the panel.
+ */
+export function encodeInavValue(
+  type: InavSettingType,
+  text: string,
+  bounds: { readonly min: number; readonly max: number },
+): { readonly bytes: Uint8Array } | { readonly refuses: string } {
+  const size = inavValueSize(type);
+  if (size === null) {
+    return { refuses: 'a string setting is a pointer into the board\'s own storage and is not written from here' };
+  }
+  const trimmed = text.trim();
+  const value = Number(trimmed);
+  if (trimmed === '' || !Number.isFinite(value)) {
+    return { refuses: `"${trimmed}" is not a number` };
+  }
+  if (value < bounds.min || value > bounds.max) {
+    return {
+      refuses: `the board says this setting runs from ${bounds.min} to ${bounds.max}, so ${trimmed} is out of range`,
+    };
+  }
+  const view = new DataView(new ArrayBuffer(size));
+  switch (type) {
+    case InavSettingType.UINT8:
+      view.setUint8(0, value);
+      break;
+    case InavSettingType.INT8:
+      view.setInt8(0, value);
+      break;
+    case InavSettingType.UINT16:
+      view.setUint16(0, value, true);
+      break;
+    case InavSettingType.INT16:
+      view.setInt16(0, value, true);
+      break;
+    case InavSettingType.UINT32:
+      view.setUint32(0, value, true);
+      break;
+    case InavSettingType.FLOAT:
+      view.setFloat32(0, value, true);
+      break;
+    default:
+      return { refuses: 'this app does not encode that setting type' };
+  }
+  // The check the encode is really for: a value that did not survive being
+  // written at this width is not the value that was asked for.
+  const back = decodeInavValue(type, new Uint8Array(view.buffer));
+  if (back === null || Math.abs(back - value) > Math.abs(value) * 1e-6 + 1e-9) {
+    return { refuses: `${trimmed} does not survive being written as a ${InavSettingType[type].toLowerCase()}` };
+  }
+  return { bytes: new Uint8Array(view.buffer) };
+}
+
+/** The number an INAV value reads as, or null for a type this app does not
+ *  decode. The inverse of the encode above, and deliberately total: it is used
+ *  to read back what the board holds, where a wrong answer is worse than none. */
+export function decodeInavValue(type: InavSettingType, bytes: Uint8Array): number | null {
+  if (bytes.length < (inavValueSize(type) ?? Infinity)) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  switch (type) {
+    case InavSettingType.UINT8:
+      return view.getUint8(0);
+    case InavSettingType.INT8:
+      return view.getInt8(0);
+    case InavSettingType.UINT16:
+      return view.getUint16(0, true);
+    case InavSettingType.INT16:
+      return view.getInt16(0, true);
+    case InavSettingType.UINT32:
+      return view.getUint32(0, true);
+    case InavSettingType.FLOAT:
+      return view.getFloat32(0, true);
+    case InavSettingType.STRING:
+      return null;
+  }
+}
+
 export function parseSettingInfo(payload: Uint8Array): MspSettingInfo {
   const reader = new Reader(payload, 'MSP2_CLI_SETTING_INFO');
   const totalLength = reader.u16();
@@ -708,12 +1067,19 @@ export class MspClient {
       stalled?.reject(new MspTimeoutError(stalled.command, this.timeoutMs));
       this.pump();
     }, this.timeoutMs);
-    try {
-      void this.link.write(next.frame);
-    } catch (error) {
+    const failed = (error: unknown) => {
+      if (this.inFlight !== next) return;
       this.settle();
       next.reject(error instanceof Error ? error : new Error(String(error)));
       this.pump();
+    };
+    try {
+      // A write that fails *asynchronously* (a serial port gone between two
+      // requests) rejected a promise nobody held: an unhandled rejection, and
+      // the request then sat out its whole timeout instead of failing at once.
+      void Promise.resolve(this.link.write(next.frame)).catch(failed);
+    } catch (error) {
+      failed(error);
     }
   }
 
@@ -739,7 +1105,9 @@ export class MspClient {
       this.options.onIssue?.(
         issue.kind === 'checksum'
           ? `an MSP v${issue.version} frame failed its checksum`
-          : `an MSP v${issue.version} frame was cut short`,
+          : issue.kind === 'oversize'
+            ? `an MSP v2 header claimed ${issue.size} bytes, which no board sends, and was skipped`
+            : `an MSP v${issue.version} frame was cut short`,
       );
     }
     for (const frame of frames) {

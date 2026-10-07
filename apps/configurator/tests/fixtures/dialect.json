@@ -137,6 +137,34 @@
       ]
     },
     {
+      "id": 23,
+      "name": "PARAM_SET",
+      "crc_extra": 168,
+      "fields": [
+        {
+          "name": "target_system",
+          "type": "uint8_t"
+        },
+        {
+          "name": "target_component",
+          "type": "uint8_t"
+        },
+        {
+          "name": "param_id",
+          "type": "char",
+          "count": 16
+        },
+        {
+          "name": "param_value",
+          "type": "float"
+        },
+        {
+          "name": "param_type",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    {
       "id": 24,
       "name": "GPS_RAW_INT",
       "crc_extra": 24,
@@ -672,5 +700,183 @@
         }
       ]
     }
-  ]
+  ],
+  "newer_peer": {
+    "note": "Which of the messages this app carries have grown since pymavlink 2.4.49 was pinned, read from PX4's own definition, and one real frame per grown message. See the comment above `newer_peer()` in tools/check-dialect.py for why a longer payload is a legal frame rather than a fault.",
+    "measured": "upstream/px4-1.17.0/src/modules/mavlink/mavlink/message_definitions/v1.0",
+    "source": "px4-1.17.0 common.xml",
+    "messages": [
+      {
+        "name": "SYS_STATUS",
+        "id": 1,
+        "crc_extra": 124,
+        "base_bytes": 31,
+        "full_bytes": 43,
+        "extension_fields": [
+          "onboard_control_sensors_present_extended",
+          "onboard_control_sensors_enabled_extended",
+          "onboard_control_sensors_health_extended"
+        ],
+        "frame_hex": "fd2b0000090101010000110000002200000033000000440055006600770088009900aa00bb00cc005dee000000ff000000100100005c25",
+        "expect": {
+          "onboard_control_sensors_present": 17,
+          "onboard_control_sensors_enabled": 34,
+          "onboard_control_sensors_health": 51,
+          "load": 68,
+          "voltage_battery": 85,
+          "current_battery": 102,
+          "battery_remaining": 93,
+          "drop_rate_comm": 119,
+          "errors_comm": 136,
+          "errors_count1": 153,
+          "errors_count2": 170,
+          "errors_count3": 187,
+          "errors_count4": 204
+        }
+      },
+      {
+        "name": "GPS_RAW_INT",
+        "id": 24,
+        "crc_extra": 24,
+        "base_bytes": 30,
+        "full_bytes": 52,
+        "extension_fields": [
+          "alt_ellipsoid",
+          "h_acc",
+          "v_acc",
+          "vel_acc",
+          "hdg_acc",
+          "yaw"
+        ],
+        "frame_hex": "fd3400000901011800001100000000000000220000003300000044000000550066007700880099aabb000000cc000000dd000000ee000000ff000000100117cd",
+        "expect": {
+          "time_usec": 17,
+          "fix_type": 153,
+          "lat": 34,
+          "lon": 51,
+          "alt": 68,
+          "eph": 85,
+          "epv": 102,
+          "vel": 119,
+          "cog": 136,
+          "satellites_visible": 170
+        }
+      },
+      {
+        "name": "SERVO_OUTPUT_RAW",
+        "id": 36,
+        "crc_extra": 222,
+        "base_bytes": 21,
+        "full_bytes": 37,
+        "extension_fields": [
+          "servo9_raw",
+          "servo10_raw",
+          "servo11_raw",
+          "servo12_raw",
+          "servo13_raw",
+          "servo14_raw",
+          "servo15_raw",
+          "servo16_raw"
+        ],
+        "frame_hex": "fd2500000901012400001100000022003300440055006600770088009900aabb00cc00dd00ee00ff0010012101320140a8",
+        "expect": {
+          "time_usec": 17,
+          "port": 170,
+          "servo1_raw": 34,
+          "servo2_raw": 51,
+          "servo3_raw": 68,
+          "servo4_raw": 85,
+          "servo5_raw": 102,
+          "servo6_raw": 119,
+          "servo7_raw": 136,
+          "servo8_raw": 153
+        }
+      },
+      {
+        "name": "COMMAND_ACK",
+        "id": 77,
+        "crc_extra": 143,
+        "base_bytes": 3,
+        "full_bytes": 10,
+        "extension_fields": [
+          "progress",
+          "result_param2",
+          "target_system",
+          "target_component"
+        ],
+        "frame_hex": "fd0a00000901014d0000110022334400000055660d66",
+        "expect": {
+          "command": 17,
+          "result": 34
+        }
+      },
+      {
+        "name": "AUTOPILOT_VERSION",
+        "id": 148,
+        "crc_extra": 178,
+        "base_bytes": 60,
+        "full_bytes": 78,
+        "extension_fields": [
+          "uid2"
+        ],
+        "frame_hex": "fd4e000009010194000011000000000000002200000000000000330000004400000055000000660000007700880081828384858687889192939495969798a1a2a3a4a5a6a7a8b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2df00",
+        "expect": {
+          "capabilities": 17,
+          "flight_sw_version": 51,
+          "middleware_sw_version": 68,
+          "os_sw_version": 85,
+          "board_version": 102,
+          "flight_custom_version": [
+            129,
+            130,
+            131,
+            132,
+            133,
+            134,
+            135,
+            136
+          ],
+          "middleware_custom_version": [
+            145,
+            146,
+            147,
+            148,
+            149,
+            150,
+            151,
+            152
+          ],
+          "os_custom_version": [
+            161,
+            162,
+            163,
+            164,
+            165,
+            166,
+            167,
+            168
+          ],
+          "vendor_id": 119,
+          "product_id": 136,
+          "uid": 34
+        }
+      },
+      {
+        "name": "STATUSTEXT",
+        "id": 253,
+        "crc_extra": 83,
+        "base_bytes": 51,
+        "full_bytes": 54,
+        "extension_fields": [
+          "id",
+          "chunk_seq"
+        ],
+        "frame_hex": "fd360000090101fd00001162636465666768696a6b6c6d6e6f707172737475767778797a6162636465666768696a6b6c6d6e6f70717273747576777879330044318e",
+        "expect": {
+          "severity": 17,
+          "text": "bcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxy"
+        }
+      }
+    ]
+  }
 }

@@ -123,8 +123,11 @@ describe('what the decoder refuses', () => {
   it('drops a half-received frame that has stalled', () => {
     const decoder = new FrameDecoder();
     decoder.push(HELLO.slice(0, 4), 1000);
-    expect(decoder.expireStalled(1000 + 49)).toBe(false); // inside the gap
-    expect(decoder.expireStalled(1000 + 51)).toBe(true); // past it
+    // The client's bound, not the firmware's 50 ms: a handler called late by a
+    // busy main thread is not a stalled wire.
+    expect(decoder.expireStalled(1000 + 60)).toBe(false); // past 50 ms, still fine
+    expect(decoder.expireStalled(1000 + 249)).toBe(false); // inside the gap
+    expect(decoder.expireStalled(1000 + 251)).toBe(true); // past it
     const { frames, issues } = decoder.take();
     expect(frames).toEqual([]);
     expect(issues[0]).toEqual({ kind: 'stalled', held: 2 });

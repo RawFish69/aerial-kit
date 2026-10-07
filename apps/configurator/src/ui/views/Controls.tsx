@@ -85,7 +85,7 @@ export function OutputsView({
           <path d="M 0 -118 l -9 16 h 18 z" fill="var(--caution)" />
           <text x="0" y="-92" textAnchor="middle" className="map-label">front</text>
           {layout.map(({ x, y }, i) => {
-            const level = Math.max(0, Math.min(1000, motors[i] ?? 0)) / 1000;
+            const level = motorLevel(motors[i] ?? 0);
             const r = 30;
             const circumference = 2 * Math.PI * r;
             return (
@@ -116,9 +116,9 @@ export function OutputsView({
           motors.map((value, i) => (
             <div className="vbar" key={i}>
               <div className="vbar-track">
-                <div className={`vbar-fill ${armed ? 'armed' : ''}`} style={{ height: `${Math.max(0, Math.min(1000, value)) / 10}%` }} />
+                <div className={`vbar-fill ${armed ? 'armed' : ''}`} style={{ height: `${motorLevel(value) * 100}%` }} />
               </div>
-              <span className="vbar-value">{value}</span>
+              <span className="vbar-value">{Math.round(motorLevel(value) * 100)}%</span>
               <span className="vbar-label">Motor {i + 1}</span>
             </div>
           ))
@@ -126,12 +126,9 @@ export function OutputsView({
         <div className="outputs-note">
           <p>
             <strong>{airframe === null ? 'Airframe not read yet' : AIRFRAME_NAMES[airframe] ?? `Airframe ${airframe}`}</strong>
-            {' — '}outputs in thousandths, as the board reports them.
+            <span className="muted"> · motor outputs</span>
           </p>
-          <p className="muted small">
-            Motor test is not offered: the firmware has no motor-test command yet. Spin motors from the board's
-            own console with the props off.
-          </p>
+          <p className="muted small">Motor test is not in the configurator yet. Use the board's console, props off.</p>
         </div>
       </section>
     </div>
@@ -155,4 +152,9 @@ function motorLayout(airframe: number | null, count: number): ReadonlyArray<{ x:
     default:
       return [{ x: d, y: d }, { x: d, y: -d }, { x: -d, y: d }, { x: -d, y: -d }];
   }
+}
+
+/** STATUS carries each motor output as one byte, 0 to 254 (main.c scales by 254). */
+function motorLevel(value: number): number {
+  return Math.max(0, Math.min(254, value)) / 254;
 }

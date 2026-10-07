@@ -131,11 +131,7 @@ export function ForeignWorkspace({ board }: { board: MspBoard }) {
           <Fact label="loop">{live.status === null ? '?' : `${live.status.cycleTimeUs} µs`}</Fact>
           <Fact label="frames read">{snapshot.counts.frames}</Fact>
         </dl>
-        <p className="muted small">
-          A field this board does not carry shows a question mark. It never shows a zero — a
-          latitude of zero is a real place in the Atlantic, and "the board did not say" is a
-          different answer.
-        </p>
+        <p className="muted small">? = not reported by this board.</p>
       </Panel>
 
       <Panel
@@ -158,11 +154,7 @@ export function ForeignWorkspace({ board }: { board: MspBoard }) {
           </Button>
         </div>
         {snapshot.settings.length === 0 ? (
-          <p className="muted small">
-            Nothing read yet. Type a name and ask. This is not a limitation of the page — there is
-            genuinely no command in MSP that returns the list, which is why every ground station
-            ships its own name table per release.
-          </p>
+          <p className="muted small">Nothing read yet. MSP has no parameter list — type a name to read it.</p>
         ) : (
           <HTMLTable compact striped className="data-table">
             <tbody>

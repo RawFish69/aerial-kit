@@ -2,11 +2,11 @@
   "captured_from": "aerialkit-sim",
   "protocol_version": 1,
   "product": "aerialkit-f405",
-  "parameter_count": 33,
+  "parameter_count": 45,
   "frames": {
     "hello": {
       "request": "aa550101009dc8",
-      "reply": "aa5501811c0161657269616c6b69742d66343035002100300000000000b76f268b1de2",
+      "reply": "aa5501811c0161657269616c6b69742d66343035002d003000c1010000920638cf4fa6",
       "note": "version, product, parameter count"
     },
     "status": {
@@ -20,7 +20,7 @@
       "note": "the first parameter"
     },
     "param_get_past_end": {
-      "request": "aa5501020121669b",
+      "request": "aa550102012dea5a",
       "reply": "aa55018201015e84",
       "note": "an index one past the table: status 1, and nothing else"
     },
@@ -56,8 +56,8 @@
     },
     "log_get_0": {
       "request": "aa5501070200001084",
-      "reply": "aa5501873400d00700000000c80000000000000000000000000000000000000000000000000000000000000000003c020000000000000000006577",
-      "note": "one 51-byte record"
+      "reply": "aa5501875800d00700000000c80000000000000000000000000000000000000000000000000000000000000000003c021000000000000000005a00baff0b00d300e90001010101017b093d002efb370208000cde38f909f503817f733eef9f",
+      "note": "one 87-byte record"
     },
     "log_source_absent": {
       "request": "aa5501090109fdce",
@@ -128,113 +128,173 @@
     },
     {
       "index": 11,
-      "name": "d_cutoff_hz",
-      "value": "80"
+      "name": "gyro_lpf1_static_hz",
+      "value": "250"
     },
     {
       "index": 12,
-      "name": "gyro_lpf_hz",
-      "value": "0"
+      "name": "gyro_lpf1_dyn_min_hz",
+      "value": "250"
     },
     {
       "index": 13,
+      "name": "gyro_lpf1_dyn_max_hz",
+      "value": "500"
+    },
+    {
+      "index": 14,
+      "name": "gyro_lpf2_static_hz",
+      "value": "500"
+    },
+    {
+      "index": 15,
+      "name": "dyn_notch_count",
+      "value": "3"
+    },
+    {
+      "index": 16,
+      "name": "dyn_notch_q",
+      "value": "300"
+    },
+    {
+      "index": 17,
+      "name": "dyn_notch_min_hz",
+      "value": "100"
+    },
+    {
+      "index": 18,
+      "name": "dyn_notch_max_hz",
+      "value": "600"
+    },
+    {
+      "index": 19,
+      "name": "dterm_lpf1_static_hz",
+      "value": "75"
+    },
+    {
+      "index": 20,
+      "name": "dterm_lpf1_dyn_min_hz",
+      "value": "75"
+    },
+    {
+      "index": 21,
+      "name": "dterm_lpf1_dyn_max_hz",
+      "value": "150"
+    },
+    {
+      "index": 22,
+      "name": "dterm_lpf2_static_hz",
+      "value": "150"
+    },
+    {
+      "index": 23,
       "name": "arm_accel_lpf_hz",
       "value": "0"
     },
     {
-      "index": 14,
+      "index": 24,
       "name": "max_rate_dps",
       "value": "700"
     },
     {
-      "index": 15,
+      "index": 25,
       "name": "angle_kp_roll",
       "value": "6.00"
     },
     {
-      "index": 16,
+      "index": 26,
       "name": "angle_kp_pitch",
       "value": "6.00"
     },
     {
-      "index": 17,
+      "index": 27,
       "name": "angle_rate_lim",
       "value": "6.00"
     },
     {
-      "index": 18,
+      "index": 28,
       "name": "max_tilt_deg",
       "value": "35"
     },
     {
-      "index": 19,
+      "index": 29,
       "name": "yaw_rate_dps",
       "value": "350"
     },
     {
-      "index": 20,
+      "index": 30,
       "name": "throttle_low",
       "value": "0.050"
     },
     {
-      "index": 21,
+      "index": 31,
       "name": "arm_max_tilt_deg",
       "value": "25.0"
     },
     {
-      "index": 22,
+      "index": 32,
       "name": "arm_hold_ms",
       "value": "500"
     },
     {
-      "index": 23,
+      "index": 33,
       "name": "rc_timeout_ms",
       "value": "250"
     },
     {
-      "index": 24,
+      "index": 34,
       "name": "max_dt_ms",
       "value": "50"
     },
     {
-      "index": 25,
+      "index": 35,
       "name": "wing_descend_bank_deg",
       "value": "30"
     },
     {
-      "index": 26,
+      "index": 36,
       "name": "wing_descend_pitch_deg",
       "value": "8"
     },
     {
-      "index": 27,
+      "index": 37,
       "name": "wing_descend_throttle",
       "value": "0.15"
     },
     {
-      "index": 28,
+      "index": 38,
       "name": "airframe",
       "value": "0"
     },
     {
-      "index": 29,
+      "index": 39,
       "name": "rc_min",
       "value": "172"
     },
     {
-      "index": 30,
+      "index": 40,
       "name": "rc_mid",
       "value": "992"
     },
     {
-      "index": 31,
+      "index": 41,
       "name": "rc_max",
       "value": "1811"
     },
     {
-      "index": 32,
+      "index": 42,
       "name": "rc_deadband",
       "value": "0.020"
+    },
+    {
+      "index": 43,
+      "name": "arm_channel",
+      "value": "6"
+    },
+    {
+      "index": 44,
+      "name": "mode_channel",
+      "value": "5"
     }
   ],
   "anomalies": [

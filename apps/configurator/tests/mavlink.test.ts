@@ -8,6 +8,7 @@ import {
   MavlinkDecoder,
   MAV_CMD_SET_MESSAGE_INTERVAL,
   MAV_MODE_FLAG_SAFETY_ARMED,
+  bytesBeyondTable,
   crcAccumulate,
   decode,
   deriveCrcExtra,
@@ -85,11 +86,16 @@ describe('the message table', () => {
     // Every byte of this byte is a function of the message's name, its field
     // types, its field names, its array lengths and which fields are
     // extensions. A single wrong character anywhere changes it - so a table
-    // that reproduces all fourteen has been checked field by field, by a
+    // that reproduces all fifteen has been checked field by field, by a
     // constant that was published before this file existed.
+    //
+    // 23 is `PARAM_SET`, added when this app grew a parameter write. Its 168
+    // came back from the derivation on the first run, which is the check
+    // working: the entry was transcribed from `common.xml` and the constant
+    // says whether the transcription was right.
     const published: Record<number, number> = {
-      0: 50, 1: 124, 21: 159, 22: 220, 24: 24, 30: 39, 33: 104, 36: 222,
-      65: 118, 74: 20, 76: 152, 77: 143, 148: 178, 253: 83,
+      0: 50, 1: 124, 21: 159, 22: 220, 23: 168, 24: 24, 30: 39, 33: 104,
+      36: 222, 65: 118, 74: 20, 76: 152, 77: 143, 148: 178, 253: 83,
     };
     for (const def of MAVLINK_MESSAGES) {
       expect(`${def.name}=${deriveCrcExtra(def)}`).toBe(`${def.name}=${published[def.id]}`);
@@ -237,10 +243,46 @@ describe('MAVLink v2 truncation', () => {
     expect(num(decoded, 'chunk_seq')).toBe(0);
   });
 
-  it('refuses a payload longer than the message it claims to be', () => {
+  it('reads a payload longer than its own definition from the prefix', () => {
+    // **This test used to assert the opposite**, and the opposite was wrong.
+    // It required `decode` to throw `MavProtocolError` on a payload longer than
+    // the message it claimed to be — which reads as strictness and is in fact
+    // the app refusing a legal frame. MAVLink grows a message by appending
+    // fields after `<extensions/>`, the appended fields go on the wire after
+    // every ordinary one, and they are **excluded from the CRC_EXTRA**; that
+    // exclusion is the whole mechanism by which a dialect can add a field
+    // without invalidating every ground station already in the field. So a
+    // checksum that validates has already proved the *base* fields agree, and a
+    // length past the table is a newer peer rather than a corrupt frame.
+    //
+    // Found on `SYS_STATUS`: this app carried the 31-byte pre-extension message
+    // and PX4 1.17.0 sends 43, so a real vehicle's battery voltage, current and
+    // sensor health were dropped on arrival — one warning line per frame, for as
+    // long as the link was up. `dialect.test.ts` drives that exact frame.
     const frame = oneFrame(frames.HEARTBEAT!.frame_hex);
-    const tooLong: MavlinkFrame = { ...frame, payload: new Uint8Array(frame.structLength + 1) };
-    expect(() => decode(tooLong)).toThrow(MavProtocolError);
+    const payload = new Uint8Array(frame.payload.length + 4);
+    payload.set(frame.payload, 0);
+    payload.set([0xaa, 0xbb, 0xcc, 0xdd], frame.payload.length);
+    const longer: MavlinkFrame = { ...frame, payload };
+
+    expect(bytesBeyondTable(longer)).toBe(4);
+    // And what it cannot name changes nothing about what it can.
+    expect(decode(longer)).toEqual(decode(frame));
+  });
+
+  it('counts no bytes past the table for a frame that fits it', () => {
+    // The other half: `bytesBeyondTable` is a measurement, not an assumption.
+    // A frame this app can describe in full reports zero, so nothing is
+    // reported to a person about a peer that is not ahead of them.
+    const frame = oneFrame(frames.HEARTBEAT!.frame_hex);
+    expect(bytesBeyondTable(frame)).toBe(0);
+    // v2's zero-truncation makes a *short* payload, which is not a negative
+    // count of bytes past the end and must not be reported as one.
+    const short: MavlinkFrame = {
+      ...frame,
+      payload: frame.payload.subarray(0, 4),
+    };
+    expect(bytesBeyondTable(short)).toBe(0);
   });
 });
 
