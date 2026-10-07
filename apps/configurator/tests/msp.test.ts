@@ -67,6 +67,32 @@ describe('MSP framing', () => {
     expect(() => buildRequest(MspCommand.STATUS, new Uint8Array(300))).toThrow(RangeError);
   });
 
+  it('frames v1 the way a real board does, not the way our own stand-in did', () => {
+    // Written out by hand from Betaflight's msp_serial.c - size is the payload
+    // length, the checksum the XOR of size, command and payload - rather than
+    // captured from aerialkit's fake board, which until 2026-10-06 shared this
+    // client's off-by-one: size counted the command byte, every fixture
+    // agreed, and no real board would have answered.
+    expect(hex(buildRequest(MspCommand.API_VERSION))).toBe('244d3c000101');
+    const reply = bytes('244d3e030100012e2d'); // protocol 0, API 1.46
+    const { frames, issues } = new MspDecoder().push(reply);
+    expect(issues).toEqual([]);
+    expect(frames).toHaveLength(1);
+    expect(Array.from(frames[0]!.payload)).toEqual([0x00, 0x01, 0x2e]);
+  });
+
+  it('skips a v2 header whose size no board sends, rather than waiting for it', () => {
+    // A corrupted 16-bit size (0xFFFF) used to make the decoder buffer up to
+    // 64 KiB - every later frame with it - before it gave up.
+    const decoder = new MspDecoder();
+    const corrupt = new Uint8Array([0x24, 0x58, 0x3e, 0x00, 0x01, 0x10, 0xff, 0xff]);
+    const good = buildRequestV2(0x1003, new Uint8Array([1, 2, 3]));
+    good[2] = 0x3e; // as a reply
+    const { frames, issues } = decoder.push(new Uint8Array([...corrupt, ...good, ...good]));
+    expect(frames).toHaveLength(2);
+    expect(issues.some((issue) => issue.kind === 'oversize')).toBe(true);
+  });
+
   it('decodes every captured reply', () => {
     for (const variant of ['betaflight', 'inav'] as const) {
       for (const key of keys(variant)) {
@@ -216,7 +242,13 @@ describe('MSP messages', () => {
       value: '1050',
     });
     const info = parseSettingInfo(payloadFor('betaflight', 'setting_info_known'));
-    expect(info.fields['pgn']).toBe('21');
+    // **8193, not 21.** The stand-in used to report 21, and this asserted it,
+    // so the app agreed with a board that was wrong. A pgn is not the bare PG
+    // id: `PG_REGISTER_I` stores `.pgn = _pgn | (_version << 12)`, and
+    // `failsafeConfig` is PG id 1 at version 2, which is 1 | 0x2000. A client
+    // that read the low bits and compared them against a PG id would match the
+    // wrong group — and would have matched it consistently enough to look right.
+    expect(info.fields['pgn']).toBe('8193');
     expect(info.fields['type']).toBe('uint16');
     expect(info.fields['min']).toBe('1000');
     expect(info.fields['max']).toBe('2000');

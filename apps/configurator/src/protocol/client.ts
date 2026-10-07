@@ -1,25 +1,54 @@
-import { Command, InfoStatus, TELEMETRY_MAX_HZ } from './constants';
+import {
+  CALIBRATE_VERB_NAMES,
+  CalibrateVerb,
+  Command,
+  InfoStatus,
+  LOG_STREAM_MAX_HZ,
+  MISSION_VERB_NAMES,
+  MissionVerb,
+  TELEMETRY_MAX_HZ,
+} from './constants';
 import { buildFrame, baseCommand, FrameDecoder, isResponse, type Frame } from './frame';
 import {
+  parseCalibration,
   parseHello,
+  parseLogInfo,
   parseLogRecord,
   parseLogSource,
+  parseLogStreamFrame,
+  parseLogStreamReply,
+  parseMission,
+  parseMotorTelemetry,
+  parsePerf,
+  parseOutputInfo,
+  parseOutputTest,
   parseParamGet,
   parseParamHelpSlice,
   parseParamInfoPage,
   parseParamSet,
+  parsePreflightPage,
   parseRcChannels,
   parseSensorInfo,
   parseStatus,
   parseTelemetry,
   ProtocolError,
   type BoardMeta,
+  type CalibrationState,
   type Hello,
   type LogRecord,
   type LogSourceReply,
+  type LogStreamFrame,
+  type LogStreamReply,
+  type MissionState,
+  type MotorTelemetryState,
+  type PerfWindow,
+  type OutputList,
+  type OutputTestAnswer,
+  type OutputTestRequest,
   type ParamInfoPage,
   type ParamSetReply,
   parseParamDefault,
+  type PreflightPage,
   type ParameterValue,
   type RcState,
   type SensorAnswer,
@@ -86,6 +115,16 @@ export interface ClientOptions {
   readonly timeoutMs?: number;
   /** Called for every pushed telemetry frame. */
   readonly onTelemetry?: (frame: Telemetry) => void;
+  /**
+   * Called for every pushed log-stream frame, `DONE` included.
+   *
+   * The end of a range arrives here rather than through a promise, because it
+   * is not the answer to anything: a stream is started once and then runs, and
+   * the frame that says it has finished is the last of the pushed frames rather
+   * than a reply that was waiting. A client that expected a resolving promise
+   * would have to invent a timeout for a stream that ended normally.
+   */
+  readonly onLogFrame?: (frame: LogStreamFrame) => void;
   /** Called when the link drops, whatever the reason. */
   readonly onClosed?: (reason: string) => void;
   /** Called for frames the decoder refused, so a lossy link is visible rather
@@ -96,6 +135,11 @@ export interface ClientOptions {
 interface Queued {
   readonly command: Command;
   readonly payload: Uint8Array;
+  /** Built when the request is made, so a request that cannot be framed (a
+   *  value too long for a payload) fails then, not inside pump() after it has
+   *  taken the line and a timer - which used to hold every request behind it
+   *  for a full timeout and throw into the transport's data handler. */
+  readonly frame: Uint8Array;
   readonly resolve: (payload: Uint8Array) => void;
   readonly reject: (error: Error) => void;
   readonly label: string;
@@ -120,11 +164,22 @@ export class AerialKitClient {
   private readonly queue: Queued[] = [];
   private current: Queued | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * After a timeout, a quiet moment before the next request goes out, and the
+   * command whose reply may still be on its way. Replies carry no sequence
+   * number, only the command byte, so a reply that arrived just after its
+   * request timed out used to be taken as the answer to whatever was sent
+   * next: a `param set` refused by the board recorded as accepted because the
+   * previous set's late "OK" answered it, or an unrelated request rejected
+   * with a correlation error. A late reply in the window is dropped.
+   */
+  private settle: ReturnType<typeof setTimeout> | null = null;
+  private lateCommand: Command | null = null;
   private closedReason: string | null = null;
   private readonly disposers: Array<() => void> = [];
 
   /** Diagnostics, counted rather than guessed at. */
-  readonly stats = { frames: 0, telemetry: 0, issues: 0, writes: 0 };
+  readonly stats = { frames: 0, telemetry: 0, logFrames: 0, issues: 0, writes: 0 };
 
   constructor(
     private readonly link: ByteLink,
@@ -151,6 +206,8 @@ export class AerialKitClient {
     this.closedReason = reason;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
+    if (this.settle !== null) clearTimeout(this.settle);
+    this.settle = null;
     this.current?.reject(new LinkClosedError());
     this.current = null;
     while (this.queue.length > 0) this.queue.shift()!.reject(new LinkClosedError());
@@ -190,7 +247,28 @@ export class AerialKitClient {
       return;
     }
 
+    if (command === Command.LOG_STREAM && !isResponse(frame.command)) {
+      this.stats.logFrames++;
+      try {
+        this.options.onLogFrame?.(parseLogStreamFrame(frame.payload));
+      } catch (error) {
+        this.stats.issues++;
+        this.options.onDecodeIssue?.(String((error as Error).message));
+      }
+      return;
+    }
+
     const current = this.current;
+    if (current === null && this.lateCommand === command) {
+      // The reply to a request that already timed out: it answers nothing
+      // that is waiting, so it is dropped rather than misread.
+      this.lateCommand = null;
+      this.stats.issues++;
+      this.options.onDecodeIssue?.(
+        `a late reply to 0x${command.toString(16)}, after its request timed out, was dropped`,
+      );
+      return;
+    }
     if (current === null) {
       this.stats.issues++;
       this.options.onDecodeIssue?.(
@@ -217,17 +295,26 @@ export class AerialKitClient {
   }
 
   private pump(): void {
-    if (this.current !== null || this.closedReason !== null) return;
+    if (this.current !== null || this.settle !== null || this.closedReason !== null) return;
     const next = this.queue.shift();
     if (next === undefined) return;
     this.current = next;
     this.timer = setTimeout(() => {
       const pending = this.current;
       if (pending !== next) return;
-      this.finish();
+      this.timer = null;
+      this.current = null;
+      this.lateCommand = next.command;
+      // A fifth of the timeout, at most a quarter second: long enough for a
+      // reply that was merely slow, short enough not to be felt.
+      this.settle = setTimeout(() => {
+        this.settle = null;
+        this.lateCommand = null;
+        this.pump();
+      }, Math.min(250, this.timeoutMs / 5));
       next.reject(new TimeoutError(next.label, this.timeoutMs));
     }, this.timeoutMs);
-    void Promise.resolve(this.link.write(buildFrame(next.command, next.payload))).catch(
+    void Promise.resolve(this.link.write(next.frame)).catch(
       (error: unknown) => {
         if (this.current !== next) return;
         this.finish();
@@ -239,8 +326,14 @@ export class AerialKitClient {
   private request(command: Command, payload: Uint8Array, label: string): Promise<Uint8Array> {
     if (this.closedReason !== null) return Promise.reject(new LinkClosedError());
     this.stats.writes++;
+    let frame: Uint8Array;
+    try {
+      frame = buildFrame(command, payload);
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+    }
     return new Promise((resolve, reject) => {
-      this.queue.push({ command, payload, resolve, reject, label });
+      this.queue.push({ command, payload, frame, resolve, reject, label });
       this.pump();
     });
   }
@@ -399,6 +492,112 @@ export class AerialKitClient {
     return new TextDecoder().decode(joined);
   }
 
+  /**
+   * One page of one line of the board's checklist.
+   *
+   * The caller names the line *and* the byte to start from, rather than this
+   * method walking a line on its own the way `paramHelp` does. That is
+   * deliberate and it is about the rebuild: the firmware builds the checklist on
+   * an `index` of zero and reads the same record for every other index, so a
+   * walk has to keep its first request at offset zero or line twenty would
+   * answer from a checklist built for a different question. Exposing the page
+   * lets the session own that rule in one place, where the count and the
+   * sentences can be kept consistent with each other.
+   */
+  async preflightPage(index: number, offset: number): Promise<PreflightPage> {
+    if (index < 0 || index > 255) throw new RangeError('preflight line is one byte');
+    if (offset < 0 || offset > 0xffff) throw new RangeError('preflight offset is two bytes');
+    const payload = new Uint8Array(3);
+    payload[0] = index;
+    payload[1] = offset & 0xff;
+    payload[2] = (offset >> 8) & 0xff;
+    return parsePreflightPage(
+      await this.request(Command.PREFLIGHT, payload, `preflight line ${index}`),
+    );
+  }
+
+  /**
+   * One mission verb, and the aircraft's whole mission state back.
+   *
+   * **The reply is the state, not an acknowledgement**, and it is the state
+   * *after* the verb ran — so a caller that sends `start` reads the effect of its
+   * own frame here and needs no second request. See `MissionState` for the two
+   * facts (`requested` and `active`) that keep a start that has been asked for
+   * apart from a mission that is flying.
+   *
+   * **A refusal is an answer, not a thrown error.** "There is nothing to fly" and
+   * "home needs a usable fix" are things the aircraft says about itself, and they
+   * arrive with the same seventeen bytes as an acceptance, so the caller reads
+   * them from `status` rather than from a catch. Only three things throw: a link
+   * that is closed, a reply that never came, and a frame this decoder refuses.
+   *
+   * A verb this protocol does not define is refused *here*, without a frame: the
+   * firmware would answer it, but the only thing that answer could say is that
+   * this app asked for something it already knew was not there.
+   */
+  async mission(verb: MissionVerb): Promise<MissionState> {
+    const name = MISSION_VERB_NAMES[verb];
+    if (name === undefined) {
+      throw new RangeError(`mission: ${verb} is not a verb this protocol defines`);
+    }
+    return parseMission(
+      await this.request(Command.MISSION, new Uint8Array([verb]), `mission ${name}`),
+    );
+  }
+
+  /**
+   * One calibration verb, and the session's whole state back.
+   *
+   * **The reply is a reading, not an acknowledgement** — the same shape as
+   * `mission`, and here it is what makes a wizard possible: `status` and the
+   * verb that started a session are answered from one frame, so polling a
+   * running calibration is `calibrate(STATUS)` and the progress arrives in the
+   * `samples`/`rejected` counts rather than through a second round trip. The
+   * flight loop keeps turning throughout, which is why none of these blocks.
+   *
+   * **A refusal is an answer, not a thrown error.** `ARMED`, `BUSY`,
+   * `NO_SAMPLES` and `IMPLAUSIBLE` are things the aircraft says about itself and
+   * arrive with the same thirty-seven bytes as an acceptance, so the caller
+   * reads them from `status`. Only three things throw: a closed link, a reply
+   * that never came, and a frame this decoder refuses.
+   *
+   * **The arguments are refused here, without a frame, when this app can already
+   * see they are wrong.** A verb outside the six is not a thing the firmware
+   * could do anything useful with, and `0xFF` would ask it to calibrate a pack
+   * divider against nothing at all — the exact default `ak_proto.c` refuses on
+   * the board's side, and there is no reason to spend a frame learning what this
+   * file already knows. A face outside `0..5` is left to the board: it is the
+   * board's six faces, and `NO_FACE` is its sentence for a seven-sided one.
+   */
+  async calibrate(verb: CalibrateVerb, face = 0, mv = 0): Promise<CalibrationState> {
+    const name = CALIBRATE_VERB_NAMES[verb];
+    if (name === undefined) {
+      throw new RangeError(`calibrate: ${verb} is not a verb this protocol defines`);
+    }
+    if (!Number.isInteger(face) || face < 0 || face > 255) {
+      throw new RangeError('calibrate: the face is one byte');
+    }
+
+    let payload: Uint8Array;
+    if (verb === CalibrateVerb.VBAT) {
+      if (!Number.isInteger(mv) || mv < 0 || mv > 0xffffffff) {
+        throw new RangeError('calibrate: the pack voltage is four bytes of millivolts');
+      }
+      payload = new Uint8Array(5);
+      payload[0] = verb;
+      const view = new DataView(payload.buffer);
+      view.setUint32(1, mv, true);
+    } else if (verb === CalibrateVerb.ACCEL) {
+      payload = new Uint8Array([verb, face]);
+    } else {
+      payload = new Uint8Array([verb]);
+    }
+
+    return parseCalibration(
+      await this.request(Command.CALIBRATE, payload, `calibrate ${name}`),
+    );
+  }
+
   async paramSet(index: number, value: string): Promise<ParamSetReply> {
     const text = new TextEncoder().encode(value);
     const payload = new Uint8Array(1 + text.length);
@@ -449,6 +648,29 @@ export class AerialKitClient {
   }
 
   /**
+   * How fast the board can hear each motor turning, if it can hear them.
+   *
+   * Polled rather than streamed, for the same reason `rcChannels` is: the
+   * console link cannot stream, and this is a number a person wants while
+   * standing at the aircraft rather than one to plot.
+   *
+   * The request is the empty frame, and the reply is one of three answers —
+   * see `MotorTelemetryState`. **No arguments, and deliberately none to give**:
+   * a pole count would be a request to compute RPM, and the board reports its
+   * own or reports that it cannot.
+   */
+  /** The loop profiler's window. A read; it changes nothing on the board. */
+  async perf(): Promise<PerfWindow> {
+    return parsePerf(await this.request(Command.PERF, new Uint8Array(0), 'perf'));
+  }
+
+  async motorTelemetry(): Promise<MotorTelemetryState> {
+    return parseMotorTelemetry(
+      await this.request(Command.MOTOR_TELEMETRY, new Uint8Array(0), 'motor telemetry'),
+    );
+  }
+
+  /**
    * What one of the board's sensors is reading, or why it is not.
    *
    * One topic per call rather than "tell me about everything", because the
@@ -467,6 +689,45 @@ export class AerialKitClient {
   }
 
   /**
+   * What the board drives, and how many pads actually reach a header.
+   *
+   * The request is the empty frame — this is a read with no argument, so there
+   * is no malformed request to refuse and the only thing the reply can say is
+   * one of three things about the board. A board with more outputs than one
+   * frame carries refuses rather than paging, and `OutputList` carries that
+   * apart from "this board drives nothing".
+   */
+  async outputInfo(): Promise<OutputList> {
+    return parseOutputInfo(await this.request(Command.OUTPUT_INFO, new Uint8Array(0), 'output info'));
+  }
+
+  /**
+   * Hold one output at a level, or stop.
+   *
+   * **The only command in this client that makes an aircraft do something.** It
+   * is one output at a time because the wire has no other form, and `levelPct`
+   * is a request rather than an instruction: the board clamps it to its own cap
+   * and answers with the percentage it will actually drive.
+   *
+   * The reply is checked against what was sent. That check is worth more here
+   * than anywhere else in this file: a client holding a screen of four outputs
+   * has to know which answer it is holding, and one that has lost track can
+   * send the stop without asking first.
+   */
+  async outputTest(request: OutputTestRequest): Promise<OutputTestAnswer> {
+    const payload = new Uint8Array([
+      request.op,
+      request.kind,
+      request.index,
+      request.levelPct & 0xff,
+    ]);
+    const what =
+      `output test op ${request.op} kind ${request.kind} ${request.index} ` +
+      `at ${request.levelPct}%`;
+    return parseOutputTest(await this.request(Command.OUTPUT_TEST, payload, what), request);
+  }
+
+  /**
    * Which log the next `logInfo` and `logGet` are about. A source this device
    * does not have is refused with a non-zero status, and that is returned as
    * such rather than as a log with no records.
@@ -475,6 +736,27 @@ export class AerialKitClient {
     return parseLogSource(
       await this.request(Command.LOG_SOURCE, new Uint8Array([source]), `log source ${source}`),
     );
+  }
+
+  /**
+   * How many records the *currently selected* log holds, right now.
+   *
+   * This is the refresh, not the selection: `selectLog` is what decides which
+   * log that is, and this asks the same question again later without changing
+   * anything — a ring that has gone on recording since the last answer holds
+   * more than it did, and a person who has just read a hundred records wants to
+   * know whether there are now a hundred and one.
+   *
+   * **The reply carries no status byte, so this cannot report an absent log.**
+   * `ak_proto.c` answers `count > 0 ? count : 0`, which collapses "this device
+   * has no log reader", "this device does not have that ring" and "the ring is
+   * empty" into one zero. That collapse is why `selectLog` exists and why this
+   * method must never be the first thing asked: a caller that took a zero from
+   * here as a fact about hardware would report an absent log as an empty one.
+   * Select first; refresh after.
+   */
+  async logInfo(): Promise<number> {
+    return parseLogInfo(await this.request(Command.LOG_INFO, new Uint8Array(0), 'log info'));
   }
 
   async logGet(index: number): Promise<LogRecord | null> {
@@ -503,6 +785,39 @@ export class AerialKitClient {
     );
     if (reply.length < 1) throw new ProtocolError('telemetry: the reply carried no rate');
     return reply[0]!;
+  }
+
+  /**
+   * Ask for a range of a log to be pushed, and get back what will actually be
+   * sent.
+   *
+   * The reply is not the answer to the whole transaction — the records arrive
+   * afterwards, at `onLogFrame`, ending with a frame carrying `DONE`. So a
+   * caller reads `hz === 0` here as "no stream is coming" and stops waiting,
+   * rather than as an error: it is the console link's answer and the answer to
+   * a range with nothing in it alike.
+   *
+   * A zero rate is sent as a *stop*, which is how a running stream is ended
+   * early — the firmware treats it the same way it treats a request with
+   * nothing to send.
+   */
+  async startLogStream(
+    source: number,
+    first: number,
+    count: number,
+    hz: number,
+  ): Promise<LogStreamReply> {
+    const wanted = Math.max(0, Math.min(LOG_STREAM_MAX_HZ, Math.round(hz)));
+    const payload = new Uint8Array(6);
+    payload[0] = source & 0xff;
+    payload[1] = first & 0xff;
+    payload[2] = (first >> 8) & 0xff;
+    payload[3] = count & 0xff;
+    payload[4] = (count >> 8) & 0xff;
+    payload[5] = wanted;
+    return parseLogStreamReply(
+      await this.request(Command.LOG_STREAM, payload, `log stream ${source}`),
+    );
   }
 }
 

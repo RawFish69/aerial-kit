@@ -671,16 +671,21 @@ static void do_request(void)
     control_stall();
 }
 
-/* One request, and then the OUT side is armed again - unless what was asked
- * for is a data stage, in which case the data has to land first and
- * receive_packet() arms it once the status stage has been sent. */
+/* One request, and then the OUT side is armed again - always, including when
+ * what was asked for has a data stage.
+ *
+ * The core NAKs endpoint 0 OUT once a setup packet lands, so a data stage
+ * (SET_LINE_CODING's seven bytes) is only received after the endpoint is
+ * enabled and its NAK cleared - which is what ST's driver does in
+ * USBD_CtlPrepareRx. Leaving it unarmed until the data had "landed" meant the
+ * data could never land: Linux times the request out after five seconds and
+ * opens the port anyway, but Windows usbser waits on it, so opening the port
+ * hung and the request stayed stuck until the board was unplugged. */
 static void do_setup(void)
 {
     control_out_pending = 0u;
     do_request();
-    if (control_out_pending == 0u) {
-        ep0_out_arm();
-    }
+    ep0_out_arm();
 }
 
 /* --- the poll and the init ------------------------------------------------ */

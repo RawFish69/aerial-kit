@@ -587,18 +587,23 @@ void *ak_board_retained_ram(unsigned *bytes)
 
 /* --- the blackbox in flash ------------------------------------------------
  *
- * Sectors 5 to 9 - five 128 KB sectors, 640 KB, from 0x08020000 to 0x080C0000
+ * Sectors 6 to 9 - four 128 KB sectors, 512 KB, from 0x08040000 to 0x080C0000
  * - are the log. Sectors 10 and 11 above them are the saved configuration, its
- * two banks, and sectors below are the image; both of those are enforced rather
- * than hoped for: the linker script asserts that the image ends before
- * 0x08020000, and the static assertion below is that this region stops before
- * the *first* configuration bank. Neither is a comment somebody has to
- * remember.
+ * two banks; the trace page and the image are below. Both boundaries are
+ * enforced rather than hoped for: the linker script asserts that the image ends
+ * before the trace page, and the static assertion below is that this region
+ * stops before the *first* configuration bank. Neither is a comment somebody
+ * has to remember.
  *
- * The log gave up one of its six sectors for the configuration's second bank.
- * That is where the space came from and it is worth saying plainly: the log is
- * 640 KB where it was 768 KB, and what it bought is that no power cut can leave
- * the aircraft with no configuration at all. See the section above.
+ * This board links against the same script as the WeAct F405, so it moves with
+ * it and its geometry is the part's rather than its own. The two sectors the log
+ * has given up, one to the configuration's second bank and one to the image, are
+ * told in that script's layout comment and in the WeAct board file. The Feather
+ * has no use for the trace page it now reserves above the image; one geometry for
+ * the part is worth 4 KB. The cost here is the same as there: the log is 512 KB
+ * where it was 640 KB - 6 552 records at five a second, the same number the
+ * WeAct board's comment derives, because it is the same region and the same
+ * slot.
  *
  * The log erases a sector only when the core asks it to, and the core asks
  * only when the aircraft is disarmed: the erase stops the CPU for about a
@@ -606,11 +611,10 @@ void *ak_board_retained_ram(unsigned *bytes)
  * sectors stops rather than taking that second in the air.
  */
 
-#define AK_LOG_FIRST_SECTOR 5u
-#define AK_LOG_SECTOR_BYTES 0x20000u /* sectors 5..9 are all 128 KB */
+#define AK_LOG_FIRST_SECTOR 6u
+#define AK_LOG_SECTOR_BYTES 0x20000u /* sectors 6..9 are all 128 KB */
 
 static const ak_flashlog_region_t log_regions[] = {
-    { 0x08020000u, AK_LOG_SECTOR_BYTES },
     { 0x08040000u, AK_LOG_SECTOR_BYTES },
     { 0x08060000u, AK_LOG_SECTOR_BYTES },
     { 0x08080000u, AK_LOG_SECTOR_BYTES },
@@ -866,23 +870,36 @@ int ak_board_gps_send(const char *data, unsigned len)
 
 /* --- the IMU's bus --------------------------------------------------------
  *
- * I2C1 to the LSM6DSO on the Qwiic connector (board.h). The driver asks for a
- * register number and gets bytes back; the address and the port live here.
- * No burst: the LSM6DSO has no configuration upload, and a null burst is
+ * I2C1 to the breakout on the Qwiic connector (board.h). The driver asks for a
+ * register number and gets bytes back; the address and the port live here,
+ * and on this board the address is the one the boot-time scan settled on.
+ * No burst: neither part here has a configuration upload, and a null burst is
  * "one byte at a time" to ak_bus.h.
  */
+
+static const uint8_t imu_candidates[] = {
+    AK_BOARD_IMU_BNO055_ADDRESS,
+    AK_BOARD_IMU_BNO055_ALT_ADDRESS,
+    AK_BOARD_IMU_LSM6DSO_ADDRESS,
+    AK_BOARD_IMU_LSM6DSO_ALT_ADDRESS,
+};
+
+/* The address the bus talks to. Before a scan has found anything it is the
+ * first candidate rather than zero: zero is the general-call address, and a
+ * read addressed there would be a broadcast, not a probe. */
+static uint8_t imu_address = AK_BOARD_IMU_BNO055_ADDRESS;
+static int     imu_address_found;
 
 static int imu_bus_read(void *ctx, uint8_t reg, uint8_t *buf, unsigned len)
 {
     (void)ctx;
-    return ak_i2c_read_reg(AK_BOARD_IMU_I2C, AK_BOARD_IMU_ADDRESS, reg, buf,
-                           len);
+    return ak_i2c_read_reg(AK_BOARD_IMU_I2C, imu_address, reg, buf, len);
 }
 
 static int imu_bus_write(void *ctx, uint8_t reg, uint8_t value)
 {
     (void)ctx;
-    return ak_i2c_write_reg(AK_BOARD_IMU_I2C, AK_BOARD_IMU_ADDRESS, reg, value);
+    return ak_i2c_write_reg(AK_BOARD_IMU_I2C, imu_address, reg, value);
 }
 
 static void imu_bus_delay(void *ctx, unsigned ms)
@@ -891,12 +908,22 @@ static void imu_bus_delay(void *ctx, unsigned ms)
     ak_delay_ms(ms);
 }
 
+/* Only a found address is reported. One that nothing answered at is the
+ * scan's default, not a fact, and the core prints `nothing answered` then
+ * anyway. */
+static uint8_t imu_bus_address(void *ctx)
+{
+    (void)ctx;
+    return imu_address_found ? imu_address : 0u;
+}
+
 static const ak_bus_t imu_bus = {
     .read = imu_bus_read,
     .write = imu_bus_write,
     .write_burst = 0,
     .delay_ms = imu_bus_delay,
     .ctx = 0,
+    .address = imu_bus_address,
 };
 
 const ak_bus_t *ak_board_imu_bus(void)
@@ -904,10 +931,44 @@ const ak_bus_t *ak_board_imu_bus(void)
     return &imu_bus;
 }
 
+/*
+ * One pass over the candidates: the first address that acknowledges a
+ * one-byte read wins. Register 0x00 is read because it is harmless on both
+ * parts - the BNO055's chip id, a reserved register on the LSM6DSO - and the
+ * byte is thrown away: what this asks is "is anyone there", and the core's
+ * who-am-i asks "who".
+ */
+static int imu_scan_once(void)
+{
+    for (unsigned i = 0; i < sizeof imu_candidates; i++) {
+        uint8_t byte = 0;
+        if (ak_i2c_read_reg(AK_BOARD_IMU_I2C, imu_candidates[i], 0x00u, &byte,
+                            1u) == 0) {
+            imu_address = imu_candidates[i];
+            imu_address_found = 1;
+            return 0;
+        }
+    }
+    return -1;
+}
+
 void ak_board_imu_init(void)
 {
     ak_i2c_init(AK_BOARD_IMU_I2C, AK_BOARD_IMU_SCL, AK_BOARD_IMU_SDA,
                 AK_BOARD_IMU_AF, AK_BOARD_IMU_SPEED);
+
+    imu_address = AK_BOARD_IMU_BNO055_ADDRESS;
+    imu_address_found = 0;
+    /* A BNO055 still booting does not acknowledge its address, so an empty
+     * scan is retried until the part has had its datasheet boot time and some
+     * more. An LSM6DSO answers on the first pass. */
+    for (unsigned waited = 0; waited <= AK_BOARD_IMU_PROBE_MS;
+         waited += AK_BOARD_IMU_PROBE_STEP_MS) {
+        if (imu_scan_once() == 0) {
+            return;
+        }
+        ak_delay_ms(AK_BOARD_IMU_PROBE_STEP_MS);
+    }
 }
 
 /* --- the barometer's bus --------------------------------------------------

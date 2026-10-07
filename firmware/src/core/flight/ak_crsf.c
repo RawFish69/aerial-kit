@@ -19,6 +19,12 @@ void ak_crsf_init(ak_crsf_t *crsf)
     crsf->pings = 0;
     crsf->last_ping_from = 0;
     crsf->last_byte_ms = 0;
+    /* The stats are zeroed *and* their frame count is zeroed. The count is what
+     * says whether the zeros mean anything: see the field comment in the
+     * header. */
+    crsf->stats_frames = 0;
+    crsf->last_stats_ms = 0;
+    crsf->stats = (ak_crsf_link_stats_t){0};
     for (int i = 0; i < AK_CRSF_CHANNELS; i++) {
         crsf->channel[i] = 0;
     }
@@ -44,10 +50,24 @@ void ak_crsf_unpack(const uint8_t *payload, uint16_t channels[AK_CRSF_CHANNELS])
         unsigned byte = bit / 8u;
         unsigned shift = bit % 8u;
 
-        /* 11 bits little-endian, spanning at most three bytes of the payload. */
+        /* 11 bits little-endian. The window is three bytes wide only when the
+         * field actually reaches into the third: at shift 6 or 7 it ends on bit
+         * 16 or 17, and at shift 5 it ends exactly on bit 15. Reading the third
+         * byte unconditionally reads one past the end of the 22-byte channel
+         * payload CRSF defines - the read tools/fuzz_parsers.c means when it
+         * says the unpacker must not read outside the payload it is given, and
+         * what the sanitize stage caught at tests/test_custom_radio.c:181.
+         *
+         * It never produced a wrong channel, and neither of the two reasons is
+         * a reason to keep it: the bits above 15 are masked off by the `& 0x7FF`
+         * below, and in the frame buffer the byte past the payload is the crc,
+         * which happens to be mapped - so the only caller that passes exactly
+         * 22 bytes (the test) is the one that reads out of bounds. */
         uint32_t window = (uint32_t)payload[byte] |
-                          ((uint32_t)payload[byte + 1] << 8) |
-                          ((uint32_t)payload[byte + 2] << 16);
+                          ((uint32_t)payload[byte + 1] << 8);
+        if (shift > 5u) {
+            window |= (uint32_t)payload[byte + 2] << 16;
+        }
         channels[n] = (uint16_t)((window >> shift) & 0x7FFu);
     }
 }
@@ -117,6 +137,35 @@ int ak_crsf_feed(ak_crsf_t *crsf, uint8_t byte, ak_rc_input_t *out,
             crsf->pings++;
             crsf->last_ping_from = crsf->frame[4];
         }
+        return 0;
+    }
+
+    if (type == AK_CRSF_TYPE_LINK_STATISTICS &&
+        len == 2u + AK_CRSF_LINK_STATS_BYTES) {
+        /* What the receiver says about the link it is holding. Copied field by
+         * field rather than as a struct, so the byte order is visible here and
+         * a change to the struct's layout cannot silently re-map the wire.
+         *
+         * Returns 0 on purpose. This is not a channel update and must not be
+         * mistaken for one: `out` is untouched and `last_update_ms` is not
+         * stamped, so a receiver that keeps talking about a link it can no
+         * longer carry sticks on never looks like a live stick frame. The
+         * numbers are left on the parser for whoever asks. */
+        const uint8_t *p = &crsf->frame[3];
+
+        crsf->stats.uplink_rssi_1   = p[0];
+        crsf->stats.uplink_rssi_2   = p[1];
+        crsf->stats.uplink_lq       = p[2];
+        crsf->stats.uplink_snr      = (int8_t)p[3];
+        crsf->stats.active_antenna  = p[4];
+        crsf->stats.rf_mode         = p[5];
+        crsf->stats.uplink_tx_power = p[6];
+        crsf->stats.downlink_rssi   = p[7];
+        crsf->stats.downlink_lq     = p[8];
+        crsf->stats.downlink_snr    = (int8_t)p[9];
+
+        crsf->stats_frames++;
+        crsf->last_stats_ms = now_ms;
         return 0;
     }
 

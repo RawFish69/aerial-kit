@@ -215,6 +215,90 @@ unsigned ak_proto_telemetry_frame(const ak_proto_io_t *io, uint32_t now_ms,
     unsigned at = append_i32le(out, 5u, (int32_t)now_ms, capacity);
     at = append_status_body(out, at, io, capacity);
 
+    /* A buffer too small for the body and its CRC is no frame at all: it used
+     * to come back with the body cut and no checksum, and a length byte that
+     * did not match what was written. */
+    if (at + 2u > capacity) {
+        return 0;
+    }
+    out[4] = (uint8_t)(at - 5u);
+    uint16_t crc = ak_proto_crc16(&out[2], at - 2u);
+    at = append_u8(out, at, (uint8_t)(crc & 0xFFu), capacity);
+    at = append_u8(out, at, (uint8_t)(crc >> 8), capacity);
+    return at;
+}
+
+/* One frame of a log stream, built to be pushed: the command byte has no
+ * response bit, exactly as the telemetry frame's does not, so a client tells a
+ * stream from its own answers the same way on both.
+ *
+ * The body carries the index and the source in every frame, which the LOG_GET
+ * reply does not. A reply does not have to say what it is answering - it is
+ * arriving because something asked - and a push has nothing above it tying it
+ * to a request. Those four bytes are what let a client see a hole *as* a hole
+ * rather than as a record that did not arrive.
+ *
+ * `log_stream_index` advances here and not in the caller, so the two failure
+ * modes that matter cannot happen: a caller that advanced on its own would skip
+ * a record whose frame was never built, and a caller that advanced only on
+ * success would resend the record the board refused, forever, because a refusal
+ * is not a transient error. */
+unsigned ak_proto_log_stream_frame(ak_proto_t *proto, const ak_proto_io_t *io,
+                                   uint8_t *out, unsigned capacity)
+{
+    /* A frame holds a header, four bytes of index and source, a whole record
+     * and a CRC. A caller with less room than that gets nothing rather than a
+     * record with its tail cut off: the `append_*` helpers write what fits and
+     * report where they stopped, so a record built into too small a buffer
+     * would come out short and still carry a valid CRC over its short self. A
+     * client would decode it as a complete record with the next field's bytes
+     * where its last ones should be. */
+    if (capacity < 5u + 4u + AK_LOG_WIRE_BYTES + 2u) {
+        return 0u;
+    }
+    if (proto->log_stream_hz == 0u) {
+        return 0u;
+    }
+
+    out[0] = AK_PROTO_SYNC1;
+    out[1] = AK_PROTO_SYNC2;
+    out[2] = AK_PROTO_VERSION;
+    out[3] = AK_PROTO_CMD_LOG_STREAM; /* no response bit: this was not asked for */
+    out[4] = 0;                       /* length, filled in below */
+
+    uint8_t  source = proto->log_stream_source;
+    uint16_t index = proto->log_stream_index;
+    unsigned at;
+
+    if (index >= proto->log_stream_end) {
+        /* The range is finished, and it says so rather than going quiet. */
+        at = append_u8(out, 5u, AK_PROTO_LOG_STREAM_DONE, capacity);
+        at = append_u8(out, at, source, capacity);
+        at = append_u16le(out, at, index, capacity);
+        proto->log_stream_hz = 0u;
+    } else {
+        uint8_t record[AK_LOG_WIRE_BYTES];
+        unsigned length = io->log_record != 0
+                              ? io->log_record(io->ctx, source, index, record,
+                                               sizeof record)
+                              : 0u;
+        if (length == 0u) {
+            /* Refused, and named: the client is told which index it was, so a
+             * gap in the log is a fact it has rather than one it infers. */
+            at = append_u8(out, 5u, AK_PROTO_LOG_STREAM_HOLE, capacity);
+            at = append_u8(out, at, source, capacity);
+            at = append_u16le(out, at, index, capacity);
+        } else {
+            at = append_u8(out, 5u, AK_PROTO_LOG_STREAM_RECORD, capacity);
+            at = append_u8(out, at, source, capacity);
+            at = append_u16le(out, at, index, capacity);
+            for (unsigned i = 0; i < length && i < AK_LOG_WIRE_BYTES; i++) {
+                at = append_u8(out, at, record[i], capacity);
+            }
+        }
+        proto->log_stream_index = (uint16_t)(index + 1u);
+    }
+
     out[4] = (uint8_t)(at - 5u);
     uint16_t crc = ak_proto_crc16(&out[2], at - 2u);
     at = append_u8(out, at, (uint8_t)(crc & 0xFFu), capacity);
@@ -519,7 +603,13 @@ static unsigned handle_command(ak_proto_t *proto, const ak_proto_io_t *io,
          * parameter means - which is the whole reason there is one table. */
         unsigned value_length = args_length - 1u;
         if (value_length >= sizeof text) {
-            value_length = sizeof text - 1u;
+            /* Refused, not cut: a 64-character WPA key truncated to 63 passed
+             * the parameter's own length check and answered OK, storing a key
+             * that is not the one that was sent. The console path refuses the
+             * same value; so does this now. */
+            at = append_u8(response, at, AK_PROTO_WRITE_REJECTED, capacity);
+            at = append_string(response, at, "value too long", capacity);
+            break;
         }
         for (unsigned i = 0; i < value_length; i++) {
             text[i] = (char)args[1 + i];
@@ -711,6 +801,107 @@ static unsigned handle_command(ak_proto_t *proto, const ak_proto_io_t *io,
         at = append_u8(response, at, 0, capacity);
         at = append_u8(response, at, wanted, capacity);
         at = append_u16le(response, at, (uint16_t)count, capacity);
+        break;
+    }
+
+    case AK_PROTO_CMD_LOG_STREAM: {
+        /* A range and a rate, and the answer is the range and the rate that
+         * will actually be sent. The same rule as TELEMETRY: a client that
+         * asked for more than this firmware will give should be told what it
+         * is going to get rather than work it out from the spacing.
+         *
+         * The reply is six numbers, and every one of them is a fact about what
+         * happens next rather than an echo of what was asked:
+         *
+         *   status  0 accepted, 1 refused (no such log on this board)
+         *   source  the log that will be streamed
+         *   first   the first index that will be sent
+         *   count   how many records will be sent, after clamping
+         *   rate    the frames per second that will be sent, after clamping
+         *
+         * A reply of `0, source, first, 0, 0` is the answer "nothing will be
+         * sent", and it is the same answer whether the range named no records,
+         * the rate was zero, or the link cannot push frames at all. That is
+         * deliberate and it is TELEMETRY's answer too: the client's job is to
+         * notice that no stream is coming, not to be told which of three
+         * sentences to print.
+         *
+         * `proto->log_source` is *not* touched. It selects the ring LOG_GET
+         * reads from, and a person reading one record at a time should not
+         * have their selection moved by a stream they started and stopped. */
+        if (args_length < 6u) {
+            /* A short frame is refused rather than defaulted. The defaults here
+             * would all be harmful: a request that named no range would become
+             * "the whole log", and a request that named no rate would become
+             * one this firmware chose. `PARAM_DEFAULT` refuses its bare form for
+             * the same reason and it is the same booby trap. */
+            at = append_u8(response, at, 1, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u16le(response, at, 0u, capacity);
+            at = append_u16le(response, at, 0u, capacity);
+            at = append_u8(response, at, 0, capacity);
+            break;
+        }
+
+        uint8_t  wanted_source = args[0];
+        uint16_t first = (uint16_t)(args[1] | ((uint16_t)args[2] << 8));
+        uint16_t count = (uint16_t)(args[3] | ((uint16_t)args[4] << 8));
+        uint32_t rate = args[5];
+
+        int32_t total = (wanted_source <= AK_PROTO_LOG_MAX && io->log_count != 0)
+                            ? io->log_count(io->ctx, wanted_source)
+                            : -1;
+        if (total < 0) {
+            /* No such log. Not "empty" - a device with two of the three rings
+             * says which one it cannot read, the way LOG_SOURCE does. */
+            at = append_u8(response, at, 1, capacity);
+            at = append_u8(response, at, wanted_source, capacity);
+            at = append_u16le(response, at, 0u, capacity);
+            at = append_u16le(response, at, 0u, capacity);
+            at = append_u8(response, at, 0, capacity);
+            break;
+        }
+
+        if (first > (uint16_t)total) {
+            first = (uint16_t)total;
+        }
+        uint16_t available = (uint16_t)((uint16_t)total - first);
+        if (count > available) {
+            count = available;
+        }
+        if (!proto->can_stream || count == 0u || rate == 0u) {
+            /* Nothing will be sent, so stop anything already running and say
+             * zero rather than agreeing to a stream that will never arrive. */
+            proto->log_stream_hz = 0u;
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, wanted_source, capacity);
+            at = append_u16le(response, at, 0u, capacity);
+            at = append_u16le(response, at, 0u, capacity);
+            at = append_u8(response, at, 0, capacity);
+            break;
+        }
+        if (rate > AK_PROTO_LOG_STREAM_MAX_HZ) {
+            rate = AK_PROTO_LOG_STREAM_MAX_HZ;
+        }
+
+        proto->log_stream_source = wanted_source;
+        proto->log_stream_index = first;
+        /* `end` is exclusive, and it is the answer to "when do I stop" that the
+         * frame builder reads. Crafting it as start+count with a 16-bit sum
+         * would wrap at 65536 - and this board's flash ring holds 6 552, so a
+         * wrap is not reachable today, which is exactly the kind of reasoning
+         * that stops being true the first time a board overflows the uint16
+         * index. Clamping to `total` cannot wrap. */
+        proto->log_stream_end =
+            (uint16_t)(first + count <= (uint16_t)total ? first + count
+                                                        : (uint16_t)total);
+        proto->log_stream_hz = (uint8_t)rate;
+
+        at = append_u8(response, at, 0, capacity);
+        at = append_u8(response, at, wanted_source, capacity);
+        at = append_u16le(response, at, first, capacity);
+        at = append_u16le(response, at, count, capacity);
+        at = append_u8(response, at, (uint8_t)rate, capacity);
         break;
     }
 
@@ -925,6 +1116,532 @@ static unsigned handle_command(ak_proto_t *proto, const ak_proto_io_t *io,
         break;
     }
 
+    case AK_PROTO_CMD_OUTPUT_INFO: {
+        /* A read with no argument, so there is nothing to get wrong and no
+         * refusal for a malformed request: the empty frame is the only frame
+         * this opcode defines, and a frame with bytes on the end is a client
+         * from the future whose extra arguments this build ignores - which is
+         * the same statement as "an old board reads the page it has always
+         * read", from the other side.
+         *
+         * The header carries the count *and* the split between the two kinds,
+         * because they answer different questions: the count is how many
+         * entries follow, and the split is what the aircraft is. A client
+         * drawing "4 motors, 2 servos" should not have to count descriptors to
+         * say it, and a client that did would be wrong the first time a board
+         * had an output kind it did not know. */
+        if (io->outputs == 0) {
+            at = append_u8(response, at, AK_PROTO_OUTPUT_INFO_NONE, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, AK_PROTO_OUTPUT_TEST_MAX_PCT,
+                           capacity);
+            break;
+        }
+
+        ak_proto_output_t outputs[AK_PROTO_OUTPUT_MAX];
+        unsigned total = io->outputs(io->ctx, outputs, AK_PROTO_OUTPUT_MAX);
+
+        if (total > AK_PROTO_OUTPUT_MAX) {
+            /* Refused, not truncated. A page shown as the whole aircraft is a
+             * client drawing a wing with one elevon, and it has no way to
+             * notice: the list is well-formed and short. */
+            at = append_u8(response, at, AK_PROTO_OUTPUT_INFO_TOO_MANY,
+                           capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, AK_PROTO_OUTPUT_TEST_MAX_PCT,
+                           capacity);
+            break;
+        }
+
+        if (total == 0u) {
+            /* A callback that answers with nothing. The board exists and has a
+             * way to enumerate - and it says there is nothing there, which on a
+             * real board means it is not ready yet. Answered as NONE rather
+             * than as OK-with-an-empty-list for the reason the status byte
+             * gives: `count = 0, motors = 0, servos = 0` is a well-formed
+             * sentence saying "this aircraft has no outputs", and a client
+             * drawing it draws a flight controller with no motors and no
+             * servos, which is not a thing. NONE says the true thing instead:
+             * there is no list. */
+            at = append_u8(response, at, AK_PROTO_OUTPUT_INFO_NONE, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u8(response, at, AK_PROTO_OUTPUT_TEST_MAX_PCT,
+                           capacity);
+            break;
+        }
+
+        unsigned motors = 0;
+        unsigned servos = 0;
+        for (unsigned i = 0; i < total; i++) {
+            if (outputs[i].kind == AK_PROTO_OUTPUT_SERVO) {
+                servos++;
+            } else {
+                motors++;
+            }
+        }
+
+        at = append_u8(response, at, AK_PROTO_OUTPUT_INFO_OK, capacity);
+        at = append_u8(response, at, (uint8_t)total, capacity);
+        at = append_u8(response, at, (uint8_t)motors, capacity);
+        at = append_u8(response, at, (uint8_t)servos, capacity);
+        at = append_u8(response, at, AK_PROTO_OUTPUT_TEST_MAX_PCT, capacity);
+
+        for (unsigned i = 0; i < total; i++) {
+            at = append_u8(response, at, outputs[i].kind, capacity);
+            at = append_u8(response, at, outputs[i].index, capacity);
+            at = append_u8(response, at, outputs[i].reversed ? 1u : 0u,
+                           capacity);
+            at = append_i16le(response, at, outputs[i].trim_us, capacity);
+            at = append_u16le(response, at, outputs[i].travel_us, capacity);
+        }
+        break;
+    }
+
+    case AK_PROTO_CMD_OUTPUT_TEST: {
+        /* A short frame is refused rather than defaulted, for PARAM_DEFAULT's
+         * reason and LOG_STREAM's - and here the harmful default is worse than
+         * either of those. An op that named nothing would become "whichever
+         * verb", and a level that named nothing would become a number this
+         * firmware chose. On the one command in this protocol that spins a
+         * motor, both are worse than an answer saying nothing happened.
+         *
+         * Every field is echoed on every path, `0xFF` where the request did not
+         * carry one - out of range for both `kind` and `index`, so a client can
+         * tell "you did not say" from "I did not do". */
+        if (args_length < 4u) {
+            at = append_u8(response, at, AK_PROTO_OUTPUT_TEST_NO_OP, capacity);
+            at = append_u8(response, at,
+                           args_length > 0u ? args[0] : (uint8_t)0xFF, capacity);
+            at = append_u8(response, at,
+                           args_length > 1u ? args[1] : (uint8_t)0xFF, capacity);
+            at = append_u8(response, at,
+                           args_length > 2u ? args[2] : (uint8_t)0xFF, capacity);
+            at = append_u8(response, at, 0, capacity);
+            at = append_u16le(response, at, 0u, capacity);
+            break;
+        }
+
+        uint8_t op = args[0];
+        uint8_t kind = args[1];
+        uint8_t index = args[2];
+        uint8_t level = args[3];
+
+        int status;
+        ak_proto_output_test_t driven;
+        driven.level_pct = 0;
+        driven.remaining_ms = 0u;
+
+        if (op != AK_PROTO_OUTPUT_TEST_HOLD && op != AK_PROTO_OUTPUT_TEST_STOP) {
+            status = AK_PROTO_OUTPUT_TEST_NO_OP;
+        } else if (io->output_test == 0) {
+            status = AK_PROTO_OUTPUT_TEST_NO_BOARD;
+        } else {
+            /* The gate, the range check and the timeout are the board's, and
+             * all three are checked inside the callback at the moment of this
+             * command. The dispatch has no opinion about whether the aircraft
+             * is disarmed - `io->writable` is where that lives, and the board
+             * already asks it. A second opinion here would be a second policy,
+             * and the two would disagree the first time either changed. */
+            status = io->output_test(io->ctx, op, kind, index, level, &driven);
+        }
+
+        at = append_u8(response, at, (uint8_t)status, capacity);
+        at = append_u8(response, at, op, capacity);
+        at = append_u8(response, at, kind, capacity);
+        at = append_u8(response, at, index, capacity);
+        at = append_u8(response, at, driven.level_pct, capacity);
+        at = append_u16le(response, at, driven.remaining_ms, capacity);
+        break;
+    }
+
+    case AK_PROTO_CMD_PREFLIGHT: {
+        /* One line, or one part of one line, of the board's checklist.
+         *
+         * The shape is PARAM_HELP's with an index in front of it, and for the
+         * same reason: a sentence that does not fit a frame is walked by offset
+         * rather than cut. `detail_total` is what tells a client it has the
+         * whole thing, and it is the *sentence's* length and not the part's -
+         * a client that compared the part against the frame's capacity would
+         * stop one byte short of the end and show a fault without its cause.
+         *
+         * A short request is refused rather than defaulted. An `index` that
+         * named nothing would become line zero, and a client that asked a
+         * malformed question would be shown the first check as though it had
+         * asked for it. */
+        if (args_length < 3u) {
+            /* One shape for NO_INDEX wherever it comes from: the status, then
+             * the index and the total. `0xFF` for both, because neither is
+             * known - and out of range for both, so a client cannot read "you
+             * did not say" as "the board has 255 lines". */
+            at = append_u8(response, at, AK_PROTO_PREFLIGHT_NO_INDEX, capacity);
+            at = append_u8(response, at, (uint8_t)0xFF, capacity);
+            at = append_u8(response, at, (uint8_t)0xFF, capacity);
+            break;
+        }
+
+        unsigned index = args[0];
+        unsigned offset = (unsigned)(args[1] | ((unsigned)args[2] << 8));
+        const ak_preflight_line_t *lines = 0;
+        unsigned count = 0;
+
+        /* The rebuild happens here, on the first request of a walk and only
+         * that one, so the pages of one walk describe one moment. */
+        if (io->preflight == 0 || !io->preflight(io->ctx, index, &lines, &count) ||
+            count == 0u) {
+            at = append_u8(response, at, AK_PROTO_PREFLIGHT_NONE, capacity);
+            break;
+        }
+        if (index >= count) {
+            at = append_u8(response, at, AK_PROTO_PREFLIGHT_NO_INDEX, capacity);
+            at = append_u8(response, at, (uint8_t)index, capacity);
+            at = append_u8(response, at, (uint8_t)count, capacity);
+            break;
+        }
+
+        const char *name = lines[index].name != 0 ? lines[index].name : "";
+        const char *detail = lines[index].detail != 0 ? lines[index].detail : "";
+        unsigned total = ak_strlen(detail);
+        if (offset > total) {
+            offset = total;
+        }
+
+        /* Eight bytes of header, then the name, then as much of the sentence as
+         * is left. Counted rather than written down as a constant so that
+         * adding a field to the header is a change in one place. */
+        unsigned header = 8u;
+        unsigned name_len = ak_strlen(name);
+        if (name_len > AK_PROTO_PREFLIGHT_NAME_MAX) {
+            name_len = AK_PROTO_PREFLIGHT_NAME_MAX;
+        }
+        unsigned room = (capacity > at + header + name_len)
+                            ? capacity - (at + header + name_len)
+                            : 0u;
+        unsigned part = total - offset;
+        if (part > room) {
+            part = room;
+        }
+        if (part > 0xFFu) {
+            part = 0xFFu;
+        }
+
+        at = append_u8(response, at, AK_PROTO_PREFLIGHT_OK, capacity);
+        at = append_u8(response, at, (uint8_t)index, capacity);
+        at = append_u8(response, at, (uint8_t)count, capacity);
+        at = append_u8(response, at, lines[index].verdict, capacity);
+        at = append_u8(response, at, (uint8_t)name_len, capacity);
+        for (unsigned i = 0; i < name_len; i++) {
+            at = append_u8(response, at, (uint8_t)name[i], capacity);
+        }
+        at = append_u16le(response, at, (uint16_t)total, capacity);
+        at = append_u8(response, at, (uint8_t)part, capacity);
+        for (unsigned i = 0; i < part; i++) {
+            at = append_u8(response, at, (uint8_t)detail[offset + i], capacity);
+        }
+        break;
+    }
+
+    case AK_PROTO_CMD_CALIBRATE: {
+        /* One verb, and the session's whole state back whichever it was.
+         *
+         * The state is zeroed before the callback runs and again on every
+         * refusal, so a refusal is a complete reply rather than a header with a
+         * caller's stack behind it - MISSION's shape, for MISSION's reason.
+         *
+         * A frame that does not name a complete verb is refused rather than
+         * defaulted, and here the harmful default is worse than MISSION's: verb
+         * zero is STATUS, which is a read and would be survivable, but the
+         * *missing argument* is the one that bites. VBAT's argument is the
+         * voltage a person read off a multimeter, and a truncated frame
+         * defaulted to zero would ask the board to calibrate a pack divider
+         * against nothing at all and write the result to `vbat_ratio`, which is
+         * the parameter that decides when the aircraft comes home. `0xFF` is
+         * echoed as the verb, out of range for all six, so a client can tell
+         * "you did not say" from "I do not know that one". */
+        ak_proto_calibration_t state;
+        state.active = 0;
+        state.verb = AK_PROTO_CALIBRATE_STATUS;
+        state.step = AK_PROTO_CALIBRATE_NO_STEP;
+        state.faces = 0;
+        state.samples = 0;
+        state.rejected = 0;
+        for (unsigned i = 0; i < AK_PROTO_CALIBRATE_RESULT; i++) {
+            state.result[i] = 0;
+        }
+
+        uint8_t verb = args_length > 0u ? args[0] : (uint8_t)0xFF;
+        uint8_t face = args_length > 1u ? args[1] : (uint8_t)0;
+        uint32_t mv = 0;
+        int status;
+
+        if (args_length < 1u) {
+            status = AK_PROTO_CALIBRATE_NO_VERB;
+            verb = (uint8_t)0xFF;
+        } else if (verb > AK_PROTO_CALIBRATE_ABORT) {
+            status = AK_PROTO_CALIBRATE_NO_VERB;
+        } else if (verb == AK_PROTO_CALIBRATE_VBAT && args_length < 5u) {
+            /* The verb is known and its argument is not, which is still "you
+             * did not say" - so it is answered the same way, with the verb left
+             * out of range, rather than letting a zero reach a callback that
+             * would take it for a measurement. */
+            status = AK_PROTO_CALIBRATE_NO_VERB;
+            verb = (uint8_t)0xFF;
+        } else if (io->calibrate == 0) {
+            /* Null is "this board has nothing to calibrate" - the same split
+             * OUTPUT_INFO's null callback makes. The state stays zeroed, and a
+             * client that got NOTHING should say the board cannot do this
+             * rather than draw a session that never started. The verb byte says
+             * NO_SESSION rather than echoing what was asked for: there is no
+             * session on this board and never will be, and a client that read
+             * its own request back would be looking at the one byte it is
+             * supposed to be learning something from. The refusals above keep
+             * their echo, which is a different fact - those name the input the
+             * dispatch could not use. */
+            status = AK_PROTO_CALIBRATE_NOTHING;
+            verb = AK_PROTO_CALIBRATE_NO_SESSION;
+        } else {
+            /* The gate the write routes have, for the reason the header gives:
+             * every one of these four verbs ends in a parameter write, and a
+             * calibration run while armed is a hand near a live throttle. Asked
+             * here so the refusal is a policy a client can render, and asked
+             * again inside the callback so the guard does not depend on this
+             * file - PARAM_SAVE's two gates, one route along. */
+            if (verb != AK_PROTO_CALIBRATE_STATUS &&
+                verb != AK_PROTO_CALIBRATE_ABORT && !write_allowed(io)) {
+                status = AK_PROTO_CALIBRATE_ARMED;
+            } else {
+                if (verb == AK_PROTO_CALIBRATE_VBAT) {
+                    mv = (uint32_t)args[1] | ((uint32_t)args[2] << 8) |
+                         ((uint32_t)args[3] << 16) |
+                         ((uint32_t)args[4] << 24);
+                }
+                /* The refusals that are the aircraft's - busy, no such face, not
+                 * enough still samples, an implausible gravity - are the
+                 * callback's. The dispatch has no opinion about any of them. */
+                status = io->calibrate(io->ctx, verb, face, mv, &state);
+
+                /* And the reply's verb byte is the *session's*, not the verb
+                 * that was asked for. This is the one place the two differ, and
+                 * taking the request's here is what made `status` useless: the
+                 * verb beside the six result slots is the thing that says how to
+                 * read them, so a client polling a gyro calibration would have
+                 * been handed three bias numbers labelled `status`, and asked
+                 * for `abort` would have been told a session it could not name
+                 * had ended. A refusal is still owed the state of the session
+                 * running - that is the same reading, one verb along. */
+                verb = state.verb;
+            }
+        }
+
+        at = append_u8(response, at, (uint8_t)status, capacity);
+        at = append_u8(response, at, verb, capacity);
+        at = append_u8(response, at, state.active, capacity);
+        at = append_u8(response, at, state.step, capacity);
+        at = append_u8(response, at, state.faces, capacity);
+        at = append_u32le(response, at, state.samples, capacity);
+        at = append_u32le(response, at, state.rejected, capacity);
+        for (unsigned i = 0; i < AK_PROTO_CALIBRATE_RESULT; i++) {
+            at = append_i32le(response, at, state.result[i], capacity);
+        }
+        break;
+    }
+
+    case AK_PROTO_CMD_MISSION: {
+        /* One verb, and the mission's whole state back whichever it was.
+         *
+         * A short frame is refused rather than defaulted, and here the harmful
+         * default is the one that *does* something: an op that named nothing
+         * would otherwise become verb zero, and verb zero is the only one of
+         * the five that is a read. A client that sent a truncated frame would
+         * be answered as though it had asked a question, which is survivable -
+         * but the same default on the next number along would start a mission,
+         * and there is no reason for the two paths to be shaped differently.
+         * `0xFF` is echoed as the op, out of range for all five, so a client
+         * can tell "you did not say" from "I do not know that one".
+         *
+         * The state is zeroed before the callback runs and again on every
+         * refusal, so a refusal is a complete reply rather than a header with a
+         * caller's stack behind it. */
+        ak_proto_mission_t state;
+        state.active = 0;
+        state.requested = 0;
+        state.count = 0;
+        state.index = AK_PROTO_MISSION_NO_INDEX;
+        state.channel = 0;
+        state.reached = 0;
+        state.started = 0;
+        state.cancelled = 0;
+        state.hold_alt_mm = 0;
+
+        uint8_t op = args_length > 0u ? args[0] : (uint8_t)0xFF;
+        int status;
+
+        if (args_length < 1u) {
+            status = AK_PROTO_MISSION_NO_VERB;
+            op = (uint8_t)0xFF;
+        } else if (op > AK_PROTO_MISSION_HOME_CLEAR) {
+            status = AK_PROTO_MISSION_NO_VERB;
+        } else if (io->mission == 0) {
+            /* Null is "this board has no navigator", not "this list is empty" -
+             * the same split OUTPUT_INFO's null callback makes. The state stays
+             * zeroed, and `count` of zero here is a client's to tell apart from
+             * the same zero with a board that answered OK */
+            status = AK_PROTO_MISSION_NO_NAV;
+        } else {
+            /* The refusals are the board's: an empty list, a home with no
+             * usable fix, and whatever else only the aircraft knows. The
+             * dispatch has no opinion about any of them. */
+            status = io->mission(io->ctx, op, &state);
+        }
+
+        at = append_u8(response, at, (uint8_t)status, capacity);
+        at = append_u8(response, at, op, capacity);
+        at = append_u8(response, at, state.active, capacity);
+        at = append_u8(response, at, state.requested, capacity);
+        at = append_u8(response, at, state.count, capacity);
+        at = append_u8(response, at, state.index, capacity);
+        at = append_u8(response, at, state.channel, capacity);
+        at = append_u16le(response, at, state.reached, capacity);
+        at = append_u16le(response, at, state.started, capacity);
+        at = append_u16le(response, at, state.cancelled, capacity);
+        at = append_i32le(response, at, state.hold_alt_mm, capacity);
+        break;
+    }
+
+    case AK_PROTO_CMD_PERF: {
+        /* The profiler's window, which is the one reply here that asks nothing
+         * of the aircraft: there is no verb, no argument and nothing to refuse.
+         *
+         * A null callback and a callback that says "nothing to measure" are the
+         * same answer on the wire - AK_PROTO_PERF_NONE - and deliberately so.
+         * The difference between them is a build-time fact, and a client can
+         * tell it from the capability word in HELLO; sending both would be two
+         * ways to say one thing.
+         *
+         * `window` is zeroed first so that a callback which returns zero without
+         * touching anything still leads to a complete reply rather than a header
+         * with a caller's stack behind it - the same rule MISSION and CALIBRATE
+         * follow. */
+        ak_proto_perf_t window;
+        unsigned i;
+        int status;
+
+        window.loops = 0u;
+        window.samples = 0u;
+        window.nominal_us = 0u;
+        window.period_last_us = 0u;
+        window.period_min_us = 0u;
+        window.period_max_us = 0u;
+        window.late = 0u;
+        window.jitter_p50_us = 0u;
+        window.jitter_p99_us = 0u;
+        window.jitter_max_us = 0u;
+        window.jitter_over = 0u;
+        window.load_permille = 0u;
+        for (i = 0u; i < AK_PROTO_PERF_SECTIONS; i++) {
+            window.section_avg_us_x10[i] = 0u;
+            window.section_max_us[i] = 0u;
+        }
+
+        if (io->perf == 0 || !io->perf(io->ctx, &window)) {
+            status = AK_PROTO_PERF_NONE;
+        } else {
+            status = AK_PROTO_PERF_OK;
+        }
+
+        at = append_u8(response, at, (uint8_t)status, capacity);
+        at = append_u32le(response, at, window.loops, capacity);
+        at = append_u32le(response, at, window.samples, capacity);
+        at = append_u16le(response, at, window.nominal_us, capacity);
+        at = append_u32le(response, at, window.period_last_us, capacity);
+        at = append_u32le(response, at, window.period_min_us, capacity);
+        at = append_u32le(response, at, window.period_max_us, capacity);
+        at = append_u32le(response, at, window.late, capacity);
+        at = append_u16le(response, at, window.jitter_p50_us, capacity);
+        at = append_u16le(response, at, window.jitter_p99_us, capacity);
+        at = append_u16le(response, at, window.jitter_max_us, capacity);
+        at = append_u32le(response, at, window.jitter_over, capacity);
+        for (i = 0u; i < AK_PROTO_PERF_SECTIONS; i++) {
+            at = append_u16le(response, at, window.section_avg_us_x10[i],
+                              capacity);
+        }
+        for (i = 0u; i < AK_PROTO_PERF_SECTIONS; i++) {
+            at = append_u16le(response, at, window.section_max_us[i], capacity);
+        }
+        at = append_u16le(response, at, window.load_permille, capacity);
+        break;
+    }
+
+    case AK_PROTO_CMD_MOTOR_TELEMETRY: {
+        /* How fast each motor is turning, which is the one reading here that a
+         * board in this tree cannot take yet.
+         *
+         * A null callback means "no telemetry path in this build", and the reply
+         * is one byte and stops - the same refusal RC_CHANNELS makes about a
+         * missing receiver port, and for the same reason: a header, a count and
+         * four entries of zeros would read on a screen as four motors that are
+         * stopped, when the truth is that nobody is listening to them.
+         *
+         * A callback that returns zero says the same thing and is the same
+         * answer, deliberately: the difference between a build with no callback
+         * and a build whose callback always declines is a build-time fact, and
+         * the capability word in HELLO is where a client reads it.
+         *
+         * `telemetry` is cleared first so that a callback which returns nonzero
+         * without filling every field still leads to a complete reply rather
+         * than a header with a caller's stack behind it - the rule PERF,
+         * MISSION and CALIBRATE already follow. */
+        ak_proto_motor_telemetry_t telemetry;
+        unsigned i;
+        unsigned count;
+
+        telemetry.count = 0u;
+        telemetry.poles = 0u;
+        for (i = 0u; i < AK_PROTO_MOTOR_MAX; i++) {
+            telemetry.motor[i].flags = 0u;
+            telemetry.motor[i].erpm = 0u;
+            telemetry.motor[i].rpm = 0u;
+            telemetry.motor[i].temperature = 0u;
+            telemetry.motor[i].max_temperature = 0u;
+            telemetry.motor[i].millivolts = 0u;
+            telemetry.motor[i].milliamps = 0u;
+            telemetry.motor[i].packets = 0u;
+            telemetry.motor[i].invalid = 0u;
+        }
+
+        if (io->motor_telemetry == 0 ||
+            !io->motor_telemetry(io->ctx, &telemetry)) {
+            /* One byte and no more, as RC_CHANNELS does. */
+            at = append_u8(response, at, AK_PROTO_MOTOR_NONE, capacity);
+            break;
+        }
+
+        at = append_u8(response, at, AK_PROTO_MOTOR_OK, capacity);
+        count = telemetry.count > AK_PROTO_MOTOR_MAX
+                    ? (unsigned)AK_PROTO_MOTOR_MAX
+                    : (unsigned)telemetry.count;
+        at = append_u8(response, at, (uint8_t)count, capacity);
+        at = append_u8(response, at, telemetry.poles, capacity);
+        for (i = 0u; i < count; i++) {
+            const ak_proto_motor_t *m = &telemetry.motor[i];
+            at = append_u8(response, at, m->flags, capacity);
+            at = append_u32le(response, at, m->erpm, capacity);
+            at = append_u32le(response, at, m->rpm, capacity);
+            at = append_u8(response, at, m->temperature, capacity);
+            at = append_u8(response, at, m->max_temperature, capacity);
+            at = append_u16le(response, at, m->millivolts, capacity);
+            at = append_u16le(response, at, m->milliamps, capacity);
+            at = append_u16le(response, at, m->packets, capacity);
+            at = append_u16le(response, at, m->invalid, capacity);
+        }
+        break;
+    }
+
     default:
         proto->unknown_commands++;
         at = append_u8(response, at, 0x7F, capacity);
@@ -973,9 +1690,12 @@ unsigned ak_proto_feed(ak_proto_t *proto, const ak_proto_io_t *io, uint8_t byte,
              * already "as many bytes as expected". */
             proto->expected = 3;
             proto->state = STATE_BODY;
-        } else {
+        } else if (byte != AK_PROTO_SYNC1) {
             proto->state = STATE_SYNC1;
         }
+        /* A second 0xAA is the start of the pair, not noise before it: stay
+         * here. Going back to SYNC1 dropped `AA AA 55 <frame>` - a stray byte
+         * ahead of a real frame cost the frame. */
         break;
 
     case STATE_BODY:

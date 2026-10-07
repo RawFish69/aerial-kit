@@ -30,6 +30,8 @@ export const enum Feature {
   PREFLIGHT = 1 << 9,
   CALIBRATE = 1 << 10,
   MISSION = 1 << 11,
+  PERF = 1 << 12,
+  MOTOR_TELEMETRY = 1 << 13,
 }
 
 /**
@@ -59,6 +61,18 @@ export const FEATURE_NAMES: ReadonlyArray<{ readonly bit: Feature; readonly name
   { bit: Feature.PREFLIGHT, name: 'PREFLIGHT' },
   { bit: Feature.CALIBRATE, name: 'CALIBRATE' },
   { bit: Feature.MISSION, name: 'MISSION' },
+  /**
+   * Listed even though no board sets it yet: this is the diagnostics list of
+   * bits the *app* knows by name, and a capability word is exactly the place a
+   * person checks what the firmware claims. A bit this app can read but cannot
+   * name would render as a number.
+   *
+   * No board in the tree sets it — the capture half of DShot telemetry is
+   * unwritten — so seeing it set means either a board this app has not met or a
+   * firmware that has learned to hear its ESCs.
+   */
+  { bit: Feature.PERF, name: 'PERF' },
+  { bit: Feature.MOTOR_TELEMETRY, name: 'MOTOR_TELEMETRY' },
 ];
 
 export function featureNames(capabilities: Capabilities): readonly string[] {

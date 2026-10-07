@@ -171,8 +171,15 @@ void ak_output_init(uint32_t timer, const ak_servo_out_t *servos, unsigned count
     NVIC_ISER0 = 1u << DMA1_STREAM4_IRQ;
 
     /* The burst runs on the compare event of channel 1: one burst per bit
-     * period, which is exactly one group of four compare values. */
-    TIM_DIER(TIM3_BASE) = TIM_DIER_CC1DE;
+     * period, which is exactly one group of four compare values. The request
+     * is *not* enabled here, only for the length of a frame (ak_output_write
+     * turns it on, the interrupt off): with it on while the stream is off,
+     * every period's compare queues a request, and the first one served when
+     * the stream starts wrote bit 2 over the bit 1 just loaded by hand -
+     * compare preload is on, so bit 1 had not been latched yet - and every
+     * frame went out fifteen bits long. Betaflight's DShot driver gates the
+     * timer's DMA request off between frames for the same reason. */
+    TIM_DIER(TIM3_BASE) = 0u;
     TIM_EGR(TIM3_BASE) = TIM_EGR_UG;
 
     ak_output_set_rate(dshot_hz / 1000u);
@@ -219,13 +226,19 @@ void ak_output_write(const ak_output_frame_t *frame)
     TIM_CCR4(TIM3_BASE) = dshot_entries[3];
 
     dshot_busy = 1;
+    /* No stale compare event, then the stream, then the request: the first
+     * transfer is then the next compare, after the update that latches bit 1.
+     * TIM_SR is write-zero-to-clear, so ones elsewhere leave the rest alone. */
+    TIM_SR(TIM3_BASE) = ~TIM_SR_CC1IF;
     DMA_SxCR(DMA1_BASE, AK_DMA_TIM3_STREAM) |= DMA_SxCR_EN;
+    TIM_DIER(TIM3_BASE) |= TIM_DIER_CC1DE;
 }
 
 void DMA1_Stream4_IRQHandler(void)
 {
     /* Stream 4 lives in the high half of the flag registers. */
     DMA_HIFCR(DMA1_BASE) = DMA_IFCR_CLEAR(4u);
+    TIM_DIER(TIM3_BASE) &= ~TIM_DIER_CC1DE; /* no requests between frames */
     DMA_SxCR(DMA1_BASE, AK_DMA_TIM3_STREAM) &= ~DMA_SxCR_EN;
 
     /* The last groups written were the blank ones, so the compare values are

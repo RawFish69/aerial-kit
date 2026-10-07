@@ -3,9 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   CRC_EXTRA,
   MAVLINK_MESSAGES,
+  MavlinkDecoder,
+  bytesBeyondTable,
+  decode,
   deriveCrcExtra,
   mavLayout,
   type MavFieldType,
+  type MavlinkFrame,
 } from '../src/protocol/mavlink';
 import dialect from './fixtures/dialect.json';
 
@@ -133,5 +137,188 @@ describe('the message table, against the published dialect', () => {
     expect(dialect.source).toBe('common.xml');
     expect(typeof dialect.pymavlink).toBe('string');
     expect(dialect.pymavlink.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The same table, against a peer that is *newer* than it.
+ *
+ * Everything above asks whether this app's definitions are the published ones.
+ * This asks the other question a ground station has to answer honestly: what
+ * does it do with a vehicle that has moved on? MAVLink's answer is that a
+ * dialect may append fields after `<extensions/>`, that those go on the wire
+ * after every ordinary field, and that they are **excluded from the CRC_EXTRA**
+ * — so a frame may validate its checksum while carrying bytes past the
+ * definition the validator holds, and that is a legal frame rather than a
+ * newer dialect to refuse.
+ *
+ * The frames below are the ones that rule produces, built by
+ * `tools/check-dialect.py` from **PX4 1.17.0's own `common.xml`** — the file a
+ * real autopilot is generated from — packed to MAVLink's wire rule and
+ * checksummed with the `crc_extra` pymavlink derived. Six of the fifteen
+ * messages this app carries have grown since pymavlink 2.4.49 was pinned.
+ *
+ * What the app got wrong is worth stating plainly, because it is the reason
+ * this block exists: `decode()` used to throw on a payload longer than the
+ * message it claimed to be, so a real PX4's `SYS_STATUS` — battery voltage,
+ * current and sensor health — was dropped on arrival, one warning per frame,
+ * for as long as the link was up.
+ */
+
+interface NewerPeerMessage {
+  readonly name: string;
+  readonly id: number;
+  readonly crc_extra: number;
+  readonly base_bytes: number;
+  readonly full_bytes: number;
+  readonly extension_fields: readonly string[];
+  readonly frame_hex: string;
+  /** The *base* fields as the script packed them. Extension values are
+   *  deliberately absent: what the app does with bytes it has no definition for
+   *  is asserted as "the fields it does model are unchanged", not as a value. */
+  readonly expect: Readonly<Record<string, number | readonly number[] | string>>;
+}
+
+interface NewerPeer {
+  readonly measured: string | null;
+  readonly source: string | null;
+  readonly messages: readonly NewerPeerMessage[];
+}
+
+const newer = dialect.newer_peer as unknown as NewerPeer;
+
+function frameFrom(hex: string): MavlinkFrame {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  const { frames, issues } = new MavlinkDecoder().push(bytes);
+  expect(issues, `${hex.slice(0, 24)}…`).toEqual([]);
+  expect(frames).toHaveLength(1);
+  return frames[0]!;
+}
+
+/** A decoded field against the value the script packed, in the shape `decode`
+ *  produces — numeric arrays come back comma-joined, because that is what this
+ *  app's `DecodedMessage` is. */
+function asDecoded(expect: number | readonly number[] | string): number | string {
+  return Array.isArray(expect) ? expect.join(',') : (expect as number | string);
+}
+
+describe('a peer newer than this app’s table', () => {
+  it('names where the newer definition was read, or says it was not read here', () => {
+    // The block is carried forward on a machine with no PX4 checkout, and the
+    // carried copy still names the source it was measured from. A `null`
+    // `measured` with a `source` is exactly that case, and it is a reading
+    // rather than a silence.
+    expect(newer.messages.length).toBeGreaterThan(0);
+    expect(newer.source).toBe('px4-1.17.0 common.xml');
+    expect(newer.measured === null || newer.measured.includes('message_definitions')).toBe(true);
+  });
+
+  it('finds grown messages only among the ones this app carries, and by how much', () => {
+    // The script refuses to write the file at all if PX4 and pymavlink disagree
+    // about a *base* field list, because MAVLink does not change those. What is
+    // left for this test is the arithmetic against the app's own layout, which
+    // sits between PX4's base and PX4's full: it is at least the base, because
+    // the app models the declared message, and never longer than what PX4 now
+    // sends, because everything past that is an extension by definition.
+    //
+    // Some of these the app already models in full — `GPS_RAW_INT`'s `yaw` is
+    // in its table — and some it does not. Both are what a pin looks like, and
+    // the tests below separate them by measurement rather than by name.
+    for (const entry of newer.messages) {
+      const layout = mavLayout(entry.id);
+      expect(layout, `${entry.name} is not in this app's table`).toBeDefined();
+      expect(layout!.name, `${entry.name}`).toBe(entry.name);
+      expect(layout!.length, `${entry.name} layout`).toBeGreaterThanOrEqual(entry.base_bytes);
+      expect(layout!.length, `${entry.name} layout`).toBeLessThanOrEqual(entry.full_bytes);
+      expect(entry.full_bytes, `${entry.name} grew by something`).toBeGreaterThan(entry.base_bytes);
+      expect(entry.extension_fields.length, `${entry.name} extension fields`).toBeGreaterThan(0);
+    }
+  });
+
+  it('reads the frame from its prefix, and every base field is unchanged', () => {
+    for (const entry of newer.messages) {
+      const frame = frameFrom(entry.frame_hex);
+      expect(frame.name, entry.name).toBe(entry.name);
+      expect(frame.payload.length, `${entry.name} as it arrived`).toBe(entry.full_bytes);
+
+      const decoded = decode(frame);
+      for (const [name, packed] of Object.entries(entry.expect)) {
+        expect(decoded[name], `${entry.name}.${name}`).toEqual(asDecoded(packed));
+      }
+    }
+  });
+
+  it('leaves unread exactly the bytes past the app’s own definition', () => {
+    // The count is against *this app's* layout and not PX4's base, because the
+    // app models some extension fields and the two are different questions. For
+    // a message the app knows in full this is zero — nothing is unread, and the
+    // session has nothing to report.
+    for (const entry of newer.messages) {
+      const frame = frameFrom(entry.frame_hex);
+      const known = mavLayout(entry.id)!.length;
+      expect(bytesBeyondTable(frame), entry.name).toBe(entry.full_bytes - known);
+    }
+  });
+
+  //: The messages this app's table is genuinely behind on: PX4 sends more than
+  //: the app knows. Measured here rather than listed, so a table that catches
+  //: up makes these two tests vacuous *and* says so below.
+  const behind = newer.messages.filter(
+    (entry) => entry.full_bytes > mavLayout(entry.id)!.length,
+  );
+
+  it('is genuinely behind on some of them, so the two tests below are not idle', () => {
+    // Without this, both tests below would pass on an empty list — the shape of
+    // check that quietly stops checking anything. `SYS_STATUS` is the one the
+    // defect was found on and is named here for that reason.
+    expect(behind.map((entry) => entry.name)).toContain('SYS_STATUS');
+  });
+
+  it('reads a frame it is behind on the same as the frame without the extra bytes', () => {
+    // The strongest statement available: the bytes the app cannot name make no
+    // difference at all to the fields it can. If they did, tolerating them
+    // would be tolerating a *wrong reading* rather than a longer one.
+    for (const entry of behind) {
+      const frame = frameFrom(entry.frame_hex);
+      const trimmed: MavlinkFrame = {
+        ...frame,
+        payload: frame.payload.subarray(0, mavLayout(entry.id)!.length),
+      };
+      expect(decode(frame), entry.name).toEqual(decode(trimmed));
+    }
+  });
+
+  it('does not invent a value for a field it has no definition for', () => {
+    for (const entry of behind) {
+      const decoded = decode(frameFrom(entry.frame_hex));
+      for (const field of entry.extension_fields) {
+        // Only the ones past the app's own layout: a field it *does* carry is
+        // read, and this test is about the ones it does not.
+        if (mavLayout(entry.id)!.fields.some((item) => item.name === field)) continue;
+        expect(decoded[field], `${entry.name}.${field}`).toBeUndefined();
+      }
+    }
+  });
+
+  it('still refuses a newer frame whose checksum does not match', () => {
+    // Tolerance for length must not become tolerance for corruption: the whole
+    // reason an over-long payload is safe to read from its prefix is that the
+    // checksum already proved the base fields, and that argument only holds if
+    // the checksum is still being checked.
+    const entry = newer.messages.find((item) => item.name === 'SYS_STATUS')!;
+    const bytes = new Uint8Array(entry.frame_hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(entry.frame_hex.slice(i * 2, i * 2 + 2), 16);
+    }
+    // A bit flipped *inside the extension region*, which is the only part of the
+    // frame the app does not model — so a decoder that had given up on the tail
+    // would still be catching this.
+    bytes[bytes.length - 5]! ^= 0x01;
+    const { frames, issues } = new MavlinkDecoder().push(bytes);
+    expect(frames).toEqual([]);
+    expect(issues).toEqual([{ kind: 'checksum', msgid: entry.id }]);
   });
 });

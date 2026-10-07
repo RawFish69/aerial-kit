@@ -24,12 +24,12 @@ the firmware's own protocol; ESP32 thirty-two checks under QEMU.
 Everything below is the original decision, kept because the reasoning is still
 the reasoning - it is a decision that was made deliberately and reversed
 deliberately, not a mistake to be tidied away. Paragraphs that name
-`~/aerialkit` or `../aerialkit` describe the layout as it was before the move.
+`<historical-firmware-root>` or `../aerialkit` describe the layout as it was before the move.
 
 ### As originally decided
 
 **Decision.** AerialKit is its own repo, checked out as a sibling of
-`fc-firmware-workspace` (`~/aerialkit` on the NAS, `firmware/`
+`fc-firmware-workspace` (`<historical-firmware-root>` on the NAS, `firmware/`
 on the laptop). The harness reaches it through
 `targets/aerialkit-f405/target.conf`, which sets `UPSTREAM_ROOT=../aerialkit`.
 

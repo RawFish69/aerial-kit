@@ -1,6 +1,6 @@
 import { crc16 } from './crc16';
 import {
-  GAP_MS,
+  CLIENT_GAP_MS,
   MAX_FRAME,
   MAX_PAYLOAD,
   PROTOCOL_VERSION,
@@ -92,7 +92,7 @@ export class FrameDecoder {
    *  next reply as the tail of this one. Returns true if something was dropped. */
   expireStalled(nowMs: number): boolean {
     if (this.state === State.Sync1 || this.held === 0) return false;
-    if (nowMs - this.lastByteMs <= GAP_MS) return false;
+    if (nowMs - this.lastByteMs <= CLIENT_GAP_MS) return false;
     this.issues.push({ kind: 'stalled', held: this.held });
     this.state = State.Sync1;
     this.held = 0;

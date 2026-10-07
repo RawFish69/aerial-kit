@@ -168,8 +168,8 @@ const ak_mixer_t ak_mixer_elevon_wing = {
         /* throttle, roll,  pitch, yaw */
         { 1.0f,  0.0f,  0.0f,  1.0f }, /* left motor  */
         { 1.0f,  0.0f,  0.0f, -1.0f }, /* right motor */
-        { 0.0f,  1.0f,  1.0f,  0.0f }, /* left elevon */
-        { 0.0f, -1.0f,  1.0f,  0.0f }, /* right elevon */
+        { 0.0f, -1.0f,  1.0f,  0.0f }, /* left elevon */
+        { 0.0f,  1.0f,  1.0f,  0.0f }, /* right elevon */
     },
     .offset = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f },
     .motor_idle = 0.0f, /* a wing's motors may stop: the throttle is a throttle */
@@ -214,8 +214,8 @@ const ak_mixer_t ak_mixer_elevon_wing_single = {
     .coeff = {
         /* throttle, roll,  pitch, yaw */
         { 1.0f,  0.0f,  0.0f,  0.0f }, /* motor       */
-        { 0.0f,  1.0f,  1.0f,  0.0f }, /* left elevon */
-        { 0.0f, -1.0f,  1.0f,  0.0f }, /* right elevon */
+        { 0.0f, -1.0f,  1.0f,  0.0f }, /* left elevon */
+        { 0.0f,  1.0f,  1.0f,  0.0f }, /* right elevon */
     },
     .offset = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f },
     .motor_idle = 0.0f,

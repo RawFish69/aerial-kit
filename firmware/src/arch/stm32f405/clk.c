@@ -173,6 +173,22 @@ static void wait_for(volatile uint32_t *reg, uint32_t mask)
 
 static void fall_back_to_hsi(void)
 {
+    /*
+     * Put the clock tree back to the one the numbers below describe. A
+     * fallback after the switch was *requested* - the PLL selected and the
+     * buses divided by 4 and 2 in RCC_CFGR - used to leave all of that in
+     * place: APB1 ran at 4 MHz while every baud rate and I2C divisor was
+     * computed for the 16 it reported, and a PLL switch that took effect late
+     * would have run 168 MHz at the one wait state set below. So: HSI, no
+     * division, wait for the hardware to say so, PLL off, and only then the
+     * slower flash latency.
+     */
+    RCC_CFGR = RCC_CFGR & ~(RCC_CFGR_SW_MASK | (0xFu << 4) | (0x7u << 10) |
+                            (0x7u << 13));
+    for (uint32_t guard = AK_HSE_TIMEOUT;
+         (RCC_CFGR & RCC_CFGR_SWS_MASK) != 0u && guard > 0u; guard--) {
+    }
+    RCC_CR &= ~RCC_CR_PLLON;
     /* 16 MHz is safe at one flash wait state with the default voltage scale. */
     FLASH_ACR = FLASH_ACR_LATENCY(1) | FLASH_ACR_PRFTEN;
     hse_ok    = 0;

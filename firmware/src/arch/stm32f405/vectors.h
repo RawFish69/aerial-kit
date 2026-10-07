@@ -26,6 +26,7 @@ void SysTick_Handler(void);
 void DMA1_Stream4_IRQHandler(void);
 void USART1_IRQHandler(void);
 void USART3_IRQHandler(void);
+void DMA2_Stream0_IRQHandler(void);
 
 extern uint32_t _estack;
 
@@ -34,14 +35,21 @@ extern uint32_t _estack;
  * highest of them, and anything past it needs the table extended rather than a
  * handler added.
  *
- *   interrupt 15  DMA1_Stream4  -> index 16 + 15 = 31
- *   interrupt 37  USART1        -> index 16 + 37 = 53
- *   interrupt 39  USART3        -> index 16 + 39 = 55
+ *   interrupt 15  DMA1_Stream4  -> index 16 + 15 = 31   the DShot frame
+ *   interrupt 37  USART1        -> index 16 + 37 = 53   the console
+ *   interrupt 39  USART3        -> index 16 + 39 = 55   the GPS
+ *   interrupt 56  DMA2_Stream0  -> index 16 + 56 = 72   the sensor bus's reads
  *
- * 56 words. scripts/image-facts/stm32f405rg.txt carries that number and the
+ * The last one is phase 1.2's receive stream - SPI1's, from the table in
+ * spi.c, which is the only SPI bus on this part that gets a DMA stream and
+ * does not collide with the outputs. Naming it is what extends the table from
+ * 56 words to 73, and that is the whole cost of the feature on this side: the
+ * entries between are Default_Handler, not a gap.
+ *
+ * 73 words. scripts/image-facts/stm32f405rg.txt carries that number and the
  * names below, and the built image is checked against both. */
 __attribute__((section(".isr_vector"), used))
-static void (*const ak_vectors[56])(void) = {
+static void (*const ak_vectors[73])(void) = {
     (void (*)(void))(&_estack), /*  0: initial stack pointer */
     Reset_Handler,              /*  1: reset */
     Default_Handler,            /*  2: NMI */
@@ -70,6 +78,11 @@ static void (*const ak_vectors[56])(void) = {
     USART1_IRQHandler,                                                  /* 37    */
     Default_Handler,                                                    /* 38    */
     USART3_IRQHandler,                                                  /* 39    */
+    Default_Handler, Default_Handler, Default_Handler, Default_Handler, /* 40-43 */
+    Default_Handler, Default_Handler, Default_Handler, Default_Handler, /* 44-47 */
+    Default_Handler, Default_Handler, Default_Handler, Default_Handler, /* 48-51 */
+    Default_Handler, Default_Handler, Default_Handler, Default_Handler, /* 52-55 */
+    DMA2_Stream0_IRQHandler,                                            /* 56    */
 };
 
 #endif /* AK_ARCH_STM32F405_VECTORS_H */

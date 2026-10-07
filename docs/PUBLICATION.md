@@ -35,3 +35,62 @@ The public runtime now includes only Feather F405 and ESP32DEV profiles. Large C
 The trimmed Feather F405 image builds and passes symbol/layout checks. Configurator tests (285 passed, 10 external SITL cases skipped) and all three drift checks pass after the move; the legacy wing host test passes 430 checks. ESP32 source inventory now includes `ak_console_link.c`, required by the current main loop. ESP-IDF is not installed on this build host, so a fresh ESP32 link was not run here.
 
 Source-size measurement for `.py`, `.c`, `.h`, `.cpp`, `.ts` and `.tsx`: C/C++ decreases from 3,583,264 to 1,523,541 bytes (57.5% removed). Python is the largest individual language at 1,907,170 bytes, approximately 44.6% of those measured source bytes. This is a plurality, not a claim of more than 50% Python. GitHub Linguist may report different percentages because it classifies and excludes files differently.
+
+
+## Firmware runtime refresh - 2026-10-07
+
+Firmware source revision: `aa47204069b2781e3fd216d230a800927697d97a`.
+The source checkout was pulled with fast-forward only and was already current.
+This refresh preserves the Feather F405/ESP32DEV scope and the trimmed build
+guards. It includes the new runtime dependencies, selected protocol/Python
+clients and contract vectors, current protocol documentation and Feather pin
+map. Legacy files are unchanged. No commit, push, flash or hardware operation
+was performed as part of this refresh.
+
+See [current runtime and integration notes](../firmware/docs/35-public-runtime-sync.md).
+The configurator requires a separate compatibility review for PERF, motor
+telemetry capability/status handling, 87-byte blackbox records, parameter-table
+changes and source citations. RC_CHANNELS retains its binary layout; CRSF link
+statistics were added to runtime diagnostics. Both public boards still report
+no motor telemetry capture capability.
+
+Verification on the publication checkout:
+
+- Feather F405 built with ARM GNU Toolchain 13.3.Rel1, `REV=aa47204`,
+  in a fresh `OUT=build/public-sync`; all image/vector/symbol checks passed.
+  Binary: 157,468 bytes; ELF text/data/BSS: 157,364 / 100 / 103,916 bytes.
+  Linker RAM usage: 104,020 / 131,072 bytes (79.36%).
+- Invalid board, architecture and part overrides are rejected by the public
+  Makefile. The source-scope check passes and verifies the explicit ESP32 core
+  inventory, including filter, log encoder and motor-health dependencies.
+- Python contract check: 168 checks, zero failures. MSP client checks pass;
+  external Betaflight/INAV comparisons are unavailable without their checkouts.
+- MAVLink local frame checks pass; external pymavlink comparison is unavailable.
+  GUI MSP checks are skipped: no display or virtual-display helper is installed.
+- Direct Python parsing checks pass for motor measurement validity, physical
+  units, malformed motor replies, 51/66/87-byte log compatibility, rejection of
+  partial log extensions, and the PERF reply.
+- ESP-IDF was not found in the environment or usual home, optional-software
+  and workspace locations. No fresh ESP32 compile/link is claimed.
+- No omitted C host suite or simulator was imported or run. Existing ignored
+  binaries from an older checkout are not evidence for this runtime.
+- Whitespace validation passes. Updated publication files were scanned for
+  machine-specific paths; no such paths were introduced.
+
+`python3 scripts/check_source_scope.py` measures real source bytes and enforces
+Python's individual-language plurality. At this verification snapshot:
+
+| Language | Source bytes |
+| --- | ---: |
+| Python | 2,081,484 |
+| C, including .h | 2,059,107 |
+| TypeScript, including TSX | 846,343 |
+| C++ | 184,936 |
+| JavaScript | 56,128 |
+| Shell | 50,339 |
+
+Python leads C by 22,377 bytes; C and C++ combined are 2,244,043 bytes.
+This is an individual-language plurality, not a Python majority or a claim
+that Python exceeds combined C/C++. Counts include legacy sources and
+nonignored untracked work, and may change while other components are edited.
+No `.gitattributes` language overrides or padding were used.

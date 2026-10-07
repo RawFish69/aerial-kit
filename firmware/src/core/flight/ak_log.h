@@ -31,7 +31,7 @@
 /* Bumped when the record layout changes. A ring left behind by an older build
  * is not a ring this one can read, and reading it anyway is how a log becomes
  * a hallucination. */
-#define AK_LOG_VERSION 2u
+#define AK_LOG_VERSION 4u
 #define AK_LOG_MAGIC   0x414B4C47u /* "AKLG" */
 
 typedef struct {
@@ -72,6 +72,104 @@ typedef struct {
      */
     int32_t  lat_e7;
     int32_t  lon_e7;
+    /*
+     * And the filtering itself (roadmap 2.4), because everything above is the
+     * same record whether the gyro chain is doing anything or not: `gyro` is
+     * the driver's reading and `torque` is what the controller made of it, and
+     * a log of those two cannot tell "the chain removed the vibration" from
+     * "there was no vibration to remove".
+     *
+     * Appended, not inserted, and that is the whole of the wire's compatibility
+     * story. The first fifty-one bytes are byte-for-byte what version 2 wrote,
+     * so a client built before this milestone decodes everything it knows and
+     * ignores the tail rather than reading every field after a shift as noise.
+     * A record layout may grow at the end or not at all.
+     *
+     * `gyro_filtered` is the same quantity as `gyro` in the same units, and it
+     * is the number the controller actually flew on: the notch bank and both
+     * low-passes (ak_flight.c, `flight->gyro`). Put the two columns side by
+     * side and the chain's contribution is not an inference.
+     */
+    int16_t  gyro_filtered[3]; /* 0.1 deg/s, after the notch and both LPFs */
+    /*
+     * Where the notches are, which is the one number a tracked filter has to
+     * report or it cannot be judged at all: the bank's centres move on their
+     * own, and a log that showed the vibration going away without showing the
+     * notch moving onto it would not distinguish a working tracker from a
+     * fixed filter that happened to be in the right place.
+     *
+     * `notch_engaged[axis]` is how many slots a *measurement* has put in place
+     * on that axis - the module engages a notch by measuring a peak, not by
+     * being configured with one, so a bank that is running and has not yet
+     * completed a window has zero of them and this is how a reader tells that
+     * from a bank that has locked on (ak_dyn_notch.h, decision 7).
+     *
+     * `notch_hz[axis]` is the centre of the first engaged notch on that axis,
+     * in whole Hz, or 0 when none is engaged - and zero is the honest value
+     * rather than a placeholder, because a slot with no measurement behind it
+     * is *bypassed*: it filters nothing, so there is no centre to report.
+     *
+     * One per axis rather than one per slot, and the price of the alternative
+     * is what decides it - measured rather than estimated, from the two F405
+     * images either side of this milestone: the record went from 56 bytes to
+     * 72, and the image's RAM from 94,684 to 113,116, so these sixteen bytes
+     * cost 18,432. That is 1,152 bytes of the part's 131,072 for every byte
+     * here, because the record was counted **three** times over when that was
+     * measured: the fast ring, the long ring, and a fallback ring the core kept
+     * against a board with no retained RAM.
+     *
+     * **Three is now two.** The fallback is gone - no board this repository
+     * ships could reach it, because all seven return a whole retained ring from
+     * `ak_board_retained_ram`, so it was 27,672 bytes of `.bss` chosen against
+     * `else` (see ak_board.h, and docs/evidence/phase-4.1-dead-ring-*.txt for
+     * the measurement). The F405's RAM is 85,444 for that. So these sixteen
+     * bytes cost 18,432 at the price the decision was taken at and **12,288**
+     * now: the same decision, cheaper. Both numbers are here rather than the
+     * smaller one alone because the larger is what was measured when the
+     * choice was made, and a comment that quietly kept only the favourable
+     * arithmetic would stop being a record of anything.
+     *
+     * At that price the four extra slots per axis the module can hold would be
+     * 27,648 bytes at three rings and 18,432 at two - a fifth of the part, or
+     * a seventh - for peaks the tracker already ranks below the first. So one
+     * centre per axis: the first slot is the lowest-frequency peak the tracker
+     * kept, the others are that same measurement's lesser peaks, and the
+     * question this log answers - "does the centre follow the motor
+     * fundamental?" - is asked of the first one.
+     */
+    uint16_t notch_hz[3];      /* whole Hz, 0 when nothing is engaged */
+    uint8_t  notch_engaged[3];
+    /*
+     * Roadmap 4.1's fields that have a source in this firmware, appended after
+     * version 3's tail for the same reason that tail was appended: a client
+     * built before them decodes a correct prefix (docs/16-protocol.md).
+     *
+     * `time_us` is the IMU sample's own timestamp - the clock the estimator's
+     * dt is measured on - so the loop's real cadence can be read from the log
+     * rather than inferred from `time_ms`, which is the scheduler's.
+     *
+     * `rate_setpoint` is what the rate loop was asked to hold, in the gyro
+     * columns' unit, and `pid_p`/`pid_i`/`pid_d` are the three terms it answered
+     * with in the torque column's unit: P + I - D is the torque before its
+     * clamp, so a saturated controller and a wound-up integrator are both
+     * visible. See ak_flight_log_control.
+     *
+     * `vbat_mv` is the pack, 0 with AK_LOG_VBAT_VALID clear on a board that
+     * cannot measure one (the Feather's divider ratio is unmeasured).
+     *
+     * **The rest of 4.1's list has no source and is not here**, rather than
+     * written as zeros a reader would believe: battery current (no sensor on
+     * any board), supervisor state and shadow output (phase 6 does not exist),
+     * feed-forward (ak_pid.h has none, by design), per-motor eRPM (phase 3's
+     * telemetry has never run on a wire). docs/11-blackbox.md lists them with
+     * what each waits for.
+     */
+    uint32_t time_us;          /* the IMU sample's timestamp */
+    int16_t  rate_setpoint[3]; /* 0.1 deg/s */
+    int8_t   pid_p[3];         /* percent of the mix input, saturated +/-127 */
+    int8_t   pid_i[3];
+    int8_t   pid_d[3];         /* as subtracted */
+    uint16_t vbat_mv;          /* 0 when AK_LOG_VBAT_VALID is clear */
 } ak_log_record_t;
 
 /* flags */
@@ -81,6 +179,10 @@ typedef struct {
  * position from a module that has stopped answering is a place the aircraft
  * was, not a place it is. */
 #define AK_LOG_GPS_VALID 0x04
+/* Version 4 (roadmap 4.1): the pilot's mode switch, and whether vbat_mv is a
+ * measurement. */
+#define AK_LOG_ANGLE_MODE 0x08
+#define AK_LOG_VBAT_VALID 0x10
 
 typedef struct {
     /* The header first, because a ring that outlives a reset has to be
@@ -134,6 +236,18 @@ void ak_log_dump(const ak_log_t *log, ak_printf_fn out);
 /* One line per record, for a protocol that wants to stream them. */
 void ak_log_write_record(const ak_log_record_t *record, ak_printf_fn out);
 
+/* The units, what the two gyro triples mean, and the column line that names
+ * every field `ak_log_write_record` writes.
+ *
+ * One writer for both dumps - the ring's and the flash log's - because they are
+ * the same file to a reader, and when they were two copies of these lines the
+ * flash one named twenty-four columns while its own rows carried twenty-six:
+ * the ring's copy had gained `lat_e7,lon_e7` and the flash's had not. The rows
+ * carry thirty-five since 2.4, so the same stale copy is eleven short. A
+ * header a client cannot match to its row is a log that reads as a column of
+ * the wrong numbers, which is worse than no log. */
+void ak_log_write_header(ak_printf_fn out);
+
 /* The same record as fixed-width little-endian bytes, for a wire.
  *
  * Not a memcpy of the struct: a C struct carries padding that differs between
@@ -143,9 +257,21 @@ void ak_log_write_record(const ak_log_record_t *record, ak_printf_fn out);
  *
  *   u32 time_ms, i16 gyro[3], i16 accel[3], i16 attitude[2], i16 yaw,
  *   i32 alt_mm, i16 stick[4], i8 torque[3], u8 motor[4], u8 state, u8 flags,
- *   i32 lat_e7, i32 lon_e7                                  = 51 bytes
+ *   i32 lat_e7, i32 lon_e7,                                  = 51 bytes
+ *   i16 gyro_filtered[3], u16 notch_hz[3], u8 notch_engaged[3]  = 15 more
+ *                                                  = 66 bytes (version 3)
+ *   u32 time_us, i16 rate_setpoint[3], i8 pid_p[3], i8 pid_i[3], i8 pid_d[3],
+ *   u16 vbat_mv                                              = 21 more
+ *
+ *                                                  = 87 bytes (AK_LOG_VERSION 4)
+ *
+ * The first fifty-one are version 2's and the next fifteen version 3's,
+ * unmoved - each tail is appended, so a client that predates it decodes a
+ * correct prefix instead of a shifted one.
  */
-#define AK_LOG_WIRE_BYTES 51u
+#define AK_LOG_WIRE_BYTES 87u
+/* Where version 3's record ended: a reader of an older log stops here. */
+#define AK_LOG_WIRE_BYTES_V3 66u
 
 unsigned ak_log_encode_record(const ak_log_record_t *record, uint8_t *out,
                               unsigned capacity);

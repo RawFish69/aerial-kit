@@ -15,7 +15,19 @@
  * never persisted. 32 bits is correct for the 3.3 V supply this board runs at.
  */
 
-#define AK_FLASH_TIMEOUT 1000000u
+/*
+ * The busy-wait bound, in polls of FLASH_SR. A 128 KB sector erase is 1 s
+ * typical and 2 s worst case at x32 (the F405 datasheet's t_ERASE128KB), and
+ * the poll is a few cycles at 168 MHz - so this has to be counted in hundreds
+ * of millions. It was 1 000 000, about 40 ms, which was long enough only if
+ * the CPU stalled for the whole erase; it does not have to: the loop is small
+ * enough to run from the ART instruction cache, and FLASH_SR is a peripheral
+ * register rather than flash, so nothing it touches waits for the erase. Then
+ * the erase was reported failed while it carried on, and the control register
+ * was rewritten under it. 400 000 000 polls is well past 2 s at any poll cost
+ * this part has; a program operation that hangs that long is a broken part.
+ */
+#define AK_FLASH_TIMEOUT 400000000u
 
 /*
  * The three places every access goes through, so that a host build can

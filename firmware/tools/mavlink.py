@@ -236,11 +236,27 @@ def parse(frame):
     if crc != frame_crc(frame[1:head + length], name):
         raise ValueError("bad checksum in %s" % name)
 
-    # A v2 sender may truncate the trailing zero bytes, so the payload is
-    # padded back to the struct's size before unpacking - which is what the
-    # reference implementation does too.
+    # The payload is not necessarily the struct's size, and it misses in both
+    # directions - both of which are ordinary traffic rather than faults:
+    #
+    # * a v2 sender truncates the trailing zero bytes, so a *short* payload is
+    #   padded back to the struct's size before unpacking, which is what the
+    #   reference implementation does too;
+    # * a *newer dialect* appends its extension fields to the wire after the
+    #   base ones, so a payload *longer* than this table's struct is a frame
+    #   from a vehicle whose dialect grew. Those bytes are excluded from
+    #   `crc_extra` - that exclusion is the whole reason MAVLink can add a
+    #   field without breaking a reader - so the checksum just verified proves
+    #   the base fields agree, and the extras are read past rather than
+    #   refused.
+    #
+    # This used to be `payload + bytes(full - len(payload))`, which raises
+    # `ValueError: negative count` on the second case: one exception per frame
+    # for the life of the link, and the message's whole content lost with it.
+    # `SYS_STATUS` is where it was found - the pinned table carries the 31-byte
+    # pre-extension message, PX4 1.17.0 sends 43.
     full = struct.calcsize(fmt)
-    values = struct.unpack(fmt, payload + bytes(full - len(payload)))
+    values = struct.unpack(fmt, (payload + bytes(full))[:full])
     fields = dict(zip(names, values))
     text = fields.get("param_id")
     if isinstance(text, bytes):

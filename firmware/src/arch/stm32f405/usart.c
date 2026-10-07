@@ -86,8 +86,13 @@ static void usart_configure(uint32_t usart, ak_pin_t tx, ak_pin_t rx,
 
     USART_CR2(usart) = two_stop_bits ? USART_CR2_STOP_2 : 0u;
 
+    /* With parity on, the parity bit is *inside* the word: M = 0 is seven
+     * data bits plus parity, and SBUS is eight data bits plus parity (8E2).
+     * Without M the receiver took data bit 7 as the parity bit and the parity
+     * bit as the first stop bit, so the real parity was never checked and a
+     * frame whose parity bit was 0 raised a framing error. RM0090 30.6.4. */
     USART_CR1(usart) = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE |
-                       (even_parity ? USART_CR1_PCE : 0u);
+                       (even_parity ? (USART_CR1_PCE | USART_CR1_M) : 0u);
 }
 
 void ak_uart_init(uint32_t usart, ak_pin_t tx, ak_pin_t rx, uint32_t baud,
@@ -110,10 +115,14 @@ int ak_uart_write_bytes(uint32_t usart, const char *data, unsigned len)
 {
     for (unsigned i = 0; i < len; i++) {
         uint32_t guard = 100000u;
-        while ((USART_SR(usart) & USART_SR_TXE) == 0 && guard-- > 0) {
-        }
-        if (guard == 0) {
-            return -1;
+        while ((USART_SR(usart) & USART_SR_TXE) == 0) {
+            /* Counted down and tested in one place: `guard-- > 0` in the loop
+             * condition left guard at 0xFFFFFFFF on a timeout, so the check
+             * below it never fired and a dead port was written to anyway. */
+            if (guard == 0u) {
+                return -1;
+            }
+            guard--;
         }
         USART_DR(usart) = (uint32_t)(unsigned char)data[i];
     }

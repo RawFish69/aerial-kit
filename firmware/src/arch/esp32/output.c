@@ -64,16 +64,26 @@
  * servo's deadband - the resolution that matters for a servo is its pulse
  * width, not this. The S3 build found this, the same way it found the ADC's
  * calibration scheme.
+ *
+ * The duty the servo write computes is a fraction of the period, so its full
+ * scale has to be the *selected* timer's full scale and not a constant. A duty
+ * worked out against 16 bits and handed to a 14-bit timer is four times the
+ * pulse it means - a 1500 us command arrives as 6 ms, which is outside the
+ * range any hobby servo is meant to be given. What a servo does with that is
+ * not measured here and is not claimed. The resolution and its bit count are
+ * therefore chosen together, here, from the one capability, and the two cannot
+ * drift apart.
  */
 #if SOC_LEDC_TIMER_BIT_WIDTH > 14
-#define ESP_OUTPUT_SERVO_RES LEDC_TIMER_16_BIT
+#define ESP_OUTPUT_SERVO_RES  LEDC_TIMER_16_BIT
+#define ESP_OUTPUT_SERVO_BITS 16u
 #else
-#define ESP_OUTPUT_SERVO_RES LEDC_TIMER_14_BIT
+#define ESP_OUTPUT_SERVO_RES  LEDC_TIMER_14_BIT
+#define ESP_OUTPUT_SERVO_BITS 14u
 #endif
 #define ESP_OUTPUT_QUEUE      4u    /* frames in flight before one is skipped */
 
 #define ESP_OUTPUT_SERVO_HZ   50u
-#define ESP_OUTPUT_SERVO_BITS 16u
 #define ESP_OUTPUT_SERVO_MAX  ((1u << ESP_OUTPUT_SERVO_BITS) - 1u)
 
 /* The board names its own pins - this layer does not know a pin map, the same
@@ -327,8 +337,12 @@ void ak_esp_output_write(const ak_output_frame_t *frame)
     if (servos_ready) {
         for (unsigned servo = 0u; servo < output_servos; servo++) {
             /* The pulse is in microseconds against a 20 ms period, so the duty
-             * is the pulse over the period in sixteenths of it - which at 16
-             * bits is 305 ns of resolution. */
+             * is the pulse over the period, scaled to whatever full scale this
+             * chip's counter actually has - see ESP_OUTPUT_SERVO_MAX. The
+             * division is after the multiply on purpose: the intermediate is
+             * at most 20000 * 65535, which fits a uint32_t with room to
+             * spare, and dividing first would round every pulse to the same
+             * handful of steps. */
             uint32_t duty = ((uint32_t)frame->servo_us[servo] *
                              ESP_OUTPUT_SERVO_MAX) / 20000u;
             ledc_channel_t channel = (ledc_channel_t)(LEDC_CHANNEL_0 + servo);

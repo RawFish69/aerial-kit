@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="610" viewBox="0 0 980 610" font-family="Helvetica, Arial, sans-serif">
+<rect width="980" height="610" fill="#ffffff"/>
+<text x="20" y="32" font-size="20" font-weight="bold" fill="#24292f">Adafruit Feather STM32F405 Express - fixed-wing wiring (AerialKit)</text>
+<text x="20" y="54" font-size="12" fill="#57606a">From src/boards/FEATHER_F405/board.h, checked by tools/feather_pinmap_check.py. Not yet wired: check pad order against the silkscreen.</text>
+<rect x="250" y="210" width="480" height="190" rx="14" fill="#1b4d3e" stroke="#0f2e25" stroke-width="2"/>
+<text x="490.0" y="299.0" font-size="15" fill="#ffffff" text-anchor="middle" font-weight="bold">Feather F405</text>
+<text x="490.0" y="319.0" font-size="11" fill="#cfe9df" text-anchor="middle">STM32F405RGT6, 12 MHz HSE</text>
+<rect x="232" y="283.0" width="30" height="44" fill="#b1bac4" stroke="#57606a"/>
+<text x="224" y="309.0" font-size="11" fill="#24292f" text-anchor="end">USB: console + configurator</text>
+<rect x="720" y="289.0" width="22" height="32" fill="#e8b500" stroke="#7d5f00"/>
+<circle cx="290.0" cy="226" r="6" fill="#cf222e" stroke="#ffffff" stroke-width="1.5"/>
+<text x="290.0" y="246" font-size="10" fill="#ffffff" text-anchor="middle">BAT</text>
+<circle cx="326.4" cy="226" r="6" fill="#d0d7de" stroke="#ffffff" stroke-width="1.5"/>
+<text x="326.4" y="246" font-size="10" fill="#ffffff" text-anchor="middle">EN</text>
+<circle cx="362.7" cy="226" r="6" fill="#cf222e" stroke="#ffffff" stroke-width="1.5"/>
+<text x="362.7" y="246" font-size="10" fill="#ffffff" text-anchor="middle">USB</text>
+<circle cx="399.1" cy="226" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="399.1" y="246" font-size="10" fill="#ffffff" text-anchor="middle">D13</text>
+<circle cx="435.5" cy="226" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="435.5" y="246" font-size="10" fill="#ffffff" text-anchor="middle">D12</text>
+<circle cx="471.8" cy="226" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="471.8" y="246" font-size="10" fill="#ffffff" text-anchor="middle">D11</text>
+<circle cx="508.2" cy="226" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="508.2" y="246" font-size="10" fill="#ffffff" text-anchor="middle">D10</text>
+<circle cx="544.5" cy="226" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="544.5" y="246" font-size="10" fill="#ffffff" text-anchor="middle">D9</text>
+<circle cx="580.9" cy="226" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="580.9" y="246" font-size="10" fill="#ffffff" text-anchor="middle">D6</text>
+<circle cx="617.3" cy="226" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="617.3" y="246" font-size="10" fill="#ffffff" text-anchor="middle">D5</text>
+<circle cx="653.6" cy="226" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="653.6" y="246" font-size="10" fill="#ffffff" text-anchor="middle">SCL</text>
+<circle cx="690.0" cy="226" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="690.0" y="246" font-size="10" fill="#ffffff" text-anchor="middle">SDA</text>
+<circle cx="290.0" cy="384" r="6" fill="#d0d7de" stroke="#ffffff" stroke-width="1.5"/>
+<text x="290.0" y="372" font-size="10" fill="#ffffff" text-anchor="middle">RST</text>
+<circle cx="316.7" cy="384" r="6" fill="#cf222e" stroke="#ffffff" stroke-width="1.5"/>
+<text x="316.7" y="372" font-size="10" fill="#ffffff" text-anchor="middle">3V</text>
+<circle cx="343.3" cy="384" r="6" fill="#d0d7de" stroke="#ffffff" stroke-width="1.5"/>
+<text x="343.3" y="372" font-size="10" fill="#ffffff" text-anchor="middle">AREF</text>
+<circle cx="370.0" cy="384" r="6" fill="#24292f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="370.0" y="372" font-size="10" fill="#ffffff" text-anchor="middle">GND</text>
+<circle cx="396.7" cy="384" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="396.7" y="372" font-size="10" fill="#ffffff" text-anchor="middle">A0</text>
+<circle cx="423.3" cy="384" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="423.3" y="372" font-size="10" fill="#ffffff" text-anchor="middle">A1</text>
+<circle cx="450.0" cy="384" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="450.0" y="372" font-size="10" fill="#ffffff" text-anchor="middle">A2</text>
+<circle cx="476.7" cy="384" r="6" fill="#b7791f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="476.7" y="372" font-size="10" fill="#ffffff" text-anchor="middle">A3</text>
+<circle cx="503.3" cy="384" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="503.3" y="372" font-size="10" fill="#ffffff" text-anchor="middle">A4</text>
+<circle cx="530.0" cy="384" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="530.0" y="372" font-size="10" fill="#ffffff" text-anchor="middle">A5</text>
+<circle cx="556.7" cy="384" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="556.7" y="372" font-size="10" fill="#ffffff" text-anchor="middle">SCK</text>
+<circle cx="583.3" cy="384" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="583.3" y="372" font-size="10" fill="#ffffff" text-anchor="middle">MO</text>
+<circle cx="610.0" cy="384" r="6" fill="#8c959f" stroke="#ffffff" stroke-width="1.5"/>
+<text x="610.0" y="372" font-size="10" fill="#ffffff" text-anchor="middle">MI</text>
+<circle cx="636.7" cy="384" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="636.7" y="372" font-size="10" fill="#ffffff" text-anchor="middle">RX</text>
+<circle cx="663.3" cy="384" r="6" fill="#1f6feb" stroke="#ffffff" stroke-width="1.5"/>
+<text x="663.3" y="372" font-size="10" fill="#ffffff" text-anchor="middle">TX</text>
+<circle cx="690.0" cy="384" r="6" fill="#d0d7de" stroke="#ffffff" stroke-width="1.5"/>
+<rect x="205" y="70" width="170" height="80" rx="8" fill="#ffffff" stroke="#cf222e" stroke-width="2"/>
+<text x="290.0" y="90" font-size="13" font-weight="bold" fill="#24292f" text-anchor="middle">BEC 5 V</text>
+<text x="290.0" y="107" font-size="10.5" fill="#57606a" text-anchor="middle">to the USB pin, and GND</text>
+<text x="290.0" y="121" font-size="10.5" fill="#57606a" text-anchor="middle">never the flight pack</text>
+<text x="290.0" y="135" font-size="10.5" fill="#57606a" text-anchor="middle">on the BAT pin</text>
+<path d="M362.7,226 L362.7,188.0 L330.0,188.0 L330.0,150" fill="none" stroke="#cf222e" stroke-width="2"/>
+<rect x="390" y="70" width="150" height="80" rx="8" fill="#ffffff" stroke="#1f6feb" stroke-width="2"/>
+<text x="465.0" y="90" font-size="13" font-weight="bold" fill="#24292f" text-anchor="middle">Servo 1 / Servo 2</text>
+<text x="465.0" y="107" font-size="10.5" fill="#57606a" text-anchor="middle">left / right elevon</text>
+<text x="465.0" y="121" font-size="10.5" fill="#57606a" text-anchor="middle">D9 = PB8, D10 = PB9</text>
+<text x="465.0" y="135" font-size="10.5" fill="#57606a" text-anchor="middle">TIM4 CH3/CH4, 50 Hz</text>
+<path d="M508.2,226 L508.2,170.0 L445.0,170.0 L445.0,150" fill="none" stroke="#1f6feb" stroke-width="2"/>
+<path d="M544.5,226 L544.5,182.0 L485.0,182.0 L485.0,150" fill="none" stroke="#1f6feb" stroke-width="2"/>
+<rect x="555" y="70" width="175" height="80" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="2"/>
+<text x="642.5" y="90" font-size="13" font-weight="bold" fill="#24292f" text-anchor="middle">UART console</text>
+<text x="642.5" y="107" font-size="10.5" fill="#57606a" text-anchor="middle">D6 = TX (PC6), D5 = RX (PC7)</text>
+<text x="642.5" y="121" font-size="10.5" fill="#57606a" text-anchor="middle">USART6, 115200 baud</text>
+<text x="642.5" y="135" font-size="10.5" fill="#57606a" text-anchor="middle">the one spare UART</text>
+<path d="M580.9,226 L580.9,182.0 L615.0,182.0 L615.0,150" fill="none" stroke="#8c959f" stroke-width="2"/>
+<path d="M617.3,226 L617.3,170.0 L665.0,170.0 L665.0,150" fill="none" stroke="#8c959f" stroke-width="2"/>
+<rect x="790" y="222" width="175" height="76" rx="8" fill="#ffffff" stroke="#1f6feb" stroke-width="2"/>
+<text x="877.5" y="242" font-size="13" font-weight="bold" fill="#24292f" text-anchor="middle">BNO055 IMU</text>
+<text x="877.5" y="259" font-size="10.5" fill="#57606a" text-anchor="middle">Qwiic / STEMMA QT</text>
+<text x="877.5" y="273" font-size="10.5" fill="#57606a" text-anchor="middle">I2C1, PB6/PB7, 400 kHz</text>
+<text x="877.5" y="287" font-size="10.5" fill="#57606a" text-anchor="middle">scanned: 0x28, 0x29</text>
+<path d="M742,305.0 L800,280.0" stroke="#1f6feb" stroke-width="2" fill="none"/>
+<rect x="305" y="470" width="150" height="76" rx="8" fill="#ffffff" stroke="#1f6feb" stroke-width="2"/>
+<text x="380.0" y="490" font-size="13" font-weight="bold" fill="#24292f" text-anchor="middle">ESC 1</text>
+<text x="380.0" y="507" font-size="10.5" fill="#57606a" text-anchor="middle">A2 = PA6, TIM3 CH1</text>
+<text x="380.0" y="521" font-size="10.5" fill="#57606a" text-anchor="middle">DShot, the motor</text>
+<text x="380.0" y="535" font-size="10.5" fill="#57606a" text-anchor="middle">that flies</text>
+<path d="M450.0,384 L450.0,427.0 L380.0,427.0 L380.0,470" fill="none" stroke="#1f6feb" stroke-width="2"/>
+<rect x="470" y="470" width="150" height="76" rx="8" fill="#ffffff" stroke="#b7791f" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="545.0" y="490" font-size="13" font-weight="bold" fill="#24292f" text-anchor="middle">ESC 2 (reserved)</text>
+<text x="545.0" y="507" font-size="10.5" fill="#57606a" text-anchor="middle">A3 = PA7, TIM3 CH2</text>
+<text x="545.0" y="521" font-size="10.5" fill="#57606a" text-anchor="middle">DShot 0 until</text>
+<text x="545.0" y="535" font-size="10.5" fill="#57606a" text-anchor="middle">set airframe 1</text>
+<path d="M476.7,384 L476.7,427.0 L545.0,427.0 L545.0,470" fill="none" stroke="#b7791f" stroke-width="2" stroke-dasharray="6 4"/>
+<rect x="635" y="470" width="205" height="76" rx="8" fill="#ffffff" stroke="#1f6feb" stroke-width="2"/>
+<text x="737.5" y="490" font-size="13" font-weight="bold" fill="#24292f" text-anchor="middle">Receiver (CRSF)</text>
+<text x="737.5" y="507" font-size="10.5" fill="#57606a" text-anchor="middle">ExpressLRS or the custom radio</text>
+<text x="737.5" y="521" font-size="10.5" fill="#57606a" text-anchor="middle">TX to RX/D0 (PB11), RX to TX/D1 (PB10)</text>
+<text x="737.5" y="535" font-size="10.5" fill="#57606a" text-anchor="middle">set arm_channel 5, mode_channel 6</text>
+<path d="M636.7,384 L636.7,440.0 L700.0,440.0 L700.0,470" fill="none" stroke="#1f6feb" stroke-width="2"/>
+<path d="M663.3,384 L663.3,425.0 L760.0,425.0 L760.0,470" fill="none" stroke="#1f6feb" stroke-width="2"/>
+<circle cx="20" cy="566" r="6" fill="#1f6feb"/>
+<text x="32" y="570" font-size="11" fill="#24292f">in use</text>
+<circle cx="140" cy="566" r="6" fill="#b7791f"/>
+<text x="152" y="570" font-size="11" fill="#24292f">reserved</text>
+<circle cx="260" cy="566" r="6" fill="#8c959f"/>
+<text x="272" y="570" font-size="11" fill="#24292f">spare</text>
+<circle cx="380" cy="566" r="6" fill="#cf222e"/>
+<text x="392" y="570" font-size="11" fill="#24292f">power</text>
+<text x="20" y="594" font-size="10.5" fill="#57606a">On-board, not pads: VDIV (PA3, pack divider, off until its ratio is measured), USB D-/D+ (PA11/PA12), status LED on D13 (PC1).</text>
+</svg>

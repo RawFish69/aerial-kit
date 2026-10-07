@@ -224,9 +224,9 @@ describe('the logs', () => {
     expect(reply.source).toBeNull();
   });
 
-  it('reads a 51-byte record field for field', () => {
+  it('reads an 87-byte record field for field', () => {
     const payload = decode(frames.log_get_0!.reply).payload;
-    expect(payload).toHaveLength(52); // status + one record
+    expect(payload).toHaveLength(88); // status + one record
 
     // Decoded independently by the firmware's own client, so this is a check
     // against a second implementation rather than against this one's
@@ -235,12 +235,24 @@ describe('the logs', () => {
     //
     //   time_ms 2000  gyro (0, 200, 0)  accel (0, 0, 0)
     //   roll 0  pitch 0  yaw 0  alt_mm 0  sticks all 0  torque all 0
-    //   motors (0, 0, 0, 60)  state 2  flags 0  lat 0  lon 0
+    //   motors (0, 0, 0, 60)  state 2  flags 16  lat 0  lon 0
+    //   gyro_filtered (90, -70, 11)  notch_hz (211, 233, 257)
+    //   notch_engaged (1, 1, 1)
+    //   time_us 4000123  setpoint (-1234, 567, 8)  p (12, -34, 56)
+    //   i (-7, 9, -11)  d (3, -127, 127)  vbat_mv 15987
     //
     // `state 2` is AK_FLIGHT_FAILSAFE and `motor4 60` is the only output
     // turning, which is what the simulator's log holds at index 0. Being one
     // byte out anywhere in this layout would still produce numbers — which is
     // exactly why the assertion is the whole record and not a spot check.
+    //
+    // The last three rows are version 3's tail (roadmap 2.4), and they are the
+    // reason the simulator fills them rather than leaving zeros: a tail of
+    // zeros would satisfy this assertion against a decoder that ignored the
+    // last fifteen bytes entirely, which is the failure the whole-layout check
+    // exists to catch. The four rows after them are version 4's (roadmap 4.1),
+    // filled on the same rule; flags 16 is AK_LOG_VBAT_VALID, which is what
+    // makes `vbatMv` a number rather than null.
     expect(parseLogRecord(payload, 0)).toEqual({
       index: 0,
       timeMs: 2000,
@@ -254,10 +266,71 @@ describe('the logs', () => {
       torque: [0, 0, 0],
       motors: [0, 0, 0, 60],
       state: 2,
-      flags: 0,
+      flags: 16,
       lat: 0,
       lon: 0,
+      gyroFiltered: [90, -70, 11],
+      notchHz: [211, 233, 257],
+      notchEngaged: [1, 1, 1],
+      timeUs: 4000123,
+      rateSetpoint: [-1234, 567, 8],
+      pidP: [12, -34, 56],
+      pidI: [-7, 9, -11],
+      pidD: [3, -127, 127],
+      vbatMv: 15987,
     });
+  });
+
+  it('reads the same bytes as version 3 if that is all the frame held', () => {
+    // Version 4 appended the controller's columns after version 3's tail, so a
+    // board from before roadmap 4.1 sends the first 66 bytes and nothing else.
+    // Its filtering columns are real and its controller columns are absent.
+    const v4 = decode(frames.log_get_0!.reply).payload;
+    const record = parseLogRecord(v4.slice(0, 67), 0)!;
+    expect(record.gyroFiltered).toEqual([90, -70, 11]);
+    expect(record.notchEngaged).toEqual([1, 1, 1]);
+    expect(record.timeUs).toBeNull();
+    expect(record.rateSetpoint).toBeNull();
+    expect(record.pidP).toBeNull();
+    expect(record.pidI).toBeNull();
+    expect(record.pidD).toBeNull();
+    expect(record.vbatMv).toBeNull();
+
+    // Between versions is a cut record, not a version.
+    expect(() => parseLogRecord(v4.slice(0, 70), 0)).toThrow(ProtocolError);
+  });
+
+  it('reads a pack voltage only when the record says it is a reading', () => {
+    // The firmware writes 0 mV when it has no battery reading and clears
+    // AK_LOG_VBAT_VALID; the decoder turns that into null, because 0 mV is not
+    // a pack a person should see plotted.
+    const payload = decode(frames.log_get_0!.reply).payload.slice();
+    payload[1 + 42] = payload[1 + 42]! & ~0x10;
+    expect(parseLogRecord(payload, 0)!.vbatMv).toBeNull();
+  });
+
+  it('reads the same bytes as version 2 if that is all the frame held', () => {
+    // A record carries no version of its own: its length is the version
+    // statement. A frame from a board that predates the filtering fields holds
+    // 51 bytes of record, and the three columns that arrived later must read as
+    // *absent*, never as zero — "this board did not send a notch centre" and
+    // "the notch centre is 0 Hz" are different claims, and a viewer that showed
+    // the second when it had the first would be plotting a measurement nobody
+    // made. Taking the version 3 payload and cutting its tail off is exactly
+    // such a frame, byte for byte.
+    const v3 = decode(frames.log_get_0!.reply).payload.slice(0, 67);
+    const v2 = v3.slice(0, 52);
+
+    const record = parseLogRecord(v2, 0)!;
+    expect(record.timeMs).toBe(2000);
+    expect(record.gyro).toEqual([0, 200, 0]);
+    expect(record.gyroFiltered).toBeNull();
+    expect(record.notchHz).toBeNull();
+    expect(record.notchEngaged).toBeNull();
+
+    // And one byte shorter than version 2 is not a version 2 record: it is a
+    // record that was cut short, and the decoder says so rather than guessing.
+    expect(() => parseLogRecord(v3.slice(0, 51), 0)).toThrow(ProtocolError);
   });
 
   it('refuses a short record rather than reading past it', () => {

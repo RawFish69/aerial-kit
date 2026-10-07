@@ -111,7 +111,8 @@ describe('the armed banner', () => {
       <ArmedBanner live={live({ armed: 'armed' })} permission={ARMED} />,
     );
     expect(screen.getByText('Armed')).toBeInTheDocument();
-    expect(screen.getByText('no write will be sent')).toBeInTheDocument();
+    // The consequence is on hover; the refusal itself is on every write control.
+    expect(container.querySelector('.armed')).toHaveAttribute('title', ARMED.reason);
     expect(container.querySelector('.armed')).toHaveClass('is-armed');
   });
 
@@ -130,12 +131,12 @@ describe('the armed banner', () => {
     expect(container.querySelector('.armed')).toHaveClass('is-unknown');
     expect(container.querySelector('.armed')).not.toHaveClass('is-disarmed');
     // And the reason states the bound and the arithmetic, not a vibe.
-    expect(screen.getByText(/2000 ms/)).toBeInTheDocument();
+    expect(container.querySelector('.armed')?.getAttribute('title')).toMatch(/2000 ms/);
   });
 
   it('gives the reason a write was allowed, not only the reason it was not', () => {
-    render(<ArmedBanner live={live()} permission={ALLOWED} />);
-    expect(screen.getByText(/read 40 ms ago/)).toBeInTheDocument();
+    const { container } = render(<ArmedBanner live={live()} permission={ALLOWED} />);
+    expect(container.querySelector('.armed')?.getAttribute('title')).toMatch(/read 40 ms ago/);
   });
 });
 
@@ -517,7 +518,7 @@ describe('diagnostics', () => {
 });
 
 describe('the rail', () => {
-  it('keeps an unbackable tab in the list, disabled, saying which half is missing', () => {
+  it('leaves an unbackable tab out of the rail and lists it, with the reason, under Identity', async () => {
     // A board that answers `hello` without a capability word: every tab that
     // needs one must say *that*, not "unavailable" and not nothing at all.
     const snapshot = {
@@ -559,13 +560,14 @@ describe('the rail', () => {
     expect(screen.getByRole('button', { name: 'Live' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Attitude' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Motors' })).toBeEnabled();
-    const preflight = screen.getByRole('button', { name: /^Preflight/ });
-    expect(preflight).toBeDisabled();
-    // The reason names the *opcode* and the reason it is missing, because the
-    // useful thing is to know what to look for. It is in the title, and the
-    // body says it too for anyone not hovering.
-    expect(preflight.getAttribute('title')).toMatch(/preflight/);
-    expect(preflight.getAttribute('title')).toMatch(/capability word/);
+    // A tab nothing can back is left out of the rail, and listed with its
+    // reason on the Identity section — the reason names the *opcode*, because
+    // the useful thing is to know what to look for.
+    expect(screen.queryByRole('button', { name: /^Preflight/ })).toBeNull();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Identity' }));
+    const reason = screen.getByText('Preflight').nextElementSibling?.textContent ?? '';
+    expect(reason).toMatch(/preflight/);
+    expect(reason).toMatch(/capability word/);
 
     // Receiver and Sensors are the exceptions, and deliberately so: both are
     // written, and both open for a board with no capability word at all. The
@@ -586,13 +588,13 @@ describe('the whole page, against the demo board', () => {
 
     // Nothing is open until someone clicks. This app never claims a device
     // because a page loaded.
-    expect(screen.getByRole('button', { name: 'Explore demo' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open demo' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Explore demo' }));
+    await user.click(screen.getByRole('button', { name: 'Open demo' }));
 
     // The demo board answers to a name the capture did not record, so the page
     // gets the badge without any view having to decide it is a demo.
-    expect(await screen.findByText('simulated — not hardware', {}, { timeout: 15_000 })).toBeInTheDocument();
+    expect(await screen.findByText('Demo', {}, { timeout: 15_000 })).toBeInTheDocument();
     expect(screen.getByText('aerialkit-demo')).toBeInTheDocument();
 
     // A real parameter, from the firmware's own table, read over the protocol.
@@ -655,8 +657,8 @@ describe('the whole page, against the demo board', () => {
     // transport a person uses.
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: 'Explore demo' }));
-    await screen.findByText('simulated — not hardware', {}, { timeout: 15_000 });
+    await user.click(screen.getByRole('button', { name: 'Open demo' }));
+    await screen.findByText('Demo', {}, { timeout: 15_000 });
     await user.click(screen.getByRole('button', { name: /^Parameters/ }));
     await screen.findByText('rate_kp_roll', {}, { timeout: 15_000 });
 
@@ -695,11 +697,11 @@ describe('the whole page, against the demo board', () => {
 
   it('offers Web Serial as unavailable rather than hiding it, when the browser has none', async () => {
     render(<App />);
-    const choices = screen.getByRole('radiogroup', { name: 'Talk to' });
-    const serial = within(choices).getByRole('radio', { name: /USB serial/ });
+    const picker = screen.getByRole('combobox', { name: 'Connection' });
+    const serial = within(picker).getByRole('option', { name: /USB serial/ });
     // jsdom has no navigator.serial, which is every browser without Web Serial.
     expect(serial).toBeDisabled();
-    expect(serial.closest('label')?.textContent).toContain('not available in this browser');
+    expect(serial.textContent).toContain('not available in this browser');
   });
 });
 
@@ -778,7 +780,7 @@ describe('the page for a vehicle that is not ours', () => {
     for (const label of [/arm/i, /^disarm/i, /takeoff/i, /mission/i, /^set /i, /parameter$/i, /mode/i]) {
       expect(screen.queryByRole('button', { name: label })).toBeNull();
     }
-    expect(screen.getByText(/This is a write, and it is the only one on this page/)).toBeInTheDocument();
+    expect(screen.getByText(/Changes only how often the vehicle reports/)).toBeInTheDocument();
   });
 
   it('says a heading the vehicle does not have, instead of drawing north', async () => {

@@ -22,8 +22,8 @@ CC := $(CROSS)gcc
 OBJCOPY := $(CROSS)objcopy
 SIZE := $(CROSS)size
 LDSCRIPT := linker/$(PART).ld
-INCLUDES := src/core src/core/flight src/core/sensors src/arch/$(ARCH) src/arch/arm/cortex-m4 src/boards/$(BOARD)
-SRCS := $(wildcard src/core/*.c) $(wildcard src/core/flight/*.c) $(wildcard src/core/sensors/*.c) $(wildcard src/arch/arm/cortex-m4/*.c) $(wildcard src/arch/$(ARCH)/*.c) $(wildcard src/boards/$(BOARD)/*.c)
+INCLUDES := src/core src/core/flight src/core/filter src/core/sensors src/arch/$(ARCH) src/arch/arm/cortex-m4 src/boards/$(BOARD)
+SRCS := $(wildcard src/core/*.c) $(wildcard src/core/flight/*.c) $(wildcard src/core/filter/*.c) $(wildcard src/core/sensors/*.c) $(wildcard src/arch/arm/cortex-m4/*.c) $(wildcard src/arch/$(ARCH)/*.c) $(wildcard src/boards/$(BOARD)/*.c)
 OBJS := $(SRCS:%.c=$(OUT)/%.o)
 DEPS := $(OBJS:.o=.d)
 CFLAGS := -std=c11 -O2 -g3 \

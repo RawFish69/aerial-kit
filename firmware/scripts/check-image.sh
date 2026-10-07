@@ -173,7 +173,11 @@ done
 if [ -n "$elf" ]; then
     nm="${NM:-arm-none-eabi-nm}"
     if ! command -v "$nm" >/dev/null 2>&1; then
-        echo "check-image: $nm not on PATH; skipping the symbol checks" >&2
+        # A failure, not a note: this script is a gate (`make check`), and a
+        # gate that skips its checks and exits 0 reads as a pass. The image it
+        # checks was linked with this toolchain, so nm belongs to it.
+        echo "check-image: $nm not on PATH, so the symbol checks cannot run" >&2
+        exit 1
     else
         # No early exit in the awk: with pipefail set, an early-closing reader
         # gives nm a SIGPIPE and the pipeline a 141, which set -e turns into a

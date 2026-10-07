@@ -88,23 +88,39 @@ SECTIONS
 /*
  * The layout of the 1 MB part, asserted rather than remembered:
  *
- *   0x08000000 .. 0x0801FFFF   the image (128 KB, and about 73 KB today)
- *   0x08020000 .. 0x080BFFFF   the blackbox in flash: five 128 KB sectors,
- *                              which is the region src/boards/AERIALKIT_F405/
- *                              board.c hands to the log
+ *   0x08000000 .. 0x0803EFFF   the image (252 KB below the trace page, and
+ *                              about 128 KB today)
+ *   0x0803F000 .. 0x0803FFFF   the boot-trace page: the last 4 KB of the image
+ *                              region, which src/boards/AERIALKIT_F405/board.c
+ *                              writes a boot record into so that a host can read
+ *                              it back over DFU. Reserved on both F405 boards
+ *                              including the Feather, which does not use it -
+ *                              one geometry for the part is worth 4 KB
+ *   0x08040000 .. 0x080BFFFF   the blackbox in flash: four 128 KB sectors,
+ *                              which is the region the F405 board files hand
+ *                              to the log
  *   0x080C0000 .. 0x080FFFFF   saved configuration: the last two 128 KB
  *                              sectors, the two banks the record alternates
  *                              between so that the erase a recycle needs never
  *                              lands on the one holding the newest record
  *
- * The log was six sectors until the configuration's second bank took one; see
- * the section comment in the board file for what that bought.
+ * The log was six sectors until the configuration's second bank took one, and
+ * five until the image outgrew the 128 KB it had and took another. The section
+ * comments in the two board files say what each of those bought.
  *
- * An image that grew into the blackbox region would be erased out from under
- * itself by the first log wrap, and one that grew into the configuration
- * sectors would be wiped out by the first `save`. Both are link errors rather
- * than puzzles after the fact - and if the image ever needs the room, the log
- * region moves down and this line moves with it, deliberately.
+ * The trace page was at 0x0801F000 until the image grew past it. It had been
+ * chosen as the only flash on the part nothing else claimed, and its writer
+ * refuses a page that is not blank rather than programming over it - so what
+ * happened was not corruption but silence. The trace stopped recording and read
+ * back as image bytes. A boundary that is written down in two places and
+ * asserted in neither is how that goes unnoticed for a month, so the page now
+ * sits above an assert and growing past it is a link error.
+ *
+ * An image that grew into the trace page would overwrite the record it leaves
+ * for a host; one that grew into the blackbox region would be erased out from
+ * under itself by the first log wrap; and one that grew into the configuration
+ * sectors would be wiped out by the first `save`. All three are link errors
+ * rather than puzzles after the fact.
  */
 _flash_used_end = LOADADDR(.data) + SIZEOF(.data);
-ASSERT(_flash_used_end <= 0x08020000, "image overlaps the blackbox region")
+ASSERT(_flash_used_end <= 0x0803F000, "image overlaps the boot-trace page")

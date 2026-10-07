@@ -141,7 +141,15 @@ int ak_parse_float(const char *text, float *out)
         }
         int exponent = 0;
         while (is_digit(*p)) {
-            exponent = exponent * 10 + (*p - '0');
+            /* Saturated rather than accumulated without a bound: an int that
+             * overflows is undefined, and in practice "1e4294967297" parsed
+             * as 10 and "1e2147483648" as 1e-30 - text that says
+             * "astronomically large" stored as a plausible gain. Anything past
+             * a thousand is already infinite or zero in a float, and the range
+             * check on the parameter then refuses it in words. */
+            if (exponent < 1000) {
+                exponent = exponent * 10 + (*p - '0');
+            }
             p++;
         }
         value = scale_by_power_of_ten(value, exponent_negative ? -exponent : exponent);
@@ -174,7 +182,10 @@ int ak_parse_int(const char *text, int32_t *out)
     uint32_t value = 0;
     while (is_digit(*p)) {
         uint32_t digit = (uint32_t)(*p - '0');
-        if (value > (429496729u - digit) / 10u) {
+        /* 0xFFFFFFFF, not 429496729: the old bound was the overflow test of
+         * a 32-bit value already divided by ten, and refused every number
+         * from 429 496 730 up - "1000000000" and INT32_MAX among them. */
+        if (value > (0xFFFFFFFFu - digit) / 10u) {
             return 0; /* would overflow 32 bits */
         }
         value = value * 10u + digit;
@@ -265,6 +276,17 @@ unsigned ak_format_fixed(float value, unsigned decimals, char *buf, unsigned len
 {
     if (len == 0) {
         return 0;
+    }
+    /* Not a number is said in words. It used to go through the float-to-
+     * integer conversion below - undefined for NaN - and print "0.000", so a
+     * NaN that reached a parameter or a reading looked like a zero in
+     * `params`, in a saved record and in the hash. */
+    if (value != value) {
+        unsigned pos = 0;
+        pos = emit(buf, len, pos, 'n');
+        pos = emit(buf, len, pos, 'a');
+        pos = emit(buf, len, pos, 'n');
+        return emit_terminate(buf, len, pos);
     }
     /* Seven, because a latitude is written in seven decimal places and
      * printing one a decimal short is a position ten metres out. More than

@@ -37,7 +37,30 @@ enum {
 typedef struct {
     float    gyro[3];  /* rad/s */
     float    accel[3]; /* g */
-    uint32_t time_ms;
+    /*
+     * When the sensor's reading was *taken*, in microseconds, from
+     * ak_time_us().
+     *
+     * This was `time_ms` until phase 1.5 and the change is the milestone, not
+     * tidying. The estimator's dt is the interval between two of these, so the
+     * resolution of this field *is* the resolution of the integration: at the
+     * one-kilohertz loop the fleet flies today a millisecond timestamp is
+     * exactly right, and at the eight-kilohertz gyro phase 1.4 is aimed at it
+     * is worse than useless - consecutive samples land in the same millisecond,
+     * the interval reads zero or one, and the estimate is quantised to a 100%
+     * error on every other sample. Nothing about that failure is visible in a
+     * millisecond log, which is why it has to be fixed before the rate goes up
+     * rather than after.
+     *
+     * It is the same clock as ak_time_ms() and not a second one: every port's
+     * ak_arch_time_us() returns `ms * 1000 + fraction` from the one counter
+     * (see ak_time.h), so a port cannot hand out two clocks that disagree about
+     * what time it is. It does **not** follow that the millisecond reading can
+     * be recovered from this one by division - it cannot, past the 71.6-minute
+     * wrap - which is why ak_flight_step() takes both readings rather than one.
+     * See ak_time.h and docs/29-timing.md.
+     */
+    uint32_t time_us;
     int      valid;
 } ak_imu_sample_t;
 

@@ -139,30 +139,150 @@
     },
     {
       "index": 11,
-      "name": "d_cutoff_hz",
-      "help": "derivative low pass, 0 disables",
-      "type": "float",
-      "decimals": 0,
-      "min": 0.0,
-      "max": 500.0,
-      "group": 1,
-      "value": "80",
-      "default": "80"
-    },
-    {
-      "index": 12,
-      "name": "gyro_lpf_hz",
-      "help": "gyro low pass, 0 disables - the reference's 250",
+      "name": "gyro_lpf1_static_hz",
+      "help": "gyro chain 1st filter, 0 disables",
       "type": "float",
       "decimals": 0,
       "min": 0.0,
       "max": 1000.0,
       "group": 1,
-      "value": "0",
-      "default": "0"
+      "value": "250",
+      "default": "250"
+    },
+    {
+      "index": 12,
+      "name": "gyro_lpf1_dyn_min_hz",
+      "help": "gyro 1st filter cutoff at zero throttle",
+      "type": "float",
+      "decimals": 0,
+      "min": 0.0,
+      "max": 1000.0,
+      "group": 1,
+      "value": "250",
+      "default": "250"
     },
     {
       "index": 13,
+      "name": "gyro_lpf1_dyn_max_hz",
+      "help": "gyro 1st filter cutoff at full throttle",
+      "type": "float",
+      "decimals": 0,
+      "min": 0.0,
+      "max": 1000.0,
+      "group": 1,
+      "value": "500",
+      "default": "500"
+    },
+    {
+      "index": 14,
+      "name": "gyro_lpf2_static_hz",
+      "help": "gyro chain 2nd filter, 0 disables",
+      "type": "float",
+      "decimals": 0,
+      "min": 0.0,
+      "max": 1000.0,
+      "group": 1,
+      "value": "500",
+      "default": "500"
+    },
+    {
+      "index": 15,
+      "name": "dyn_notch_count",
+      "help": "tracked notches per axis, 0 disables; needs a loop at 2 kHz or faster",
+      "type": "u32",
+      "decimals": 0,
+      "min": 0,
+      "max": null,
+      "group": 1,
+      "value": "3",
+      "default": "3"
+    },
+    {
+      "index": 16,
+      "name": "dyn_notch_q",
+      "help": "notch Q in hundredths: 300 is Q 3",
+      "type": "float",
+      "decimals": 0,
+      "min": 1.0,
+      "max": 1000.0,
+      "group": 1,
+      "value": "300",
+      "default": "300"
+    },
+    {
+      "index": 17,
+      "name": "dyn_notch_min_hz",
+      "help": "lowest frequency the peak search looks at",
+      "type": "float",
+      "decimals": 0,
+      "min": 20.0,
+      "max": 250.0,
+      "group": 1,
+      "value": "100",
+      "default": "100"
+    },
+    {
+      "index": 18,
+      "name": "dyn_notch_max_hz",
+      "help": "highest frequency the peak search looks at",
+      "type": "float",
+      "decimals": 0,
+      "min": 200.0,
+      "max": 1000.0,
+      "group": 1,
+      "value": "600",
+      "default": "600"
+    },
+    {
+      "index": 19,
+      "name": "dterm_lpf1_static_hz",
+      "help": "D-term chain 1st filter, 0 disables",
+      "type": "float",
+      "decimals": 0,
+      "min": 0.0,
+      "max": 1000.0,
+      "group": 1,
+      "value": "75",
+      "default": "75"
+    },
+    {
+      "index": 20,
+      "name": "dterm_lpf1_dyn_min_hz",
+      "help": "D-term 1st filter cutoff at zero throttle",
+      "type": "float",
+      "decimals": 0,
+      "min": 0.0,
+      "max": 1000.0,
+      "group": 1,
+      "value": "75",
+      "default": "75"
+    },
+    {
+      "index": 21,
+      "name": "dterm_lpf1_dyn_max_hz",
+      "help": "D-term 1st filter cutoff at full throttle",
+      "type": "float",
+      "decimals": 0,
+      "min": 0.0,
+      "max": 1000.0,
+      "group": 1,
+      "value": "150",
+      "default": "150"
+    },
+    {
+      "index": 22,
+      "name": "dterm_lpf2_static_hz",
+      "help": "D-term chain 2nd filter, 0 disables",
+      "type": "float",
+      "decimals": 0,
+      "min": 0.0,
+      "max": 1000.0,
+      "group": 1,
+      "value": "150",
+      "default": "150"
+    },
+    {
+      "index": 23,
       "name": "arm_accel_lpf_hz",
       "help": "accel low pass for the arming gate only, 0 disables",
       "type": "float",
@@ -174,7 +294,7 @@
       "default": "0"
     },
     {
-      "index": 14,
+      "index": 24,
       "name": "max_rate_dps",
       "help": "rate mode, deg/s at full stick",
       "type": "float",
@@ -186,7 +306,7 @@
       "default": "700"
     },
     {
-      "index": 15,
+      "index": 25,
       "name": "angle_kp_roll",
       "help": "angle loop P, roll",
       "type": "float",
@@ -198,7 +318,7 @@
       "default": "6.00"
     },
     {
-      "index": 16,
+      "index": 26,
       "name": "angle_kp_pitch",
       "help": "angle loop P, pitch",
       "type": "float",
@@ -210,7 +330,7 @@
       "default": "6.00"
     },
     {
-      "index": 17,
+      "index": 27,
       "name": "angle_rate_lim",
       "help": "clamp on the angle loop output",
       "type": "float",
@@ -222,7 +342,7 @@
       "default": "6.00"
     },
     {
-      "index": 18,
+      "index": 28,
       "name": "max_tilt_deg",
       "help": "max commanded tilt in angle mode",
       "type": "float",
@@ -234,7 +354,7 @@
       "default": "35"
     },
     {
-      "index": 19,
+      "index": 29,
       "name": "yaw_rate_dps",
       "help": "deg/s at full rudder",
       "type": "float",
@@ -246,7 +366,7 @@
       "default": "350"
     },
     {
-      "index": 20,
+      "index": 30,
       "name": "throttle_low",
       "help": "arm only below this throttle",
       "type": "float",
@@ -258,7 +378,7 @@
       "default": "0.050"
     },
     {
-      "index": 21,
+      "index": 31,
       "name": "arm_max_tilt_deg",
       "help": "refuse to arm further than this from level; 180 is the sky",
       "type": "float",
@@ -270,7 +390,7 @@
       "default": "25.0"
     },
     {
-      "index": 22,
+      "index": 32,
       "name": "arm_hold_ms",
       "help": "switch held this long to arm",
       "type": "u32",
@@ -282,7 +402,7 @@
       "default": "500"
     },
     {
-      "index": 23,
+      "index": 33,
       "name": "rc_timeout_ms",
       "help": "no RC frame this long is a failsafe",
       "type": "u32",
@@ -294,7 +414,7 @@
       "default": "250"
     },
     {
-      "index": 24,
+      "index": 34,
       "name": "max_dt_ms",
       "help": "the longest one integration step may span",
       "type": "u32",
@@ -306,7 +426,7 @@
       "default": "50"
     },
     {
-      "index": 25,
+      "index": 35,
       "name": "wing_descend_bank_deg",
       "help": "fixed wing, lost link: bank held while circling down",
       "type": "float",
@@ -318,7 +438,7 @@
       "default": "30"
     },
     {
-      "index": 26,
+      "index": 36,
       "name": "wing_descend_pitch_deg",
       "help": "fixed wing, lost link: nose-down held while circling down",
       "type": "float",
@@ -330,7 +450,7 @@
       "default": "8"
     },
     {
-      "index": 27,
+      "index": 37,
       "name": "wing_descend_throttle",
       "help": "fixed wing, lost link: throttle held while circling down",
       "type": "float",
@@ -342,7 +462,7 @@
       "default": "0.15"
     },
     {
-      "index": 28,
+      "index": 38,
       "name": "airframe",
       "help": "0 quadx, 1 elevonwing, 2 quadx1234, 3 quadp, 4 y4, 5 vtail4, 6 tri, 7 elevonwingsingle (no rudder) - see docs/07-outputs.md",
       "type": "u32",
@@ -354,7 +474,7 @@
       "default": "0"
     },
     {
-      "index": 29,
+      "index": 39,
       "name": "rc_min",
       "help": "receiver count at full low stick",
       "type": "u32",
@@ -366,7 +486,7 @@
       "default": "172"
     },
     {
-      "index": 30,
+      "index": 40,
       "name": "rc_mid",
       "help": "receiver count with the sticks centred",
       "type": "u32",
@@ -378,7 +498,7 @@
       "default": "992"
     },
     {
-      "index": 31,
+      "index": 41,
       "name": "rc_max",
       "help": "receiver count at full high stick",
       "type": "u32",
@@ -390,7 +510,7 @@
       "default": "1811"
     },
     {
-      "index": 32,
+      "index": 42,
       "name": "rc_deadband",
       "help": "stick deadband, fraction of travel",
       "type": "float",
@@ -400,6 +520,30 @@
       "group": 4,
       "value": "0.020",
       "default": "0.020"
+    },
+    {
+      "index": 43,
+      "name": "arm_channel",
+      "help": "receiver channel that arms (5 = AUX1; ELRS and the custom radio arm on 5)",
+      "type": "u32",
+      "decimals": 0,
+      "min": null,
+      "max": 8,
+      "group": 4,
+      "value": "6",
+      "default": "6"
+    },
+    {
+      "index": 44,
+      "name": "mode_channel",
+      "help": "receiver channel that selects angle mode (high = angle)",
+      "type": "u32",
+      "decimals": 0,
+      "min": null,
+      "max": 8,
+      "group": 4,
+      "value": "5",
+      "default": "5"
     }
   ]
 }

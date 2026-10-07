@@ -117,7 +117,7 @@ export interface Tab {
  */
 function notBuilt(opcode: string, feature?: Feature) {
   return (snapshot: SessionSnapshot): string => {
-    const base = `this app has no view for \`${opcode}\` yet, and neither does the firmware — the opcode is written down in firmware/docs/16-protocol.md`;
+    const base = `this app has no view for \`${opcode}\` yet - see firmware/docs/16-protocol.md for the protocol`;
     if (feature === undefined) return base;
     const board = reasonFor(snapshot.identity?.features ?? null, feature, opcode);
     // `reasonFor` returns null when the board *does* answer it. Then the app is
@@ -162,15 +162,15 @@ export const TABS: readonly Tab[] = [
               ))}
             </select>
             <Button onClick={() => onStream(streamHz)} disabled={busy || snapshot.phase === 'failed'}>
-              Ask for it
+              Apply
             </Button>
           </div>
           <p className="small muted" style={{ marginTop: 10 }}>
             {snapshot.telemetry.agreedHz === null
-              ? 'The board has not been asked. A stream is a second thing to go wrong, so it is off until you ask.'
+              ? 'Off. Pick a rate and apply to start telemetry.'
               : snapshot.telemetry.agreedHz === 0
-                ? 'The board agreed to zero. On the console link that is its answer, not a failure.'
-                : `The board agreed to ${snapshot.telemetry.agreedHz} Hz and has sent ${snapshot.telemetry.received} frames.`}
+                ? 'The board declined to stream on this link (the console link cannot).'
+                : `Streaming at ${snapshot.telemetry.agreedHz} Hz · ${snapshot.telemetry.received} frames received.`}
           </p>
         </Panel>
       </div>

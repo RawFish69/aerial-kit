@@ -34,16 +34,18 @@ Standalone Python sim (Matplotlib 3D, follow camera):
 
 ### Web configurator
 
-Live attitude and parameter editing in the browser. Screenshots use the built-in demo board.
+[**Open the configurator**](https://rawfish69.github.io/aerial-kit/) · [Guide](docs/web-configurator.md)
+
+Live attitude, receiver, sensors and parameter editing in the browser, over USB. Screenshots use the built-in demo board.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/configurator-attitude.jpg" alt="Web configurator showing live attitude on the demo board" width="100%"></td>
-    <td width="50%"><img src="docs/configurator-parameters.jpg" alt="Web configurator showing parameter groups and staged edits" width="100%"></td>
+    <td width="50%"><img src="docs/configurator-classic.jpg" alt="Aerial Kit Configurator in the Classic theme: the demo board's attitude in 3D, with the About text file open" width="100%"></td>
+    <td width="50%"><img src="docs/configurator-og.jpg" alt="Aerial Kit Configurator in the OG theme: the same view in 95/98 style" width="100%"></td>
   </tr>
   <tr>
-    <td><em>Attitude and connection status.</em></td>
-    <td><em>Review parameter edits before sending and saving.</em></td>
+    <td><em>Classic theme.</em></td>
+    <td><em>OG theme. A dark Modern theme is the default.</em></td>
   </tr>
 </table>
 
@@ -88,6 +90,8 @@ The ROS-free control package is also on [PyPI](https://pypi.org/project/aerial-k
 | Run a simulator or controller | [Software guide](docs/SOFTWARE_GUIDE.md) · [Examples](docs/EXAMPLE_USAGE.md) |
 | Build AK firmware | [Firmware quick start & board status](docs/flight-controller-firmware.md) |
 | Configure a board | [Web configurator quick start](docs/web-configurator.md) · [Build & deployment](apps/configurator/docs/BUILD-AND-DEPLOY.md) |
+| Connect Python to firmware | [USB telemetry and attitude example](examples/firmware/) |
+| Hardware designs and overlays | [Hardware workspace](hardware/) |
 | Understand the stack | [Architecture, airframes, ROS 2 and roadmap](docs/STACK-GUIDE.md) |
 | Connect hardware | [Hardware guide](docs/HARDWARE.md) · [Radio firmware](firmware/legacy/README.md) |
 | Use the logo | [Branding & SVG assets](docs/branding.md) |

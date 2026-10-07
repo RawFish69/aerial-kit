@@ -109,9 +109,15 @@ extern const ak_mixer_t ak_mixer_quad_x;
 /* Twin-motor flying wing with elevons, the twin-wings airframe:
  *   0 left motor, 1 right motor, servo 0 left elevon, servo 1 right elevon.
  * Throttle is the mean of the two motors and yaw is differential thrust.
- * Elevon signs assume the usual convention (positive pitch = trailing edge up,
- * positive roll = right roll). Both are provisional until a servo is on the
- * bench: no servos have been connected to this firmware. */
+ * Elevon signs assume the usual convention (a positive servo output is the
+ * trailing edge up, positive pitch = nose up, positive roll = right roll), so
+ * nose up raises both trailing edges and roll right raises the *right* one and
+ * lowers the left - the right wing loses lift and drops. Until 2026-10-06 the
+ * roll column was the other way round, which under this convention rolls the
+ * wing left for a right command; the audit found it, and no tool here could,
+ * because the simulator inverts this same table to fly it. Still provisional
+ * until a servo is on the bench: no servos have been connected to this
+ * firmware, and docs/05-bringup.md's stick check is what confirms it. */
 extern const ak_mixer_t ak_mixer_elevon_wing;
 
 /* Single-motor flying wing with elevons: the same aircraft as the twin above

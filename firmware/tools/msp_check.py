@@ -96,16 +96,20 @@ def main():
 
     # --- the frame on the wire -------------------------------------------
     #
-    # `$M<` + size + command + payload + checksum, with size counting the
-    # command and the checksum the XOR of size, command and payload. The first
-    # check is the exact six bytes a real board receives for "who are you?".
+    # `$M<` + size + command + payload + checksum, with size the payload's
+    # length (Betaflight's mspHeaderV1_t is {size, cmd}, and dataSize = size)
+    # and the checksum the XOR of size, command and payload. The first check is
+    # the exact six bytes a real board receives for "who are you?" - which this
+    # said was `$M< 01 01 00` until 2026-10-06, size counting the command: a
+    # frame no real board accepts, written by a client and a fake board that
+    # agreed with each other.
     expect("a request is the frame Betaflight's parser expects",
-           msp.build(msp.MSP_API_VERSION) == b"$M<\x01\x01\x00",
+           msp.build(msp.MSP_API_VERSION) == b"$M<\x00\x01\x01",
            " (%s)" % msp.build(msp.MSP_API_VERSION).hex())
-    # size is the command plus the payload, so three here - and the checksum is
-    # that, the command and every payload byte, XORed.
+    # size is the payload's length, so two here - and the checksum is that,
+    # the command and every payload byte, XORed.
     expect("and the checksum is the XOR of size, command and payload",
-           msp.checksum(0x64, b"\x01\x02") == (3 ^ 0x64 ^ 0x01 ^ 0x02) == 0x64,
+           msp.checksum(0x64, b"\x01\x02") == (2 ^ 0x64 ^ 0x01 ^ 0x02) == 0x65,
            " (0x%02x)" % msp.checksum(0x64, b"\x01\x02"))
 
     # --- what the board says ---------------------------------------------
@@ -216,7 +220,7 @@ def main():
 
     info = client.setting_info("failsafe_throttle")
     expect("and its description carries the keys the reference writes",
-           "pgn=21\n" in info and "type=uint16\n" in info and
+           "pgn=8193\n" in info and "type=uint16\n" in info and
            "min=1000\n" in info and "max=2000\n" in info and
            "default=1000" in info,
            " (%r)" % info)
@@ -232,6 +236,58 @@ def main():
     except msp.Error:
         expect("a name the board does not have is an error, not an empty "
                "value", True)
+
+    # --- writing one, which is the same command as reading it -----------
+    #
+    # `MSP2_CLI_SETTING` is a read *and* a write, and the reply to a write is
+    # the read-back: `msp.c` calls `cliSetSettingByName` and then
+    # `cliGetSettingByName` on the same name. So these three checks are about
+    # the difference between "the board said yes" and "the board now holds
+    # this", which is the whole of the four-fact discipline on this wire.
+    echo = client.set_setting("failsafe_throttle", 1200)
+    expect("a write is answered with what the board now holds, not with an "
+           "acknowledgement",
+           echo == "failsafe_throttle = 1200", " (%s)" % echo)
+    expect("and the next read agrees with that reply, because it is the same "
+           "answer", client.setting("failsafe_throttle") == echo)
+
+    try:
+        client.set_setting("failsafe_throttle", 9999)
+        expect("a value the board will not take is refused rather than "
+               "clamped", False)
+    except msp.Error:
+        expect("a value the board will not take is refused rather than "
+               "clamped", True, " (9999 is outside 1000..2000)")
+    expect("and the refusal did not change what the board holds",
+           client.setting("failsafe_throttle") == "failsafe_throttle = 1200")
+
+    # The save, which is a separate act and a separate command.
+    client.save()
+    expect("the running configuration can be put into flash, as its own "
+           "command rather than as part of a write", True)
+    transport.close()
+
+    # --- and a board that is armed refuses to save ----------------------
+    #
+    # Both firmwares check the arming flag before writing their configuration
+    # to flash, so the refusal is the board's own. `--arm-after 0.0` would
+    # mean "never", so this asks for the bit immediately.
+    transport, client = board([sys.executable, FAKE, "--arm-after", "0.01"])
+    msp.identify(client)
+    time.sleep(0.2)
+    state = msp.state(client)
+    expect("the stand-in can be made to report itself armed",
+           state["flight_state"] == 1, " (modes 0x%x)" % state["modes"])
+    try:
+        client.save()
+        expect("and an armed board refuses to save its configuration, in its "
+               "own voice", False)
+    except msp.Error:
+        expect("and an armed board refuses to save its configuration, in its "
+               "own voice", True, " (MSP_EEPROM_WRITE = 250)")
+    expect("while still taking a set, which is a different act",
+           client.set_setting("failsafe_throttle", 1300) ==
+           "failsafe_throttle = 1300")
     transport.close()
 
     # --- a board that says nothing ---------------------------------------

@@ -226,6 +226,7 @@
 #define USART_CR1_TE (1u << 3)
 #define USART_CR1_PS (1u << 9)   /* 0 = even parity, 1 = odd */
 #define USART_CR1_PCE (1u << 10) /* parity control enable */
+#define USART_CR1_M   (1u << 12) /* 9-bit word: eight data bits plus parity */
 #define USART_CR1_RXNEIE (1u << 5)
 #define USART_CR1_UE (1u << 13)
 
@@ -319,12 +320,24 @@
 #define DMA_SxCR_PL_HIGH  (0x2u << 16)
 #define DMA_SxCR_CHSEL(c) (((uint32_t)(c) & 0x7u) << 25)
 
-/* LISR/HISR flags per stream: the pattern repeats every 6 bits, streams 0-3 in
- * LISR and 4-7 in HISR, with stream 4 at bit 0 of HISR. */
-#define DMA_FLAG_TC(stream)   (1u << (((stream) & 0x3u) * 6u + 5u))
-#define DMA_IFCR_CLEAR(stream) (0x3Du << (((stream) & 0x3u) * 6u))
+/* LISR/HISR flags per stream, streams 0-3 in LISR and 4-7 in HISR. The four
+ * six-bit groups are at bits 0, 6, 16 and 22 - not 0, 6, 12, 18: RM0090 leaves
+ * bits 12-15 reserved. The macros said `* 6` alone until 2026-10-06, which is
+ * right for streams 0, 1, 4 and 5 (the only ones whose flags are read today)
+ * and wrong for 2, 3, 6 and 7. */
+#define DMA_FLAG_SHIFT(stream) (((stream) & 0x3u) * 6u + (((stream) & 0x2u) ? 4u : 0u))
+#define DMA_FLAG_TC(stream)   (1u << (DMA_FLAG_SHIFT(stream) + 5u))
+#define DMA_IFCR_CLEAR(stream) (0x3Du << DMA_FLAG_SHIFT(stream))
 
 #define DMA1_STREAM4_IRQ 15u
+/* The receive stream the sensor bus's DMA ends on (see spi.c's table). The
+ * number is the interrupt, not the vector index: 56, so the entry lands at
+ * 16 + 56 = 72 - which is why adding this one moves image-facts'
+ * vector-words from 56 to 73. Read off the vector table itself,
+ * upstream/betaflight-2026.6.1/src/platform/STM32/startup/startup_stm32f40xx.s,
+ * whose .word 72 is DMA2_Stream0_IRQHandler (the same file's .word 31 is
+ * DMA1_Stream4_IRQHandler, which this port already relied on). */
+#define DMA2_STREAM0_IRQ 56u
 #define USART1_IRQ 37u
 #define USART3_IRQ 39u
 #define NVIC_ISER0 AK_REG32(0xE000E100UL)
@@ -357,6 +370,14 @@
 #define SPI_SR_RXNE (1u << 0)
 #define SPI_SR_TXE  (1u << 1)
 #define SPI_SR_BSY  (1u << 7)
+
+/* CR2's two DMA requests, one per direction. The values are read from
+ * upstream/betaflight-2026.6.1/lib/main/STM32F4/Drivers/STM32F4xx_StdPeriph_Driver/inc/stm32f4xx_spi.h:360-361
+ * (SPI_I2S_DMAReq_Tx 0x0002, SPI_I2S_DMAReq_Rx 0x0001) rather than recalled,
+ * and they are the two the reference driver enables together at
+ * src/platform/STM32/bus_spi_stdperiph.c:252. */
+#define SPI_CR2_RXDMAEN (1u << 0)
+#define SPI_CR2_TXDMAEN (1u << 1)
 
 #define SPI_CR1_BR_DIV8 (0x2u << 3)
 

@@ -44,6 +44,13 @@
 #define ak_board_net_start             ak_feather_net_start
 #define ak_board_param_table           ak_feather_param_table
 #define ak_board_retained_ram          ak_feather_retained_ram
+/*
+ * The long log's ring is the block ak_board_retained_ram() returns, and on this
+ * board that is RAM the startup code does not clear: it survives a reset and not
+ * a power cycle, which is what the boot report's "from the run before" means.
+ * See ak_board.h for what the core does with the answer.
+ */
+#define AK_BOARD_LOG_RETAINED 1
 #define ak_board_log_store             ak_feather_log_store
 #define ak_board_reboot                ak_feather_reboot
 #define ak_board_enter_bootloader      ak_feather_enter_bootloader
@@ -253,42 +260,54 @@
  * uses for the same reason. */
 
 /*
- * IMU bus: **I2C1** on PB6 (SCL) and PB7 (SDA), 400 kHz, AF4, at address 0x6A.
+ * IMU bus: **I2C1** on PB6 (SCL) and PB7 (SDA), 400 kHz, AF4, at one of four
+ * addresses, probed at boot.
  *
  * This is the port's reason for existing. Every other IMU in this repository
- * is a chip on a SPI bus; this one is an LSM6DSO breakout on the Feather's
- * Qwiic connector, which is these two pads with 10k pull-ups already on the
- * board. The driver is src/core/sensors/ak_imu_lsm6dso.c and it asks for
- * register numbers - whether they travel over SPI or I2C is this file's
- * business, which is the whole of what ak_bus.h is for.
+ * is a chip on a SPI bus; this one is a breakout on the Feather's Qwiic
+ * connector, which is these two pads with 10k pull-ups already on the board.
+ * Two parts are supported there, and which one is fitted is a question the
+ * board answers by asking rather than a header constant:
  *
- * The address is the breakout's own strap (SA0 low is 0x6A on an LSM6DSO, high
- * is 0x6B) and is a board fact rather than something probed, for the reason
- * every address here is: one cable, one part, and a breakout jumpered to the
- * other address needs this line changed. That is not hypothetical - it is what
- * happened on 2026-09-30, the first time a part was actually on this bus. A
- * scan of I2C1 found **one** answering address, 0x6B, whose register 0x0F read
- * 0x6C: the LSM6DSO this file is written for, strapped high, and one address
- * away from the 0x6A this line then said. Nothing was wrong with the bus - both
- * lines idled high on the board's own pull-ups - and nothing was wrong with the
- * part. The firmware simply never spoke to it, and reported the absence as
- * `nothing answered on the bus`, which is exactly what that answer means and
- * exactly why it is worth reading literally.
+ *   - **Bosch BNO055** (src/core/sensors/ak_imu_bno055.c) - the fixed wing's
+ *     IMU. 0x28 with its ADR pin low, 0x29 with it high. Which of the two the
+ *     breakout in hand is strapped to was an open question on 2026-10-05, and
+ *     probing both settles it on the board's first boot: the console's `imu:`
+ *     line prints the address that answered.
+ *   - **ST LSM6DSO** (src/core/sensors/ak_imu_lsm6dso.c) - the part the port
+ *     was written against. 0x6B with SA0 high, 0x6A with it low.
  *
- * This line is a fact about *the part in hand*, so a second LSM6DSO breakout
- * strapped the other way wants it changed back. Nothing here probes both
- * addresses; if a board is ever fitted with one of each, that is the moment to
- * make the strap a probed field rather than a header constant.
+ * The LSM6DSO's address was a single fact here until 2026-10-05, and that fact
+ * had already been wrong once: the line said 0x6A and the first scan of the
+ * real bus, on 2026-09-30, found the part at 0x6B. The firmware never spoke to
+ * it and reported `nothing answered on the bus`, which was exactly true. The
+ * line ended by saying that a board fitted with a second part would be the
+ * moment to make the strap a probed field, and a BNO055 whose strap nobody had
+ * read is that moment.
+ *
+ * The probe is an address scan, not a part probe: the first of these four to
+ * acknowledge is the one the bus talks to, and the core's who-am-i then decides
+ * which driver it is. The order is the aircraft's preference - the BNO055 is
+ * the fixed wing's IMU, so with both breakouts on the chain it is the one
+ * flown. A BNO055 does not acknowledge at all for ~650 ms after power-up while
+ * it boots, so a scan that finds nobody waits and tries again, up to
+ * AK_BOARD_IMU_PROBE_MS; that is the whole cost on a board with no IMU fitted,
+ * and it ends in `nothing answered on the bus` exactly as before.
  *
  * Unlike the barometer below, this bus is handed to the core unconditionally:
- * the IMU is what this board is for, and a probe against an unplugged Qwiic
- * cable is bounded and ends in "nothing answered" on the console. */
+ * the IMU is what this board is for. */
 #define AK_BOARD_IMU_I2C      I2C1_BASE
 #define AK_BOARD_IMU_SCL      AK_PIN(GPIOB_BASE, 6)
 #define AK_BOARD_IMU_SDA      AK_PIN(GPIOB_BASE, 7)
 #define AK_BOARD_IMU_AF       4
 #define AK_BOARD_IMU_SPEED    400000u
-#define AK_BOARD_IMU_ADDRESS  0x6Bu
+/* In probe order. */
+#define AK_BOARD_IMU_BNO055_ADDRESS      0x28u
+#define AK_BOARD_IMU_BNO055_ALT_ADDRESS  0x29u
+#define AK_BOARD_IMU_LSM6DSO_ADDRESS     0x6Bu /* measured on the bench part */
+#define AK_BOARD_IMU_LSM6DSO_ALT_ADDRESS 0x6Au
+#define AK_BOARD_IMU_PROBE_MS            900u
+#define AK_BOARD_IMU_PROBE_STEP_MS       10u
 
 /*
  * Barometer: the same I2C1 pair the IMU is on, at 0x77.

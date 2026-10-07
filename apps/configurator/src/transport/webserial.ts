@@ -107,9 +107,12 @@ export class WebSerialTransport implements Transport {
     try {
       await port.open({ baudRate: DEFAULT_BAUD });
     } catch (error) {
+      // On Windows a COM port has one owner at a time, and this is what the
+      // browser says when someone else is it.
       throw new TransportError(
-        `the port would not open at ${DEFAULT_BAUD} baud (${String(error)}). ` +
-          'Another program may be holding it — a serial monitor, or the desktop configurator.',
+        'The port is in use by another program. Close anything else connected to the board ' +
+          '(another configurator, a serial monitor, a Python script), or unplug and replug it, ' +
+          `then connect again. (${String(error)})`,
       );
     }
 

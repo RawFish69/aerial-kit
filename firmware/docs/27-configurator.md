@@ -206,7 +206,7 @@ which this window deliberately does not do; the per-firmware parameter *models*
 largest piece and the one with the least to do with the flight controller being
 ours. A board
 that answers none of the three protocols is still reported as *unknown* rather
-than guessed at. All of those are recorded in `~/aerialkit-goal.md` with what
+than guessed at. All of those are recorded in `the historical development plan` with what
 they cost, and none of them is needed to fly this aircraft.
 
 ### How that half is checked

@@ -135,7 +135,668 @@ enum {
      * and is why there is no separate "this board has no sensors" status to
      * get wrong. */
     AK_PROTO_CMD_SENSOR_INFO = 0x0E,
+    /* A range of one log, pushed rather than asked for one record at a time.
+     *
+     * `LOG_GET` works and is the command a tool should reach for first, but it
+     * costs a round trip per record and the records are 87 bytes: reading the
+     * flash log - 5 460 of them on the F405 - is 5 460 round trips, and on a
+     * 115200 cable that is twenty minutes of asking. Batching is not available
+     * to fix it: two records do not fit in a 96-byte frame, and `LOG_GET`
+     * carries no sequence number, so a client cannot reassemble a batch it
+     * cannot see the shape of.
+     *
+     * So the request names a range and a rate, the reply acks what was
+     * accepted, and the records arrive as frames with **no response bit** -
+     * the same mechanism `TELEMETRY` uses, and gated by the same `can_stream`,
+     * because a console link is a person's wire and a stream there arrives
+     * between their keystrokes.
+     *
+     * **Every frame names its own index and its own source**, which is the
+     * one place this departs from `LOG_GET`'s reply shape and is a deliberate
+     * departure: a reply does not need to say what it is answering, and a push
+     * does, because nothing above it ties the frame to a request. It is what
+     * lets a client count holes without a second command: a record the board
+     * will not give - a slot the power cut in half - arrives as a frame at
+     * that index with status `HOLE` and no body, rather than as a gap in a
+     * sequence the client is inferring.
+     *
+     * **And it ends out loud.** The last frame carries status `DONE`. A
+     * stream that simply stopped would be indistinguishable from a link that
+     * died, and "the read finished" and "the board went away" call for
+     * different next actions. */
+    AK_PROTO_CMD_LOG_STREAM = 0x11,
+    /* What this board's outputs *are*, as the bench instrument needs them: one
+     * descriptor per output, in the board's own numbering, carrying the
+     * plumbing a person sets rather than the value being driven.
+     *
+     * **The value is deliberately not here.** What moves an output is the
+     * flight core or the test below, and a client that could read "motor 2 is
+     * at 40%" would be reading a number that belongs to whichever of those ran
+     * last. What is here is the part that is a property of the aircraft: which
+     * outputs exist, and for a servo - the one output with a linkage behind it
+     * - whether it is reversed, where its centre is, and how far it travels.
+     * The console has printed that list since it had an `output` command; this
+     * is the same list with the prose taken off, which is why the two cannot
+     * disagree about an aircraft.
+     *
+     * **No test verb here, ever.** This opcode is a read. The `output test`
+     * half of the console's command is the next number along, with its own
+     * gate and its own argument. Folding them together would put a verb that
+     * moves a motor behind the same number a client polls to draw a table, and
+     * no client polls something that can spin a propeller.
+     *
+     * A request has no arguments: the largest board in this tree has four
+     * motors and two servos, and one frame holds thirteen descriptors. A board
+     * that one day holds more gets a `first` argument then, which is a change
+     * an old client survives - it sends an empty frame and reads the page it
+     * has always read. */
+    AK_PROTO_CMD_OUTPUT_INFO = 0x0F,
+    /* Drive one output, for as long as somebody is holding a button.
+     *
+     * **This overturns a recorded refusal, deliberately.** The rule has been
+     * that nothing on this wire sets an output to a value of your choosing;
+     * the console's `output test` - the command that walks M1..M4 and the two
+     * servos one at a time so a scope can say which pad is which - has never
+     * been reachable from a socket, and `docs/06-console.md` names that
+     * omission as one of the two things arming from a console would need. The
+     * owner took the opposite decision for a **typed, disarmed-only,
+     * hold-to-run** form, and the properties below are what makes that safe
+     * rather than merely intended. They are written down here because the next
+     * reader will otherwise find the old refusal and "fix" this.
+     *
+     * **Refused unless the aircraft is disarmed, checked at the moment of each
+     * command rather than at connect.** A gate checked once is a gate that is
+     * wrong a second later, and arming can happen between two frames.
+     * `io->writable` is the same predicate the console's `save`, the airborne
+     * routes and the configuration writes use; this opcode adds no second
+     * opinion about what "safe to write" means.
+     *
+     * **One output at a time, named in the request and echoed in the reply.**
+     * There is no "all motors" form and there will not be one: the console's
+     * sweep is safe because it is a bench tool on a cable, and this is on a
+     * socket. A client that wants to walk the outputs walks them.
+     *
+     * **`level` is a percentage of a cap the firmware owns**, and the cap is
+     * sent in the reply rather than being a number the client knows. A client
+     * that asks for more than the cap is given the cap and told so, rather than
+     * being refused or obeyed - the same shape as the log stream's clamped
+     * rate, and for the same reason: the reply is what will happen, not an
+     * echo of what was asked.
+     *
+     * **It times out.** A hold that stops arriving is a client that has gone
+     * away - a closed tab, a link that died - and the output returns to zero on
+     * its own after `AK_PROTO_OUTPUT_TEST_MAX_MS`. The reply carries
+     * `remaining_ms` so a screen reads the deadline from the board's number
+     * rather than inventing one, which is the metadata walk's discipline
+     * applied to a clock.
+     *
+     * **`remaining_ms` is the whole window, not a countdown, and a screen must
+     * not draw it as one.** The request *is* the renewal, so every reply to a
+     * renewal restarts the window: a client under a held button is told 500 ms
+     * over and over and the number never falls. A configurator that printed
+     * `untilMs - now` as a countdown therefore showed a hold ticking towards a
+     * stop that was not coming - measured against its own once-a-second page
+     * clock it read "another 1313 ms" about this 500 ms window. The honest
+     * sentence is the window itself ("stops 500 ms after the last request"), and
+     * the deadline is for the client to *compare* against, not to display.
+     *
+     * **`op` is 0 for start-or-hold and 1 for stop**, so a client that has lost
+     * track of the state can always send a stop without knowing whether one is
+     * running. A stop that was refused because nothing was running would be a
+     * stop a client could not send, which is the wrong way round for the one
+     * verb whose whole job is to be available. */
+    AK_PROTO_CMD_OUTPUT_TEST = 0x10,
+    /* The board's own preflight checklist, the same one the console's
+     * `preflight` command prints, page by page.
+     *
+     * **A read, and the most valuable one on this wire.** Everything else a
+     * client can ask is about the configuration or the sensors; this is the
+     * only opcode that answers "is this machine what the firmware thinks it
+     * is", which is the question a person asks before a first flight and the
+     * one they cannot answer by looking at the aircraft. The console has had
+     * it since it had the command; the sentences are the console's, and that
+     * is deliberate - see below.
+     *
+     * **One checklist, two renderings.** The console prints these lines; this
+     * opcode sends them. They are built once, by one function, into one record
+     * that both paths read - not written twice and kept in step by hand. The
+     * protocol therefore cannot report a machine that is cleaner than the one
+     * the console describes, which is the failure a second implementation
+     * would have on the day somebody added a check to one of them.
+     *
+     * **`detail` is the console's sentence verbatim, name and all.** A client
+     * that renders `name` as a row heading and `detail` underneath it shows
+     * the same words a person reading the console sees, and a firmware that
+     * reworded one without the other would fail a host test rather than
+     * shipping two vocabularies for one fact. The `name` is the console's own
+     * leading word where it had one (`gyro bias`, `saved configuration`) and a
+     * short token where the sentence never named its subject (`mix`, `tick`),
+     * because a client keys rows on it and a key has to be stable across
+     * wordings.
+     *
+     * **`verdict` is three-valued, and the third value is the point.** `FAIL`
+     * is a check that did not pass and counts towards the summary. `PASS` is a
+     * check that did. `FACT` is a line that is neither - the gyro bias, the
+     * fitted sensors, the battery, the arming gate's answer - and a client that
+     * rendered those as passes would be claiming the firmware verified
+     * something it only observed. The console has drawn that distinction with
+     * `--` since it had the command; this is the same distinction with a name.
+     *
+     * **Paged by request, not pushed.** A request is `index(u8), offset(u16
+     * LE)`; the reply carries the line's `name`, its `verdict`, the whole
+     * sentence's length and one part of it. Walking `offset` is how a sentence
+     * longer than a frame arrives whole - the same offset walk PARAM_HELP uses,
+     * and for the same reason: an entry that cannot fit must not be silently
+     * cut, because half a sentence about a fault reads as a different fault.
+     *
+     * **The record is rebuilt when `index` is zero**, which is the first
+     * request of a walk and only that one. A checklist read over eight pages
+     * takes seconds during which a fault can arrive or a battery can be
+     * plugged in; rebuilding per page would describe eight different machines
+     * in one report. The rebuild is on the client's first request rather than
+     * on a timer, so two clients cannot see each other's snapshot and neither
+     * can see a stale one. */
+    AK_PROTO_CMD_PREFLIGHT = 0x12,
+    /* The calibrations the console already has, behind one opcode with a verb.
+     *
+     * `calibrate gyro`, `calibrate rc`, `calibrate vbat` and `calibrate accel`
+     * have been on the console since it had one, and every one of them measures
+     * the aircraft rather than setting it: what the gyro reads when nothing is
+     * moving, what the receiver calls centred, what the pack's divider actually
+     * is, and which way up the board is. None of it was reachable over the
+     * wire, which is why no configurator could offer a calibration, and it is
+     * the last of the console's bench commands to be carried across.
+     *
+     * **It does not block, and that is the design rather than an optimisation.**
+     * The console's version of each of these sits in a loop - a thousand
+     * milliseconds for the receiver, up to three seconds for the six
+     * accelerometer faces - because the console is a human wire and the person
+     * watching it is the one who asked for the measurement. This opcode is
+     * dispatched from the flight loop, and a calibration that held that loop
+     * for three seconds would stop the stabiliser, the telemetry and the
+     * failsafe timer for exactly as long as a person was willing to hold an
+     * aircraft on its side. So the board owns the session: a verb starts one,
+     * the flight loop advances it a sample at a time, and the STATUS verb reads
+     * it. The precedent is already in main.c - the gyro bias measured while
+     * disarmed is fed from the loop and not from whatever asked for it.
+     *
+     * **Every reply is a reading of the session, not an acknowledgement.** The
+     * verb that ran, whether a session is live, how many samples it has taken,
+     * how many it refused for moving, and the measurement so far. That is
+     * MISSION's shape and MISSION's reason - a client that has just sent a verb
+     * should be able to draw the board's own answer without a second round trip
+     * that can fail on its own - and it is the only shape that lets a wizard
+     * show progress, since the alternative is a client guessing at a duration
+     * the board never promised. `samples` and `rejected` are the two numbers
+     * the plan asked for by name: a calibration that quietly averaged in
+     * samples taken while the aircraft was moving is worse than one that failed,
+     * so the refusals are reported rather than hidden.
+     *
+     * **Every verb here ends in a parameter write, so `io->writable` gates all
+     * of them** - `gyro_bias_*`, `rc_mid`, `vbat_ratio`, `accel_bias_*` and
+     * `accel_scale_*` are ordinary table entries, range-checked and kept by
+     * `save` like any other. That is not the write gate wearing a different hat;
+     * it is the same gate, and the console already refuses all four while armed
+     * for the reason main.c's accel comment gives: holding an armed aircraft
+     * through six attitudes is a hand near a live throttle.
+     *
+     * **Whether the pilot meant it is not a refusal here.** The six faces are
+     * six commands and each one is one click from a wrong bias, so the app puts
+     * a step in front of each - but that is the confirmation MISSION's comment
+     * describes, and it belongs in front of the button, where a person is. The
+     * firmware's refusals are the ones only the aircraft knows: armed, already
+     * running, nothing to calibrate, or not enough still samples. */
+    AK_PROTO_CMD_CALIBRATE = 0x13,
+    /* The mission: the list of places to go, and the verbs that start and stop
+     * going to them.
+     *
+     * **The first opcode here whose verb changes what the aircraft will do in
+     * the air.** Everything before it changes what the firmware remembers (a
+     * parameter, a save), reads a fact (a sensor, a checklist, a log), or moves
+     * one pad on a bench (OUTPUT_TEST, which cannot outlive a link). `start`
+     * asks the navigator to fly the aircraft to a list of positions, and it is
+     * the nearest thing on this wire to an irreversible act - so it is the one
+     * opcode whose reply is a *state* rather than an acknowledgement, and the
+     * one the app puts a confirmation in front of.
+     *
+     * **Waypoints are not here, and that is the design.** They are parameters -
+     * `wp0_lat`, `wp0_lon`, ... and `wp_count` - so they are already on this
+     * wire through PARAM_SET, they are range-checked by the table, they appear
+     * in a backup, and `save` keeps them. The console's `mission add` is a
+     * convenience that writes those same two parameters rather than a second
+     * kind of storage. An `add` verb here would be a second way to write them,
+     * and the two would disagree the first time one grew a bound the other did
+     * not.
+     *
+     * **`requested` and `active` are two different facts and both are sent.**
+     * The console's `mission start` does not start anything: it sets a request,
+     * and the flight loop starts the mission when the aircraft is armed and
+     * flying. A reply that carried only `active` would show a client "not
+     * flying" immediately after a start that succeeded, and a reply that
+     * carried only `requested` would make the app's sentence the console's -
+     * which says "flying" about an aircraft sitting on a bench. Neither is what
+     * happened; the two fields are.
+     *
+     * **Every reply carries the whole state, on every verb.** A client that
+     * has just sent `start` gets the mission as the board now holds it, rather
+     * than an echo of what it asked for or a second round trip that could fail
+     * on its own. It is what makes a screen that cannot show a stale panel, and
+     * it is why the reply is one shape for all five verbs.
+     *
+     * **The refusals are the ones the firmware owns, and only those.** An empty
+     * list has nothing to fly and a home cannot be set from a fix the navigator
+     * will not use - both are answers about this aircraft that a client cannot
+     * compute. Whether the pilot meant it is not one of them: that is the
+     * confirmation, and it belongs in front of the button, where a person is. */
+    AK_PROTO_CMD_MISSION = 0x14,
+    /*
+     * Where the loop's time went, as a read.
+     *
+     * The one opcode here that changes nothing on the aircraft: it asks the
+     * board what its own control loop cost, and the answer is the same window
+     * the console's `perf` prints. Status is the *measurement's* status, not a
+     * refusal - there is nothing to refuse - and the two values are "here is the
+     * window" and "this build has no profiler in it". The second is a real
+     * answer and not an error: a firmware built without one is a firmware whose
+     * loop cost nobody is asking about, and a client must be able to tell that
+     * from a board whose loop is genuinely costing nothing.
+     *
+     * **`loops` and `samples` are both on the wire, deliberately.** A port whose
+     * clock reads zero can still count that a period closed, so the two diverge
+     * exactly when the port cannot measure - and a client comparing a period
+     * against a loop count has no way to see that from one number. Sending both
+     * makes "measuring" and "only counting" a reading rather than an inference.
+     *
+     * The section figures are averaged over the window, per *loop* rather than
+     * per time the section ran, because that is the unit a budget is spent in:
+     * a section that runs on one loop in ten costs a tenth of the number here
+     * on every loop. The load is the sum of those against the nominal slot and
+     * is a **lower bound** - the console, the links and the navigation are not
+     * instrumented - which the reply's own name for the field says.
+     */
+    AK_PROTO_CMD_PERF = 0x15,
+    /*
+     * How fast each motor is turning, as a read.
+     *
+     * The board has been able to hear an ESC since `ak_dshot_capture.c` and turn
+     * a reply into an eRPM since `ak_dshot_gcr.c`; what none of that had was a
+     * way off the board. `ak_proto_status_t` carries `motor[4]`, and every byte
+     * of it is the output this firmware *asked* for - a command, never a
+     * reading - so a client watching a motor stop and a client watching a motor
+     * the board has no idea about drew the same four bars.
+     *
+     * **A new opcode and not a field appended to STATUS.** The version byte
+     * moves only when an existing byte changes meaning, and appending changes
+     * the meaning of the *length* under every client written before it. A new
+     * command is a new command: an old client never sends it and an old board
+     * answers 0x7F, which is already a thing this protocol says.
+     *
+     * **Polled and never streamed**, for RC_CHANNELS' reason exactly: the
+     * console link cannot stream at all, and a board on a cable is precisely
+     * where somebody is holding a motor in their hand.
+     *
+     * The status byte carries the two answers that must not be confused - see
+     * AK_PROTO_MOTOR_* below - and per motor the flags carry the rest.
+     *
+     * **eRPM and RPM are both here, and so is the pole count they were divided
+     * by.** eRPM is the ESC's own number: it is arithmetic-free, it is what the
+     * notch bank in `ak_rpm_filter` consumes, and it is the only figure a board
+     * with no pole count can honestly send. RPM is the number a person wants and
+     * it is `ak_dshot_rpm(erpm, poles)` - a division by a constant the *board*
+     * has to be told (`motor_poles`), because the console's `dshot` command
+     * makes the same demand and refuses to assume the fourteen poles an
+     * aircraft motor usually has. Sending both, plus the pole count used, is
+     * what keeps the app from doing arithmetic on a number whose meaning it
+     * cannot check: a client shows eRPM always, shows RPM when the board says
+     * it knows the poles, and otherwise prints the console's own sentence.
+     *
+     * Temperature, voltage and current are the extended-telemetry fields
+     * `ak_dshot_edt.c` already decodes. They are measurements and never
+     * verdicts: which of them is worth colouring red is the app's business.
+     * There is deliberately **no motor-health field here yet** - that module
+     * decides a verdict from a window of samples, and a verdict is a separate
+     * question from a reading, with its own argument to make.
+     */
+    AK_PROTO_CMD_MOTOR_TELEMETRY = 0x16,
 };
+
+/* Whether a preflight line is a check that failed, a check that passed, or a
+ * fact the firmware observed without judging it. See the opcode above for why
+ * there are three and not two. */
+enum {
+    AK_PROTO_PREFLIGHT_VERDICT_FAIL = 0,
+    AK_PROTO_PREFLIGHT_VERDICT_PASS = 1,
+    AK_PROTO_PREFLIGHT_VERDICT_FACT = 2,
+};
+
+/* The status byte on PREFLIGHT.
+ *
+ * `NONE` and `NO_INDEX` are different answers and both are worth being able to
+ * give: the first is a board whose firmware has no checklist at all - a board
+ * built without the run, or a device that is not an aircraft - and the second
+ * is a client that has walked past the end. A board that answered `NONE` for
+ * both would leave the client unable to tell a firmware it should upgrade from
+ * its own arithmetic. */
+enum {
+    AK_PROTO_PREFLIGHT_OK = 0,
+    AK_PROTO_PREFLIGHT_NO_INDEX = 1,
+    AK_PROTO_PREFLIGHT_NONE = 2,
+};
+
+/* The most lines a board may report, and a bound rather than a copy of any
+ * one board's count: the largest checklist in this tree is well under it, and
+ * a build that grew past it fails a host test rather than truncating a
+ * checklist - which is the one thing this opcode must never do, since the
+ * missing line could be the failing one. */
+#define AK_PROTO_PREFLIGHT_MAX 32u
+
+/* The longest name a line may carry, and the longest sentence. Both are
+ * checked by a host test against the real checklist rather than trusted, so a
+ * sentence that outgrew the buffer fails the build's tests rather than being
+ * cut on a wire whose whole purpose is saying what is true. */
+#define AK_PROTO_PREFLIGHT_NAME_MAX 24u
+#define AK_PROTO_PREFLIGHT_DETAIL_MAX 120u
+
+/* One line of the checklist, as the firmware builds it and as PREFLIGHT sends
+ * it. `detail` points into the firmware's own record and is NUL-terminated;
+ * the wire copy is length-prefixed instead, because a name and a sentence are
+ * not the place to be spending a byte on a terminator. */
+typedef struct {
+    const char *name;
+    uint8_t     verdict;
+    const char *detail;
+} ak_preflight_line_t;
+
+/* What MISSION is asked to do. `STATUS` is the only read; the rest are the
+ * console's verbs, one number each.
+ *
+ * There is no `add` and no `clear` here: the list is the parameter table's (see
+ * the opcode), and a client adds a waypoint by writing `wp<N>_lat` and
+ * `wp<N>_lon` and then `wp_count` through PARAM_SET, where the range check, the
+ * changed count and the saved record already are. */
+#define AK_PROTO_MISSION_STATUS     0u
+#define AK_PROTO_MISSION_START      1u
+#define AK_PROTO_MISSION_STOP       2u
+#define AK_PROTO_MISSION_HOME_SET   3u
+#define AK_PROTO_MISSION_HOME_CLEAR 4u
+
+/* The status byte on MISSION.
+ *
+ * Five refusals, and each is a fact the firmware holds rather than an opinion
+ * about intent. `NO_WAYPOINTS` and `NO_FIX` are answers a client cannot compute
+ * - a client can count `wp_count` itself, but only the board knows whether the
+ * navigator would accept those positions, and after a PARAM_SET race the two
+ * would differ. `NO_NAV` is for a build with no navigator at all, which is the
+ * same shape as PREFLIGHT's `NONE`: a client that got it should say the board
+ * cannot do this, not show an empty mission. */
+enum {
+    AK_PROTO_MISSION_OK = 0,
+    AK_PROTO_MISSION_NO_VERB = 1,      /* refused: no such op */
+    AK_PROTO_MISSION_NO_NAV = 2,       /* refused: this board has no navigator */
+    AK_PROTO_MISSION_NO_WAYPOINTS = 3, /* refused: nothing to fly */
+    AK_PROTO_MISSION_NO_FIX = 4,       /* refused: home needs a usable fix */
+};
+
+/* The mission, as a caller fills it in and as every MISSION reply carries it.
+ *
+ * `index` is the waypoint being flown and is `AK_PROTO_MISSION_NO_INDEX` when
+ * the navigator is not flying one - a value out of range for a four-waypoint
+ * list, because "not flying a waypoint" and "flying waypoint zero" are the two
+ * ends of a mission and a client that showed them the same way would draw the
+ * first waypoint as the one in progress. */
+#define AK_PROTO_MISSION_NO_INDEX 0xFFu
+
+typedef struct {
+    uint8_t  active;      /* the navigator is flying a mission now */
+    uint8_t  requested;   /* a mission has been asked for, and not taken back */
+    uint8_t  count;       /* waypoints in the list */
+    uint8_t  index;       /* the waypoint being flown, or NO_INDEX */
+    uint8_t  channel;     /* the mission switch's channel, or 0 for none */
+    uint16_t reached;     /* waypoints reached on the running mission */
+    uint16_t started;     /* missions started since power on */
+    uint16_t cancelled;   /* missions taken back since power on */
+    int32_t  hold_alt_mm; /* the altitude a running mission holds */
+} ak_proto_mission_t;
+
+/* What CALIBRATE is asked to do. `STATUS` is the only read; the rest start a
+ * session, or end one.
+ *
+ * These are the console's four calibrations and its verbs, one number each, and
+ * the mapping is deliberately the obvious one: a client that knows what
+ * `calibrate accel 3` does knows what ACCEL with face 3 does, because it is the
+ * same measurement reaching the same parameter names.
+ *
+ * `ABORT` exists because a session here can outlive the command that started
+ * it. The console's version has no need of it - a person waiting for a blocked
+ * loop can only wait - but a wizard whose user has just picked the aircraft up
+ * needs to be able to stop the sampling without powering the board down, and a
+ * session that could only be ended by finishing would refuse the next start
+ * with BUSY forever. */
+#define AK_PROTO_CALIBRATE_STATUS 0u
+#define AK_PROTO_CALIBRATE_GYRO   1u
+#define AK_PROTO_CALIBRATE_RC     2u
+#define AK_PROTO_CALIBRATE_ACCEL  3u
+#define AK_PROTO_CALIBRATE_VBAT   4u
+#define AK_PROTO_CALIBRATE_ABORT  5u
+
+/* The status byte on CALIBRATE.
+ *
+ * Every one of these is a fact the aircraft holds rather than an opinion about
+ * what the pilot meant, which is the same test MISSION's refusals are held to.
+ *
+ * `NOTHING` and `NO_SAMPLES` are the pair worth keeping apart, and they are the
+ * pair the console already keeps apart. The first is a fact about the *build* -
+ * `calibrate vbat` on a board with no pack divider, `calibrate rc` on a board
+ * with no receiver port - and no amount of trying will change it. The second is
+ * a fact about the *aircraft*: the hardware is there and it would not hold
+ * still, or nothing arrived on the wire. A client that showed them the same way
+ * would send a person to look at a connector that was never fitted.
+ *
+ * **The comments below are paraphrases.** The wire carries the status byte and
+ * nothing more, so the sentence a client shows is the client's: the ten
+ * sentences themselves are `docs/16-protocol.md`'s status table and
+ * `tools/akproto.py`'s `CALIBRATE_STATUS_NAMES`, character for character, with
+ * the web configurator carrying a third copy that a test holds to both. These
+ * are here to keep the enum readable, and one of them was wrong for a while —
+ * `IMPLAUSIBLE` said "the six faces are not a gravity", which is only the
+ * accelerometer's way in; `main.c` also returns it when a gyro or an RC
+ * calibration's numbers will not go into the parameter table. */
+enum {
+    AK_PROTO_CALIBRATE_OK = 0,
+    AK_PROTO_CALIBRATE_NO_VERB = 1,      /* refused: no such verb */
+    AK_PROTO_CALIBRATE_ARMED = 2,        /* refused: the aircraft is armed */
+    AK_PROTO_CALIBRATE_BUSY = 3,         /* refused: a session is already running */
+    AK_PROTO_CALIBRATE_NOTHING = 4,      /* refused: nothing on this board to calibrate */
+    AK_PROTO_CALIBRATE_NO_SAMPLES = 5,   /* ran, and did not get enough still samples */
+    AK_PROTO_CALIBRATE_IMPLAUSIBLE = 6,  /* ran, and the result is not plausible */
+    AK_PROTO_CALIBRATE_IDLE = 7,         /* refused: nothing to abort */
+    AK_PROTO_CALIBRATE_NO_FACE = 8,      /* refused: no such accelerometer face */
+    AK_PROTO_CALIBRATE_BAD_VALUE = 9,    /* refused: the number given is not a pack */
+};
+
+/* How many numbers a measurement carries, and it is the accelerometer's six
+ * that set it: three of bias and three of scale, because that is the one
+ * calibration here that measures a scale as well as an offset. The other three
+ * use a prefix of it and zero the rest, which is a real zero - "this
+ * measurement has no fourth number" - and not a placeholder.
+ *
+ * The meaning of the slots is fixed by the verb that filled them, and the verb
+ * is in the reply beside them, so there is nothing to infer. Every slot is
+ * fixed-point, for the reason the whole protocol is: a float on the wire is a
+ * byte order and a rounding mode agreed by two compilers.
+ *
+ *   GYRO   [0..2] bias, millidegrees per second
+ *   RC     [0]    the centre that was applied, microseconds
+ *          [1..3] how far roll, pitch and yaw were off it, microseconds
+ *   VBAT   [0]    the ratio measured, times 1e6
+ *   ACCEL  [0..2] bias, micro-g
+ *          [3..5] scale, times 1e6
+ */
+#define AK_PROTO_CALIBRATE_RESULT 6u
+
+/* The step byte when no face is being sampled: out of range for all six, so a
+ * client cannot read "not sampling" as "sampling face zero" - the same trick
+ * AK_PROTO_MISSION_NO_INDEX plays, and for the same reason. */
+#define AK_PROTO_CALIBRATE_NO_STEP 0xFFu
+
+/* The verb byte when there is no session to name, which is a board that has
+ * never calibrated anything. Out of range for all six for NO_STEP's reason, and
+ * it is the one that would bite hardest: the verb is what tells a client how to
+ * read the six result slots, and a fresh board reading zero would be saying
+ * "these are the status verb's numbers" beside six zeros that are not a
+ * measurement of anything. `0xFF` is already the byte this opcode's dispatch
+ * answers when a client named no verb, so it is the same "not a verb" a caller
+ * has met in a refusal. */
+#define AK_PROTO_CALIBRATE_NO_SESSION 0xFFu
+
+/* The calibration, as a caller fills it in and as every CALIBRATE reply carries
+ * it. See the opcode for why the reply is this and not an acknowledgement.
+ *
+ * `faces` is a bitmask of the six accelerometer faces already measured, and it
+ * is the one field here that describes a *previous* command as much as this
+ * one: the six-face flow is six commands that accumulate, so a wizard's whole
+ * state is this byte plus the step. It is meaningful only for ACCEL and reads
+ * zero for the other three, which is true rather than a placeholder - a gyro
+ * calibration has no faces. */
+typedef struct {
+    uint8_t  active;   /* a session is sampling now */
+    uint8_t  verb;     /* which one, as the AK_PROTO_CALIBRATE_* numbers */
+    uint8_t  step;     /* the face being sampled, or NO_STEP */
+    uint8_t  faces;    /* bitmask of the faces measured so far */
+    uint32_t samples;  /* samples taken toward this session */
+    uint32_t rejected; /* samples refused for moving, or for a bad frame */
+    int32_t  result[AK_PROTO_CALIBRATE_RESULT];
+} ak_proto_calibration_t;
+
+/* The status byte on PERF.
+ *
+ * `NONE` is not an error and not an empty window: it is a *build* with no
+ * profiler in it, which is a fact about the firmware rather than about the
+ * aircraft. The distinction matters for the same reason it does everywhere else
+ * in this file - a client that rendered a window of zeros as "the loop costs
+ * nothing" would be reporting the opposite of what the board just said. */
+enum {
+    AK_PROTO_PERF_OK = 0,
+    AK_PROTO_PERF_NONE = 1,
+};
+
+/* The sections a PERF reply carries, in the order they are sent.
+ *
+ * A copy of AK_PERF_NAMED_SECTIONS rather than an include of ak_perf.h,
+ * because this header is the wire's description and the profiler's enum is an
+ * implementation of it - and a host test asserts the two agree, so a section
+ * added to the profiler and forgotten here is a failing build rather than a
+ * reply that is one field short.
+ *
+ * Five and not six: the profiler's enum also holds AK_PERF_NONE, the state
+ * between sections, which is work that has not been divided up and so has no
+ * name and no number to send. */
+#define AK_PROTO_PERF_SECTIONS 5u
+
+/* The profiler's window, as PERF sends it. Every field is the console `perf`
+ * command's own number, in the units the wire carries them.
+ *
+ * The section averages are in **tenths of a microsecond**, which is the one
+ * place this struct changes units: a nanosecond figure does not fit a u16 for
+ * any section that matters, and a whole microsecond would hide the difference
+ * between a loop that is comfortable and one that is nearly out of slot. The
+ * maxima stay whole microseconds, matching the console, and the load is
+ * per-mille of the nominal slot, because "12.3 %" and "123 per-mille" are the
+ * same number and only one of them needs a decimal point on a wire. */
+typedef struct {
+    uint32_t loops;    /* periods closed since the window began */
+    uint32_t samples;  /* how many of those the port could time */
+    uint16_t nominal_us;
+    uint32_t period_last_us;
+    uint32_t period_min_us;
+    uint32_t period_max_us;
+    uint32_t late;
+    uint16_t jitter_p50_us;
+    uint16_t jitter_p99_us;
+    uint16_t jitter_max_us;
+    uint32_t jitter_over;
+    uint16_t section_avg_us_x10[AK_PROTO_PERF_SECTIONS];
+    uint16_t section_max_us[AK_PROTO_PERF_SECTIONS];
+    uint16_t load_permille;
+} ak_proto_perf_t;
+
+/* The status byte on MOTOR_TELEMETRY.
+ *
+ * The same two answers RC_CHANNELS distinguishes, about a different port.
+ * `NONE` is this build having no way to hear an ESC at all - compiled without a
+ * bidirectional DShot path, or a board with no motor outputs to hear - and its
+ * reply is one byte and stops, because everything after it would be a claim
+ * about hardware this board does not have, and a frame of zeros reads on a
+ * screen as four stopped motors rather than as no telemetry path.
+ *
+ * A board that *has* the path and has heard nothing yet answers `OK` with every
+ * motor's MEASURED flag clear. That is a different state of a different
+ * aircraft and it gets a different sentence. */
+enum {
+    AK_PROTO_MOTOR_OK = 0,
+    AK_PROTO_MOTOR_NONE = 1,
+};
+
+/* The most motors a reply can carry, and a bound on the firmware's own count
+ * rather than a copy of it, exactly as AK_PROTO_RC_MAX is: AK_MAX_MOTORS is the
+ * flight core's number and this is the wire's, so a board that grew a motor
+ * could keep a client working by sending the first AK_PROTO_MOTOR_MAX of them.
+ * A client that needs to know whether it was shown all of them asks
+ * OUTPUT_INFO, whose motor count is the board's own. */
+#define AK_PROTO_MOTOR_MAX 4u
+
+/* Facts about one motor, as bits. Every one of them says that a measurement
+ * happened; not one of them is a judgement, and none is ever a warning. */
+#define AK_PROTO_MOTOR_FLAG_MEASURED (1u << 0)
+/* The `rpm` field is a number rather than a placeholder. Set only when MEASURED
+ * is set *and* the board was told the motor's pole count: an eRPM with no pole
+ * count is a true reading of something that is not a speed, and a screen that
+ * divided by an assumed fourteen would be inventing the figure it shows. */
+#define AK_PROTO_MOTOR_FLAG_RPM (1u << 1)
+#define AK_PROTO_MOTOR_FLAG_TEMPERATURE (1u << 2)
+#define AK_PROTO_MOTOR_FLAG_VOLTAGE (1u << 3)
+#define AK_PROTO_MOTOR_FLAG_CURRENT (1u << 4)
+
+/* One motor's telemetry, as MOTOR_TELEMETRY sends it.
+ *
+ * Every field beside the flags is meaningful only when its flag is set. "A
+ * temperature of zero" and "no temperature has been heard" are the same byte
+ * otherwise, and a screen that drew them the same way would be reporting an ESC
+ * that is cold when the board has never heard from it at all - the rule the
+ * receiver's DECODED bit and the sensor topics' `present` byte already follow.
+ *
+ * `packets` and `invalid` are the quality window's two counts over the window
+ * `ak_dshot_edt.h` defines (ten buckets of AK_DSHOT_EDT_BUCKET_MS each). Zero
+ * packets is a true answer and not an absence: the window is a window, MEASURED
+ * is how a client tells "nothing has been heard" from "nothing has been heard
+ * lately", and the ratio is the ERPM CRC rate the roadmap's acceptance clause
+ * asks to be under 1 %. */
+typedef struct {
+    uint8_t  flags;
+    uint32_t erpm;
+    uint32_t rpm;             /* meaningful when FLAG_RPM is set */
+    uint8_t  temperature;
+    uint8_t  max_temperature; /* the session's maximum, as ak_dshot_edt.h holds it */
+    uint16_t millivolts;
+    uint16_t milliamps;
+    uint16_t packets;
+    uint16_t invalid;
+} ak_proto_motor_t;
+
+/* The whole reply's body: how many motors follow, and the pole count they were
+ * converted with.
+ *
+ * `poles` is carried rather than inferred because it is the one number that
+ * decides whether `rpm` means anything, and a client that had to guess it would
+ * be a second authority on a question the board has already answered. Zero
+ * means the board does not know - which is the state of every board in this
+ * tree today, because no `motor_poles` parameter exists yet - and then FLAG_RPM
+ * is clear on every motor and `rpm` is the placeholder the flags say it is. */
+typedef struct {
+    uint8_t count;   /* how many entries the board filled, at most AK_PROTO_MOTOR_MAX */
+    uint8_t poles;   /* 0 = this board does not know */
+    ak_proto_motor_t motor[AK_PROTO_MOTOR_MAX];
+} ak_proto_motor_telemetry_t;
 
 /* The status byte on RC_CHANNELS.
  *
@@ -362,6 +1023,129 @@ typedef struct {
     } as;
 } ak_proto_sensor_t;
 
+/*
+ * One output, as OUTPUT_INFO reports it.
+ *
+ * Two kinds, numbered rather than named, for the reason the sensor topics are:
+ * a client written before a third kind exists reads a kind it does not know and
+ * can say so, rather than misreading a frame. The kinds are the two the frame
+ * encoder already has - `ak_output_frame_t` is a list of DShot words and a list
+ * of servo microseconds, and there is nothing else on any board in this tree.
+ *
+ * **The three servo fields are meaningless on a motor and are written as zeros
+ * there.** That is not the "absent versus reading zero" distinction the sensor
+ * reply is built around: a motor has no linkage, so there is no fact being
+ * suppressed, and `kind` is on every entry precisely so that a client knows
+ * which three fields to read. A servo entry's zeros would mean something; a
+ * motor entry's do not.
+ *
+ * `trim_us` is signed and is the only signed field here: the table's numbers
+ * are u32 and float, and a servo whose neutral is below the frame's centre
+ * needs a negative trim. It is the reversal and the travel that decide whether
+ * a wing can turn, and the console prints all three for that reason.
+ */
+#define AK_PROTO_OUTPUT_MOTOR 0u
+#define AK_PROTO_OUTPUT_SERVO 1u
+
+/* Seven bytes an entry, counted in append_* calls rather than in sizeof -
+ * padding is the compiler's business and the wire has none. */
+typedef struct {
+    uint8_t  kind;
+    uint8_t  index;     /* this output's number within its own kind, 0-based */
+    uint8_t  reversed;  /* servos: the linkage moves the other way from the stick */
+    int16_t  trim_us;   /* servos: added to the centre, signed */
+    uint16_t travel_us; /* servos: how far the linkage moves at full stick */
+} ak_proto_output_t;
+
+/* The status byte on OUTPUT_INFO.
+ *
+ * NONE is a fact about the board - the same sentence `output test` prints when
+ * it refuses on a device with nothing to drive - and it is not the same as an
+ * empty list. A board with a list that came back empty is a board that is not
+ * ready or a board with a bug, and reporting it as OK with a count of zero
+ * would have a client draw an aircraft with no motors; NONE at least says the
+ * honest thing, which is that there is no list to draw. */
+enum {
+    AK_PROTO_OUTPUT_INFO_OK = 0,
+    AK_PROTO_OUTPUT_INFO_NONE = 1,    /* no list: nothing to drive, or not ready */
+    AK_PROTO_OUTPUT_INFO_TOO_MANY = 2,/* more outputs than one frame carries */
+};
+
+/* The most outputs this reply will ever carry, and the array the dispatch
+ * builds one in.
+ *
+ * It is a bound on the *protocol*, not on any board: a board with more outputs
+ * than this gets AK_PROTO_OUTPUT_INFO_TOO_MANY rather than a page of them,
+ * because a short list drawn as the whole aircraft is a client missing a servo
+ * it will then go looking for in the wiring. A board that passes it is a board
+ * this opcode grows a `first` argument for - a change an old client survives,
+ * because it sends the empty frame it has always sent.
+ *
+ * The number is the arithmetic, not a round one that seemed roomy. The reply is
+ * five bytes of header and seven bytes an entry, so the largest list that fits
+ * one frame is (96 - 5) / 7, which is 13. This was 16 for one revision, chosen
+ * because the largest board here has six outputs and sixteen is comfortably
+ * past six - and 5 + 16 * 7 is 117, so the largest legal list this opcode could
+ * be asked for overflowed AK_PROTO_MAX_PAYLOAD by 21 bytes. `append_u8` stops
+ * writing at the capacity it is given but keeps counting, so the frame still
+ * went out, with a length byte describing bytes that were never written. The
+ * check in tests/test_proto.c that reads the maximum list's length back is what
+ * caught it; the comment here claimed the fit without multiplying. */
+#define AK_PROTO_OUTPUT_MAX ((AK_PROTO_MAX_PAYLOAD - 5u) / 7u)
+
+/* The `op` byte on OUTPUT_TEST, and the status it answers with.
+ *
+ * STOP is a value rather than a separate command because the two share every
+ * other argument and every gate, and a client that has lost track of the state
+ * must be able to send one without first asking. */
+#define AK_PROTO_OUTPUT_TEST_HOLD 0u /* drive it, or keep driving it */
+#define AK_PROTO_OUTPUT_TEST_STOP 1u
+
+enum {
+    AK_PROTO_OUTPUT_TEST_OK = 0,       /* the output is being driven */
+    AK_PROTO_OUTPUT_TEST_STOPPED = 1,  /* the stop was carried out */
+    AK_PROTO_OUTPUT_TEST_NO_OUTPUT = 2,/* no output of that kind and number */
+    AK_PROTO_OUTPUT_TEST_ARMED = 3,    /* refused: the aircraft is not disarmed */
+    AK_PROTO_OUTPUT_TEST_NO_BOARD = 4, /* refused: this board drives no outputs */
+    AK_PROTO_OUTPUT_TEST_NO_OP = 5,    /* refused: no such `op` */
+};
+
+/* What OUTPUT_TEST replies with, and how the board hands it over.
+ *
+ * `level_pct` is the clamped number rather than the requested one, so a client
+ * that asked for 100 and got 15 renders a button labelled with what the board
+ * is doing. `remaining_ms` is the board's countdown and not a duration the
+ * client works out from its own clock: the whole value of a hold that expires
+ * is that the expiry is the board's, and a screen counting from the moment it
+ * pressed would be a second clock disagreeing with the one that stops the
+ * motor. */
+typedef struct {
+    uint8_t  level_pct;
+    uint16_t remaining_ms;
+} ak_proto_output_test_t;
+
+/*
+ * How long a hold survives without being renewed, and how hard it is allowed to
+ * drive.
+ *
+ * Both are firmware constants and not arguments, which is the whole of their
+ * value: a client cannot ask for a longer hold or a bigger number, so a client
+ * that is wrong about either cannot be wrong in a way that moves a propeller.
+ * The hold is renewed by the client sending the same request again - a screen
+ * that is holding a button sends it at a fraction of this - so the timeout only
+ * ever fires for a client that has stopped talking, which is the case it is
+ * there for.
+ *
+ * The cap is a percentage of full range. Fifteen is the console's own number
+ * for the motor sweep (`AK_OUTPUT_TEST_MOTOR`, "enough to turn a motor, not to
+ * hurt") and it is the right one to copy: a value that spins a propeller on the
+ * bench is a value that needs the props off, and the number that identifies
+ * which pad is which is much smaller than the number that tests whether it
+ * pulls.
+ */
+#define AK_PROTO_OUTPUT_TEST_MAX_MS 500u
+#define AK_PROTO_OUTPUT_TEST_MAX_PCT 15u
+
 /* The status byte on PARAM_SET, PARAM_SAVE and PARAM_DEFAULT.
  *
  * They share one vocabulary because they are the same kind of answer - "did
@@ -395,6 +1179,45 @@ enum {
  * change meaningfully in 20 ms, and a stream faster than the link is a stream
  * that fills a socket buffer and then delays the config that shares it. */
 #define AK_PROTO_TELEMETRY_MAX_HZ 50u
+
+/* The most a log stream can be asked for, and the same reasoning as the
+ * telemetry ceiling above with one addition: a stream that filled a socket
+ * buffer would delay the configuration commands sharing that socket, and a log
+ * read is the one long-running thing this protocol can be asked to do. Fifty a
+ * second is the fastest a record fits beside everything else on a network link;
+ * the whole flash log at that rate is a little over two minutes, which is a read
+ * worth starting rather than a read worth abandoning.
+ *
+ * That ceiling was set when a record was 51 bytes in a 60-byte slot and the
+ * F405's log was five sectors, 10 920 records. The region gave a sector to the
+ * image before roadmap 2.4 and 2.4 grew the record to 66 bytes in an 80-byte
+ * slot, so the record is a third larger and the log 6 552 where it was 8 736
+ * going into this milestone; roadmap 4.1 grew it again, to 87 bytes in a
+ * 96-byte slot and 5 460 records. A bigger record at the same rate is a heavier
+ * stream than the one the ceiling was argued against, so 50 is no longer a
+ * measured ceiling but a carried-over one - re-measuring it needs a bench board
+ * on a network link, which this bench did not have. Nothing here claims it
+ * was. */
+#define AK_PROTO_LOG_STREAM_MAX_HZ 50u
+
+/* What a streamed frame is carrying.
+ *
+ * The hole is the reason there are three values rather than one. A record the
+ * board will not produce - a flash slot the power cut in half, which
+ * `ak_flashlog_record_at` refuses rather than decoding - is a fact about the
+ * log, and a stream that skipped it would leave the client drawing a line
+ * between the records either side of a gap it never learned about. It arrives
+ * as a frame at that index with no body, so the client counts what it was told
+ * about instead of inferring a sequence.
+ *
+ * `DONE` is the other half of the same argument in the other direction: a
+ * stream that stopped silently is a link failure and a finished read wearing
+ * the same appearance, and only one of them means the data is complete. */
+enum {
+    AK_PROTO_LOG_STREAM_RECORD = 0, /* a record follows the header */
+    AK_PROTO_LOG_STREAM_HOLE = 1,   /* this index was refused; no body */
+    AK_PROTO_LOG_STREAM_DONE = 2,   /* the range is finished; no body */
+};
 
 /*
  * What a board can answer, as a word HELLO carries.
@@ -439,6 +1262,25 @@ enum {
 #define AK_PROTO_FEATURE_PREFLIGHT (1u << 9)
 #define AK_PROTO_FEATURE_CALIBRATE (1u << 10)
 #define AK_PROTO_FEATURE_MISSION (1u << 11)
+/* The build has a profiler and answers PERF with a window rather than with
+ * "none". A board that set this while its `perf` callback was null would be
+ * advertising a reading it cannot take, which is the same failure the whole
+ * word exists to prevent - see the note above the first bit. */
+#define AK_PROTO_FEATURE_PERF (1u << 12)
+/* The build can hear its ESCs and answers MOTOR_TELEMETRY with a speed per
+ * motor, telling a motor it cannot hear from one it heard turning at zero.
+ *
+ * **Not set by any board in this tree yet, and that is the honest half of this
+ * milestone.** The decode is written and host-tested (`ak_dshot_gcr.c`,
+ * `ak_dshot_edt.c`) and the codec above is written and host-tested, but the
+ * *capture* half - the port's input capture, its DMA buffer, where a frame
+ * begins - is not written for any board, and `ak_dshot_edt_t` is still owned by
+ * nothing. A board that set this bit would be advertising a reading it cannot
+ * take, which is the one thing the word exists to prevent, so no board sets it
+ * and every board answers MOTOR_TELEMETRY with AK_PROTO_MOTOR_NONE. The
+ * vocabulary is written down; the bit waits for the port, as bit 10 waited for
+ * the calibration opcode. */
+#define AK_PROTO_FEATURE_MOTOR_TELEMETRY (1u << 13)
 
 /* What a caller has to be able to say about itself. Kept as a struct filled by
  * the caller rather than a pile of getters, so the protocol has no opinion
@@ -561,6 +1403,163 @@ typedef struct {
     int32_t (*log_count)(void *ctx, uint8_t source);
     unsigned (*log_record)(void *ctx, uint8_t source, uint16_t index,
                            uint8_t *out, unsigned capacity);
+    /* This board's outputs, as OUTPUT_INFO asks for them.
+     *
+     * **The return is the board's total, not the number written.** It writes at
+     * most `capacity` descriptors - the dispatch passes AK_PROTO_OUTPUT_MAX -
+     * and returns how many the aircraft has, which may be more. That split is
+     * what lets the dispatch refuse with TOO_MANY instead of quietly showing a
+     * page as the whole aircraft, and it is the one place in this reply where
+     * "how many are there" and "how many are here" are different questions.
+     *
+     * Optional in the same way `rc_state` is, and null means "this board drives
+     * no outputs" - which the reply says outright rather than expressing as an
+     * empty list, because an empty list is also what a board with a wiring bug
+     * would send. A board that has outputs and returns zero is saying something
+     * different from a board that has none, and the two status values are there
+     * so a client can tell. */
+    unsigned (*outputs)(void *ctx, ak_proto_output_t *out, unsigned capacity);
+    /* Drive one output, or stop driving. Returns one of
+     * AK_PROTO_OUTPUT_TEST_*, and fills `out` when it drives.
+     *
+     * Null means the same thing `outputs` being null means - this board drives
+     * no outputs - and the reply is the same refusal, so a board cannot be in
+     * the state of listing outputs it will not drive or driving outputs it will
+     * not list. main.c sets the two together or not at all.
+     *
+     * **The gate is the callback's, not the dispatch's.** This is the one
+     * opcode in the protocol whose safety depends on a fact about the aircraft
+     * that changes while it runs, and the answer has to be read at the moment
+     * of the command - so the callback asks `ak_flight_state` itself rather
+     * than the dispatch asking `io->writable` first and passing the verdict
+     * down. `io->writable` is the same predicate inside, which is why the two
+     * routes cannot disagree about what "safe to write" means.
+     *
+     * **The two arguments are the two halves of a split, not two spells of the
+     * same check.** `op` is a *wire* value - this header defines it and the
+     * dispatch refuses anything else before calling - so the callback sees only
+     * HOLD or STOP and branches on them rather than validating them. `kind` and
+     * `index` are *facts about the aircraft*, which the protocol has no way to
+     * know, so the callback is the only thing that can refuse them. A second
+     * check on either side would be a second policy. */
+    int (*output_test)(void *ctx, uint8_t op, uint8_t kind, uint8_t index,
+                       uint8_t level_pct, ak_proto_output_test_t *out);
+    /* This board's preflight checklist, as PREFLIGHT pages it.
+     *
+     * Fills `*lines` with a pointer to the board's own record and `*count`
+     * with how many lines it holds, and returns nonzero. Returns zero - and
+     * leaves both alone - when this board has no checklist, which the reply
+     * says outright rather than expressing as an empty one.
+     *
+     * **A pointer to the board's record, not a copy into a caller's buffer**,
+     * and that is the one place in this interface where the protocol reads the
+     * firmware's own memory. It is right here because the record *is* the
+     * console's: main.c builds it once and prints it, and a copy per request
+     * would be a second record that could be built at a different moment from
+     * the one the console describes. The pointer is valid until the next call
+     * with `first == 0` and must not be held across one.
+     *
+     * `first` is the index the client asked for. Zero means "start a walk",
+     * and a walk is the unit: the board rebuilds the record for it, so every
+     * page of one walk describes one moment. A nonzero `first` reads the
+     * record the last walk built, which is why a client that jumps straight to
+     * index 5 gets whatever the previous walk left rather than a fresh one -
+     * an answer it can detect, since a walk of pages that never began is not a
+     * thing a client does by accident. */
+    int (*preflight)(void *ctx, unsigned first, const ak_preflight_line_t **lines,
+                     unsigned *count);
+    /* The mission, as MISSION asks about it and as its verbs act on it.
+     *
+     * Returns one of AK_PROTO_MISSION_*, and **fills `out` on every path it is
+     * called, including the ones that refuse** - the whole state is what a
+     * reply carries, and a client that asked to start an empty mission should
+     * come back with `NO_WAYPOINTS` *and* `count == 0`, so it can say why in
+     * the board's own terms rather than a sentence of its own.
+     *
+     * `op` is a *wire* value, so the dispatch refuses anything outside the five
+     * before calling; the callback branches on it rather than validating it. A
+     * board that has no navigator leaves this null and the dispatch answers
+     * `NO_NAV`, which is the same split OUTPUT_INFO and its `outputs` callback
+     * use - null means "this board does not do this", and it is a different
+     * answer from "the list is empty".
+     *
+     * **Nothing here is gated on the aircraft being disarmed, deliberately.**
+     * `stop` exists to be available at any moment including in the air - it is
+     * the verb whose whole job is to be reachable - and `start` is a request
+     * the flight loop honours only when it is already flying, so an armed board
+     * that received it has changed nothing yet. The gate the other opcodes have
+     * is a gate on *writing configuration*, and this does not write any. */
+    int (*mission)(void *ctx, uint8_t op, ak_proto_mission_t *out);
+    /* The calibrations, as CALIBRATE starts, reads and ends them.
+     *
+     * Returns one of AK_PROTO_CALIBRATE_*, and **fills `out` on every path it
+     * is called, including the ones that refuse** - the session as the board
+     * now holds it is what a reply carries, so a client that asked to start a
+     * gyro calibration on an armed aircraft should come back with `ARMED` *and*
+     * a session saying nothing is running, rather than a header with a caller's
+     * stack behind it. The dispatch zeroes it first for that reason.
+     *
+     * `verb` is a *wire* value, so the dispatch refuses anything outside the six
+     * before calling and the callback branches on it rather than validating it -
+     * the same split `mission` and `output_test` use. `face` and `mv` are the
+     * two arguments the verbs take: the accelerometer face for ACCEL, the
+     * measured pack voltage in millivolts for VBAT, and neither is read by a
+     * verb that does not take it. The dispatch does not range-check either,
+     * because both ranges are the aircraft's - the accelerometer's face count
+     * and the pack's plausible voltage - and a second check in the dispatch
+     * would be a second policy that could disagree with the first.
+     *
+     * **The gate is asked here as well as in the dispatch, and both are
+     * wanted.** The dispatch checks `io->writable` so that a refusal is a
+     * policy with a status a client can render, exactly as PARAM_SAVE does; the
+     * callback checks again so the guard does not depend on the request having
+     * come through this file. Neither is redundant with the *session's* own
+     * check, which is the third one and the only one that matters in the air:
+     * a calibration that is running when the aircraft arms must stop, and that
+     * is a fact about the aircraft changing after the command, which no gate at
+     * dispatch time can see. main.c's gyro calibration has checked exactly that
+     * from the loop since before this opcode existed.
+     *
+     * Null means "this board has nothing to calibrate", which the reply says
+     * outright as `NOTHING` rather than as a session that never starts - the
+     * same split OUTPUT_INFO's null callback makes, and a different answer from
+     * a board whose accelerometer would not hold still. */
+    int (*calibrate)(void *ctx, uint8_t verb, uint8_t face, uint32_t mv,
+                     ak_proto_calibration_t *out);
+    /* The profiler's window, as PERF asks for it.
+     *
+     * Returns nonzero when there is a window to report, and fills `out` on that
+     * path. Returns zero with `out` untouched when this build has nothing to
+     * measure, which the reply carries as AK_PROTO_PERF_NONE - and null means
+     * the same thing at build time, so a board without a profiler need not
+     * define a callback that always says no.
+     *
+     * **A callback and not a field**, unlike `features`: the window changes
+     * every loop, and a field here would be a copy of the profiler's state that
+     * a board would have to remember to refresh. It is the profiler's own
+     * numbers or nothing - the same argument `sensor_state` carries.
+     *
+     * This is what AK_PROTO_FEATURE_PERF names, and the two are set together or
+     * not at all, for the reason the feature word's own comment gives. */
+    int (*perf)(void *ctx, ak_proto_perf_t *out);
+    /* What each motor is doing, as MOTOR_TELEMETRY asks for it.
+     *
+     * Returns nonzero when this board has a way to hear its ESCs, and fills
+     * `out` on that path - including the case where it has heard nothing yet,
+     * which is a filled struct with every MEASURED flag clear and not a refusal.
+     * Returns zero with `out` untouched when this build has no such path, which
+     * the reply carries as AK_PROTO_MOTOR_NONE; null means the same thing at
+     * build time, so a board without the path need not define a callback that
+     * always says no.
+     *
+     * **A callback and not a field**, for `perf`'s reason: the window moves
+     * every time a reply arrives from an ESC, and a field here would be a copy
+     * of the telemetry's state that a board would have to remember to refresh.
+     *
+     * This is what AK_PROTO_FEATURE_MOTOR_TELEMETRY names, and the two are set
+     * together or not at all. Every board in this tree currently sets neither,
+     * so every one of them answers NONE - see the bit's own comment. */
+    int (*motor_telemetry)(void *ctx, ak_proto_motor_telemetry_t *out);
     void *ctx;
 } ak_proto_io_t;
 
@@ -587,6 +1586,21 @@ typedef struct {
      * logs should not move each other's pointer. */
     uint8_t  log_source;
 
+    /* The log stream, if this link has one running. Four fields rather than a
+     * pointer to a cursor object because a link has at most one, and because
+     * `ak_proto_init` clearing the struct is then all "a new client subscribes
+     * to nothing" needs to be true - the same reason `telemetry_hz` lives
+     * here.
+     *
+     * `log_stream_index` is the *next* record to send, so the range is
+     * half-open: [index, end). It is advanced by the frame builder and not by
+     * the caller, so a frame that could not be built does not silently skip
+     * the record it was for. */
+    uint8_t  log_stream_hz;
+    uint8_t  log_stream_source;
+    uint16_t log_stream_index;
+    uint16_t log_stream_end;
+
     uint32_t frames;
     uint32_t responses;
     uint32_t bad_crc;
@@ -603,6 +1617,25 @@ void ak_proto_init(ak_proto_t *proto);
  * if the buffer is too small. */
 unsigned ak_proto_telemetry_frame(const ak_proto_io_t *io, uint32_t now_ms,
                                   uint8_t *out, unsigned capacity);
+
+/* One frame of a log stream, and it advances the stream by one index.
+ *
+ * Returns the frame length, or 0 when it has nothing it can send: no stream is
+ * running, or the buffer is too small to hold a record whole. It never returns
+ * 0 because the range ended - the end is a frame carrying `DONE`, not a
+ * silence, because a stream that stopped without saying so would look exactly
+ * like a link that died. A caller that treated 0 as "the read finished" would
+ * be reading the one distinction this command exists to make.
+ *
+ * **Emitting `DONE` clears `log_stream_hz`**, so the caller must take the rate
+ * it wants to schedule by *before* calling - a caller that read the rate
+ * afterwards would divide by zero on the last frame of every stream.
+ *
+ * A record the board will not produce is not skipped: that index gets a frame
+ * carrying `HOLE` and no body. What this function will not do is invent a
+ * record to keep the sequence smooth. */
+unsigned ak_proto_log_stream_frame(ak_proto_t *proto, const ak_proto_io_t *io,
+                                   uint8_t *out, unsigned capacity);
 
 /* One byte. Returns the length of a response written into `response` when this
  * byte completed a frame that has one, and 0 otherwise. */

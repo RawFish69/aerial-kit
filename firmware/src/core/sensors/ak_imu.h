@@ -24,6 +24,68 @@ typedef struct {
     uint8_t     whoami_value;
     int (*init)(const ak_bus_t *bus, ak_printf_fn out);
     int (*read)(const ak_bus_t *bus, ak_imu_sample_t *sample);
+    /*
+     * Turn the gyro's data-ready output on interrupt pin 1 on, or off.
+     *
+     * `init` already leaves the part routing data-ready to INT1 - all four
+     * drivers here do, because on the boards these parts were written against
+     * that line is wired and the interrupt is the point of it. This exists for
+     * the other case: a board whose IMU has no INT pad, where the part would be
+     * driving a trace that goes nowhere. Nothing is wrong with that
+     * electrically - it is an output into an open pad - but "the firmware
+     * raises an interrupt it is not listening to" is a thing a person reading a
+     * board should be able to see and turn off, and a board that says it has no
+     * INT pin should be able to make the part match.
+     *
+     * Null on a part with no such output. Returns 0 when the part took the
+     * change and negative when the bus refused it, so a caller that is turning
+     * the interrupt *off* for a board with no pin can treat a failure as
+     * cosmetic and a caller that is turning it on cannot.
+     *
+     * The gyro's output data rate is deliberately not an argument, and now that
+     * phase 1.4 has landed it is worth saying why it lives in its own hook
+     * instead. Routing data-ready to INT1 and choosing how often that line
+     * pulses are two acts: the first is a board's wiring question and the second
+     * is a rate, and a board that turns the interrupt off has not thereby
+     * changed the rate the part samples at. Folding the rate in would have made
+     * `configure_drdy(bus, 0)` mean either "stop telling me" or "stop sampling",
+     * and the off path's whole safety argument is that it undoes exactly one
+     * load-bearing bit.
+     */
+    int (*configure_drdy)(const ak_bus_t *bus, int enable);
+
+    /*
+     * Set the rate the part samples at, in Hz, and answer the rate it took.
+     *
+     * The answer is what the part was actually programmed to and not an echo of
+     * the request, because every part here can only take the rates its own
+     * register's table offers. The rule the drivers follow is *the fastest rate
+     * that part supports which is not above the one asked for*: an aircraft
+     * told to run at 3 kHz and given 4 kHz would be running the loop faster
+     * than the frame it was configured for, and one given nothing at all would
+     * keep the rate `init` programmed, which is the silent answer this exists
+     * to replace.
+     *
+     * Return 0 when this part has no rate this driver can set, or when the
+     * request is below every rate the part offers - in both cases the part is
+     * left exactly as it was, and a caller that gets 0 must not read it as
+     * "0 Hz". `out` may be null and a driver may use it to say something the
+     * single number cannot: the BMI270's gyro can run at 3200 Hz and its
+     * accelerometer tops out at 1600, and that is a sentence rather than a
+     * mismatch to be quietly rounded away.
+     *
+     * Null on a driver whose part cannot be re-rated.
+     *
+     * Whether the accelerometer moves too is per part and each driver's own
+     * comment says which it is: on the MPU family one divider drives both
+     * sensors, on the ICM the two configuration registers take the same ODR
+     * field, on a BMI270 the accelerometer stops at 1600 Hz whatever the gyro
+     * does, and on the LSM6DSO the accelerometer is deliberately left at the
+     * eighth of the gyro's rate the reference implementation puts it at. What
+     * the number this returns always describes is the gyro, because that is
+     * what the control loop and `gyro_rate_hz` are about.
+     */
+    uint32_t (*set_rate)(const ak_bus_t *bus, uint32_t hz, ak_printf_fn out);
 } ak_imu_driver_t;
 
 typedef struct {
@@ -32,6 +94,17 @@ typedef struct {
     uint32_t               samples;
     uint32_t               errors;
     int                    present;
+    /*
+     * The rate the part is programmed to, in Hz, as the driver answered it -
+     * zero until a driver has stated one.
+     *
+     * Zero is "not stated" and not "stopped". A part `init` has configured but
+     * that no driver can re-rate is still sampling at whatever `init` chose,
+     * and the honest answer for it is that this firmware cannot say which -
+     * which is a different sentence from "zero hertz", and the console's report
+     * prints it as such.
+     */
+    uint32_t               rate_hz;
 } ak_imu_t;
 
 /* Every driver this build knows about, ending with a null entry. Pointers
@@ -90,5 +163,20 @@ uint8_t ak_imu_last_whoami(void);
  * sample->valid; on failure the sample keeps valid = 0, which is what the
  * flight core treats as "no attitude". */
 int ak_imu_read(ak_imu_t *imu, ak_imu_sample_t *sample);
+
+/*
+ * Ask the part for `hz`, and answer what it took.
+ *
+ * The return is the part's new rate when it took one, and 0 when it did not -
+ * because the driver has no setter, because the request is below every rate the
+ * part offers, or because the bus refused the write. A caller cannot tell those
+ * three apart from the number, which is why this also prints the sentence: on a
+ * bench the question is "why is my aircraft at 1 kHz when I set 8", and the
+ * answer is a part, a table or a wire.
+ *
+ * `imu->rate_hz` is updated to the new rate when one was taken and left alone
+ * when none was, so it never goes backwards to zero on a failed write.
+ */
+uint32_t ak_imu_set_rate(ak_imu_t *imu, uint32_t hz, ak_printf_fn out);
 
 #endif /* AK_SENSORS_AK_IMU_H */

@@ -34,6 +34,17 @@ What it does, which is what a vehicle does when a ground station says hello:
   what a client has to survive. `PARAM_SET` is in that "anything else": it is
   deliberately not answered and not acked, so that a client which tried to write
   to this vehicle would get silence rather than a success it never had.
+
+That last line was written while the configurator was read-only, and it is kept
+now that it is not. It was a rule about not lying; it turns out to be the more
+useful peer for the opposite reason. MAVLink has no reply that means "refused" -
+ArduPilot answers a read-only parameter with an ordinary `PARAM_VALUE` carrying
+the old value, and answers nothing at all on a link that dropped the frame - so
+*"the write stands unresolved"* is a real outcome a client has to be able to
+report, and this vehicle is the one that produces it. Making it answer
+`PARAM_SET` would delete the only end-to-end test of that path. If a fake
+vehicle that *accepts* a write is ever wanted, add it as a flag beside this one
+rather than by changing this default.
 """
 
 import argparse
@@ -222,8 +233,20 @@ class Vehicle:
             # ground station notices a gap in the list.
             self.parameter(int(message.param_index))
         elif kind == "PARAM_SET":
-            # Read-only on our side too: a vehicle that answered this would be
-            # a vehicle our client could reconfigure by accident.
+            # Silent, deliberately, and now for a second reason as well.
+            #
+            # The first was that a vehicle which answered this would be a
+            # vehicle our client could reconfigure by accident. That stopped
+            # being the whole story when the configurator was given a parameter
+            # write: the client can now send this frame on purpose, and it must
+            # report the write as *unresolved* rather than as done. Silence is
+            # the only peer that produces that outcome, because MAVLink has no
+            # reply meaning "refused" - a real ArduPilot answers a read-only
+            # parameter with an ordinary PARAM_VALUE carrying the old value,
+            # which is a different case (`acceptsParamSet = false` in
+            # apps/configurator/tests/mavlink-link.ts). So this stays silent,
+            # and `tools/browser-check.mjs` checks the unresolved sentence it
+            # produces end to end.
             pass
 
     def tick(self, now):

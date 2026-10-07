@@ -47,6 +47,40 @@
 #define AK_NAV_RATE_SAMPLES 8
 #define AK_NAV_RATE_STEP_MS 25u
 
+/*
+ * The longest interval one guidance step will integrate over, in milliseconds.
+ *
+ * The navigator is a guidance loop: it is handed the time since its last step
+ * and uses it as the timestep of every integrator it owns. That is right for a
+ * late step and wrong for a loop that did not run, and the two arrive here as
+ * the same number. `main.c` freezes the interval while the navigator is
+ * disengaged - a GPS outage returns early from `nav_update()` before the
+ * interval is computed - so a return that engages at the moment the fix comes
+ * back is handed the whole outage as one step.
+ *
+ * A step that long is not a bigger correction, it is a wrong one. Measured on
+ * the host, a wing circling two hundred millimetres below the altitude it is
+ * holding, `alt_ki` 0.1, with twenty 20 ms steps behind it: one step of `dt_s`
+ * 5.0 took `alt_i` from 0.0076 to 0.1076, and the commanded pitch with it from
+ * 0.0096 to 0.1096. A 20 ms step is worth 0.0004 of that accumulator, so one
+ * step arrived carrying two hundred and fifty steps' worth of integrator.
+ * Bounded, the same step is worth 0.005 - twelve and a half of them.
+ *
+ * 250 ms is past "this control step ran late" and into "this loop did not run".
+ * It is anchored in the rate window above rather than picked: 175 ms is the
+ * window the quadrotor's climb rate is measured over, and a step longer than
+ * the window is a step whose altitude change no window can hold.
+ *
+ * What is bounded is one step, not the flight: the surplus is counted in
+ * `dt_clipped_ms` and reported at the console, which is the flight core's own
+ * rule for a gap it could not use (see AK_FLIGHT_MAX_CATCHUP: "what the loop
+ * could not use, it reports"). The navigator does not catch up by running the
+ * loop several times, because its output is one set of sticks per step and the
+ * intermediate answers reach nobody.
+ */
+#define AK_NAV_MAX_DT_MS 250u
+#define AK_NAV_MAX_DT_S 0.25f
+
 typedef enum {
     AK_NAV_PROFILE_WING = 0,
     AK_NAV_PROFILE_QUAD = 1,
@@ -190,6 +224,15 @@ typedef struct {
     uint32_t hold_land_s;
     uint32_t no_fix_ms;
     uint32_t hover_ms;
+    /*
+     * Milliseconds of interval the guidance loop was handed but would not
+     * integrate, because a single step that long is a wrong correction rather
+     * than a bigger one. See AK_NAV_MAX_DT_MS. A count rather than a flag, and
+     * for the same reason `hold_steps` is one: "how much" is what a person
+     * asks next, and a navigator that quietly shortened a step would be
+     * telling a story about a loop that ran when it did not.
+     */
+    uint32_t dt_clipped_ms;
     /* The last course a fix reported while the aircraft was moving. A hovering
      * aircraft has no direction of travel and its module reports noise, so the
      * course the turn is planned from is the last one that meant something -

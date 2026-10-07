@@ -43,15 +43,22 @@
  *    the reply and no response bit; ACKs and values carry their own subject
  *    (a command id, a parameter index) and everything else is a stream.
  *
- * **Read-only, deliberately, and enforced by what can be sent.** MAVLink's
+ * **What can be sent is a short list, and the list is the guarantee.** MAVLink's
  * workhorse message is `COMMAND_LONG`, and the same message id carries
  * `MAV_CMD_COMPONENT_ARM_DISARM`, `MAV_CMD_NAV_TAKEOFF` and
  * `MAV_CMD_DO_SET_HOME`. A configurator that exposed a general `command()` would
  * be one typo from spinning a propeller. So this file has no general command
- * builder. Exactly two messages can leave it — `PARAM_REQUEST_LIST` and
- * `COMMAND_LONG` carrying `MAV_CMD_SET_MESSAGE_INTERVAL` and nothing else — and
- * `buildFrame` is not exported. A test drives the whole client and asserts the
- * set of message ids that reached the wire.
+ * builder and `buildFrame` is not exported. Exactly three things can leave it —
+ * `PARAM_REQUEST_LIST`, `COMMAND_LONG` carrying `MAV_CMD_SET_MESSAGE_INTERVAL`
+ * and nothing else, and `PARAM_SET` — and a test drives the whole client and
+ * asserts the set of message ids that reached the wire, so a fourth cannot
+ * arrive unnoticed.
+ *
+ * **This used to say "read-only, deliberately", and `PARAM_SET` is why it does
+ * not any more.** The change is recorded rather than edited away: the
+ * read-only property was real, it was enforced by exactly this list, and it was
+ * given up on purpose. What replaces it is a narrower list plus a gate one level
+ * up in `MavBoard`, where the armed state is known.
  */
 
 // ---- framing ---------------------------------------------------------------
@@ -137,6 +144,13 @@ export interface MavMessageDef {
  * what it draws on screen and reports the rest as unread, which is the honest
  * version of the same fact.
  *
+ * **An entry is a floor and not a ceiling.** A dialect grows a message by
+ * appending extension fields after `<extensions/>`, and the vendored pymavlink
+ * this app's table was checked against predates several of them — so a real
+ * vehicle sends frames *longer* than the entries here, and that is a legal
+ * frame rather than a newer dialect this app should refuse. `bytesBeyondTable`
+ * is where that is accounted for; `SYS_STATUS` is the one it was found on.
+ *
  * The parameter and command messages are here because this app sends them, not
  * only because it reads them.
  */
@@ -189,6 +203,20 @@ export const MAVLINK_MESSAGES: readonly MavMessageDef[] = [
       { name: 'param_type', type: 'uint8_t' },
       { name: 'param_count', type: 'uint16_t' },
       { name: 'param_index', type: 'uint16_t' },
+    ],
+  },
+  {
+    // The one message this app sends that changes a number the autopilot acts
+    // on. It is here because it is sent, not because it is read — the reply to
+    // a set is an ordinary `PARAM_VALUE`, which this app already carries.
+    id: 23,
+    name: 'PARAM_SET',
+    fields: [
+      { name: 'target_system', type: 'uint8_t' },
+      { name: 'target_component', type: 'uint8_t' },
+      { name: 'param_id', type: 'char', count: 16 },
+      { name: 'param_value', type: 'float' },
+      { name: 'param_type', type: 'uint8_t' },
     ],
   },
   {
@@ -502,8 +530,10 @@ export interface MavlinkFrame {
   /** The payload as it arrived: possibly shorter than the struct, because v2
    *  strips trailing zeros. `decode()` is what zero-pads. */
   readonly payload: Uint8Array;
-  /** The struct size. `payload.length < structLength` is v2 truncation, which
-   *  is a normal frame and not a fault. */
+  /** The struct size. It is a **floor and not a ceiling**: a payload shorter
+   *  than it is v2 truncation, and one longer than it is a dialect that has
+   *  grown. Both are normal frames and neither is a fault — `decode()` reads
+   *  the first `structLength` bytes, and `bytesBeyondTable()` counts the rest. */
   readonly structLength: number;
   /** True when the frame carried a signature. It is **not verified** — this app
    *  has no key and says so rather than implying the frame is authenticated. */
@@ -705,27 +735,56 @@ export class MavProtocolError extends Error {
 }
 
 /**
+ * How many bytes a frame carries past the end of this app's definition of it.
+ *
+ * Zero for every frame the table can describe in full. A positive number means
+ * **the peer is newer than this app's copy of the dialect**: the payload ends
+ * in fields beyond the ones the table holds.
+ *
+ * That is a legal, expected frame and not a fault, which is the whole point of
+ * MAVLink's extension fields. A dialect appends them after `<extensions/>`,
+ * they go on the wire after every ordinary field, and they are **excluded from
+ * the CRC_EXTRA** — that exclusion is exactly what let MAVLink add
+ * `STATUSTEXT.id` and `GPS_RAW_INT.yaw` without breaking every ground station
+ * in the field, and it is what this app's own `deriveCrcExtra` implements. So
+ * the checksum a frame arrives with has already proved that the *base* fields
+ * agree, field for field; whatever follows them is an extension this app does
+ * not model, and the fields it does model are at the offsets it expects.
+ *
+ * Measured, not reasoned: PX4 1.17.0's `common.xml` gives `SYS_STATUS` 13 base
+ * fields totalling 31 bytes and three `*_extended` bitmasks after
+ * `<extensions/>`, 43 bytes in all, and the first 31 bytes pack identically
+ * with and without them. This app's table carries the 31. Before this was
+ * understood, `decode` refused the 43-byte frame — and the 40-byte one v2's
+ * zero-truncation makes of it — so a real PX4's battery voltage, current and
+ * sensor health were dropped on arrival, one warning line per frame, for as
+ * long as the link was up.
+ */
+export function bytesBeyondTable(frame: MavlinkFrame): number {
+  const layout = LAYOUT_BY_ID.get(frame.msgid);
+  if (layout === undefined) return 0;
+  return Math.max(0, frame.payload.length - layout.length);
+}
+
+/**
  * One frame's payload as named values.
  *
  * The payload is zero-padded to the struct size first, so v2's truncated frames
  * decode exactly as the sender intended: a stripped trailing zero *is* a zero.
- * A payload longer than the struct is refused rather than truncated — that is
- * not a frame any version of this protocol produces, and quietly ignoring the
- * extra bytes would hide a layout mistake.
+ *
+ * A payload *longer* than the struct is decoded from its first `layout.length`
+ * bytes and the excess is ignored — see `bytesBeyondTable` for why that is the
+ * protocol's own rule rather than a concession. The caller is expected to say
+ * how much was ignored; `decode` cannot decide whether silence is acceptable,
+ * so it does not try, and `MavSession` reports it once per message.
  */
 export function decode(frame: MavlinkFrame): DecodedMessage {
   const layout = LAYOUT_BY_ID.get(frame.msgid);
   if (layout === undefined) {
     throw new MavProtocolError(`no definition for MAVLink message ${frame.msgid}`);
   }
-  if (frame.payload.length > layout.length) {
-    throw new MavProtocolError(
-      `${layout.name}: a payload of ${frame.payload.length} bytes is longer than the ` +
-        `${layout.length}-byte message`,
-    );
-  }
   const padded = new Uint8Array(layout.length);
-  padded.set(frame.payload);
+  padded.set(frame.payload.subarray(0, layout.length));
 
   const out: Record<string, number | string> = {};
   for (const field of layout.fields) {
@@ -766,6 +825,25 @@ export function str(message: DecodedMessage, name: string): string {
 
 /** From `common.xml`. The only command this app will put on the wire. */
 export const MAV_CMD_SET_MESSAGE_INTERVAL = 511;
+
+/**
+ * `MAV_PARAM_TYPE`, from the dialect.
+ *
+ * A `PARAM_SET` carries the type it believes the parameter has, and PX4
+ * **refuses a set whose type does not match the one it holds**: `param types
+ * mismatch param: %s` in `mavlink_parameters.cpp`, and the write is dropped
+ * without an error frame. ArduPilot is laxer — it takes `param_value` as a
+ * float and casts — but a client that sends the wrong type is relying on that.
+ *
+ * So this app does not guess one. It sends the type the vehicle itself reported
+ * in the `PARAM_VALUE` that carried the current value, which is why a write
+ * here needs a read first and refuses without one.
+ */
+export const MAV_PARAM_TYPE_NAMES: Record<number, string> = {
+  1: 'uint8', 2: 'int8', 3: 'uint16', 4: 'int16',
+  5: 'uint32', 6: 'int32', 7: 'uint64', 8: 'int64',
+  9: 'real32', 10: 'real64',
+};
 
 /** `MAV_MODE_FLAG_SAFETY_ARMED`. The heartbeat's own word on whether the
  *  vehicle is armed, and the only one this app acts on. */
@@ -1275,6 +1353,37 @@ class PayloadBuilder {
   u16(name: string, value: number): this { return this.set(name, 'uint16_t', value); }
   f32(name: string, value: number): this { return this.set(name, 'float', value); }
 
+  /**
+   * A `char[n]` field — a fixed-width, NUL-padded name.
+   *
+   * A name that does not fit is a **refusal and not a truncation**, which is the
+   * same rule MSP's setting commands and the firmware's own parameter table
+   * follow. Truncating would put a set on the wire for a name the caller never
+   * wrote, and a vehicle that happens to have that shorter parameter would take
+   * it: `RC1_MIN` truncated from `RC1_MINIMUM` is a real parameter on a real
+   * ArduPilot, so the failure mode is not a dropped frame, it is writing the
+   * wrong setting.
+   */
+  chars(name: string, value: string): this {
+    const layout = LAYOUT_BY_ID.get(this.msgid)!;
+    const field = layout.fields.find((item) => item.name === name);
+    if (field === undefined) {
+      throw new MavProtocolError(`${layout.name} has no field ${name}`);
+    }
+    const width = field.count;
+    if (field.type !== 'char' || width === undefined) {
+      throw new MavProtocolError(`${layout.name}.${name} is ${field.type}, not a char array`);
+    }
+    const encoded = new TextEncoder().encode(value);
+    if (encoded.length > width) {
+      throw new MavProtocolError(
+        `${layout.name}.${name} holds ${width} bytes and "${value}" is ${encoded.length}`,
+      );
+    }
+    this.bytes.set(encoded, field.offset);
+    return this;
+  }
+
   private set(name: string, type: MavFieldType, value: number): this {
     const layout = LAYOUT_BY_ID.get(this.msgid)!;
     const field = layout.fields.find((item) => item.name === name);
@@ -1323,13 +1432,19 @@ export interface MavClientOptions {
 /**
  * MAVLink, from the ground station's side.
  *
- * **Two writes, and no third.** The vocabulary here is `requestParameterList`
- * and `requestMessageInterval`, plus reads of what the vehicle streams. There is
- * no `command()` and no way to reach `COMMAND_LONG` with a command of the
- * caller's choosing, because the same message carries arm, takeoff and
- * `DO_SET_HOME`. That is a property of the type rather than of a flag a caller
- * could forget to check, and a test asserts it by recording what reaches the
- * wire.
+ * **Three writes, and no fourth.** The vocabulary here is `requestParameterList`,
+ * `requestMessageInterval` and `writeParameter`, plus reads of what the vehicle
+ * streams. There is still no `command()` and no way to reach `COMMAND_LONG` with
+ * a command of the caller's choosing, because the same message carries arm,
+ * takeoff and `DO_SET_HOME`. That is a property of the type rather than of a flag
+ * a caller could forget to check, and a test asserts it by recording what
+ * reaches the wire — the list of outbound message ids is the record, and adding
+ * an id to it is a decision rather than an edit.
+ *
+ * `writeParameter` was the third and it is the one that matters: unlike the
+ * other two it changes how the aircraft flies. The gate on it is one level up,
+ * in `MavBoard`, and the reason it is up there rather than here is that this
+ * class has no idea whether the vehicle is armed.
  *
  * Unlike the other two clients there is no request queue and no correlation: a
  * MAVLink vehicle answers a command with a `COMMAND_ACK` that names the command
@@ -1454,6 +1569,55 @@ export class MavlinkClient {
       .u8('target_component', this.targetComponent)
       .done();
     this.send(21, payload);
+  }
+
+  /**
+   * Sets one parameter on the vehicle.
+   *
+   * **The third write, and the first one that changes how the aircraft flies.**
+   * Everything above is a read or a change to what the vehicle *says*; this
+   * changes a number the autopilot acts on. The gate that decides whether it may
+   * be sent at all lives in `MavBoard`, deliberately — a client that could be
+   * asked to write is a client that can be asked to write while armed, and the
+   * authority on "is it armed" is not down here.
+   *
+   * `type` is not optional and is not guessed. See `MAV_PARAM_TYPE_NAMES`: PX4
+   * drops a set whose type disagrees with the one it holds, silently, so the
+   * only safe source for it is the `PARAM_VALUE` the vehicle already sent.
+   *
+   * Nothing here waits for an answer. MAVLink has no correlation: the vehicle
+   * replies with an ordinary `PARAM_VALUE` carrying the value it now holds, and
+   * that frame is indistinguishable from a periodic one — which is exactly why
+   * "the board agreed" is a reading in `MavBoard` and not an assumption here.
+   *
+   * **There is no separate save, and the command that looks like one is not
+   * one.** ArduPilot persists on set (`vp->save(force_save)` in
+   * `GCS_Param.cpp`), so a write here survives a power cycle on its own. The
+   * only storage command it accepts is `MAV_CMD_PREFLIGHT_STORAGE` with
+   * `param1 == 2`, which calls `AP_Param::erase_all()` — a *wipe*, not a save.
+   * This app does not send it and has no method that could.
+   */
+  writeParameter(name: string, value: number, type: number): void {
+    this.requireTarget('PARAM_SET');
+    if (name === '') {
+      throw new MavProtocolError('refusing to set a parameter with no name');
+    }
+    if (!Number.isFinite(value)) {
+      throw new MavProtocolError(`refusing to set ${name} to ${value}`);
+    }
+    if (MAV_PARAM_TYPE_NAMES[type] === undefined) {
+      throw new MavProtocolError(
+        `refusing to set ${name}: ${type} is not a MAV_PARAM_TYPE the App carries`,
+      );
+    }
+    const payload = new PayloadBuilder(23)
+      .u8('target_system', this.targetSystem)
+      .u8('target_component', this.targetComponent)
+      .chars('param_id', name)
+      .f32('param_value', value)
+      .u8('param_type', type)
+      .done();
+    this.send(23, payload);
   }
 
   /**

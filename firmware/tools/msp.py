@@ -8,7 +8,7 @@
 firmware speaks its own, Betaflight and INAV speak MSP, ArduPilot and PX4 speak
 MAVLink. A window that talks to more than one of them knows more than one of
 them, and this is the file that knows MSP - what the owner asked for
-(`~/aerialkit-goal.md`, and `docs/27-configurator.md`).
+(`docs/27-configurator.md`).
 
 **What it is not.** Read-only, deliberately, and for the reason the goal's note
 gives: parameter *writes* to somebody else's firmware are how a tool crashes an
@@ -25,8 +25,13 @@ testing against:
     $M<  size  command  payload...  checksum      (host asks)
     $M>  size  command  payload...  checksum      (board answers)
 
-`size` counts the command byte and the payload; the checksum is the XOR of
-`size`, `command` and every payload byte. MSP v1 has no sequence number and no
+`size` is the length of the payload alone; the checksum is the XOR of
+`size`, `command` and every payload byte (`mspSerialEncode` in Betaflight's
+msp_serial.c: `hdrBuf[hdrLen++] = dataLen; hdrBuf[hdrLen++] = cmd;`). This
+said `size` counted the command byte too, and the client, the fake board and
+the configurator all framed it that way - consistently with each other and
+with no real board - until the 2026-10-06 audit: `MSP_API_VERSION` went out as
+`24 4d 3c 01 01 00` where a board expects `24 4d 3c 00 01 01`. MSP v1 has no sequence number and no
 response bit: a reply carries the *same* command it answers.
 
 INAV is the same protocol with its own command set (its `MSP_FC_VARIANT` is
@@ -45,6 +50,9 @@ import time
 
 FRAME_REQUEST = b"$M<"
 FRAME_REPLY = b"$M>"
+# And the v1 refusal, which is the same frame with '!' where '>' goes. It is a
+# reply, not silence: a board that will not do what it was asked says so.
+FRAME_REPLY_ERROR = b"$M!"
 # MSP v2, which is a different frame under a different magic byte - and the
 # only one that carries the commands a Betaflight board's settings need. The
 # magic table is `{'M', 'M', 'X'}` for {v1, v2-over-v1, v2} in
@@ -81,6 +89,12 @@ MSP_ANALOG = 110
 MSP2_CLI_SETTING = 0x3010
 MSP2_CLI_SETTING_INFO = 0x3011
 
+# The separate act, and the same number in Betaflight and INAV both. A *set*
+# changes the running configuration; this puts it into flash, and losing the
+# battery undoes everything a set did without it. Both firmwares refuse it
+# while armed, in their own code, before they touch the flash.
+MSP_EEPROM_WRITE = 250
+
 # A v1 size byte is a byte, so a payload is at most 255 - and the frame at most
 # 259 bytes. Used to bound what a stream of noise can make this allocate.
 MAX_PAYLOAD = 255
@@ -110,8 +124,8 @@ class Error(IOError):
 
 
 def checksum(command, payload):
-    """The XOR MSP defines: size, command, payload."""
-    value = (len(payload) + 1) & 0xFF
+    """The XOR MSP defines: size (the payload's length), command, payload."""
+    value = len(payload) & 0xFF
     value ^= command & 0xFF
     for byte in payload:
         value ^= byte
@@ -123,7 +137,7 @@ def build(command, payload=b""):
     if len(payload) > MAX_PAYLOAD:
         raise ValueError("payload of %u bytes does not fit an MSP v1 frame"
                          % len(payload))
-    return (FRAME_REQUEST + bytes([len(payload) + 1, command & 0xFF]) + payload
+    return (FRAME_REQUEST + bytes([len(payload), command & 0xFF]) + payload
             + bytes([checksum(command, payload)]))
 
 
@@ -133,19 +147,34 @@ def parse(frame):
     A frame that is not one raises: the caller here is a client that asked a
     question, so anything else on the wire is a fact worth telling somebody
     about rather than skipping past.
+
+    Both v1 markers are accepted, because a board uses both: `$M>` is a reply
+    and `$M!` is a *refusal*, which `mspSerialEncode` picks from
+    `packet->result` in Betaflight's `src/main/msp/msp_serial.c`. They are
+    different facts, so the refusal is raised rather than decoded -- the same
+    treatment `parse_v2` gives `$X!`.
+
+    **The refusal path here is new on 2026-10-02, and it was a real bug.** This
+    accepted `$M>` only, and `_read_frame` rebuilt every v1 frame with `$M>`
+    in front of it -- so a board that refused a command was read as having
+    answered it successfully with an empty payload. Found by driving the armed
+    `MSP_EEPROM_WRITE` refusal through it: the board said no, and this client
+    reported that it had said nothing.
     """
-    if len(frame) < 6 or frame[:3] != FRAME_REPLY:
+    if len(frame) < 6 or frame[:3] not in (FRAME_REPLY, FRAME_REPLY_ERROR):
         raise ProtocolError("not an MSP reply: %r" % frame[:8])
     size = frame[3]
-    # Three bytes of marker, the size byte, `size` bytes of command and
-    # payload, and the checksum: the whole frame is `size + 5`.
-    if size < 1 or len(frame) != size + 5:
+    # Three bytes of marker, the size byte, the command, `size` bytes of
+    # payload, and the checksum: the whole frame is `size + 6`.
+    if len(frame) != size + 6:
         raise ProtocolError("frame length %u does not match its size byte %u"
                             % (len(frame), size))
     command = frame[4]
-    payload = frame[5:4 + size]
-    if frame[4 + size] != checksum(command, payload):
+    payload = frame[5:5 + size]
+    if frame[5 + size] != checksum(command, payload):
         raise ProtocolError("bad checksum in the reply to %u" % command)
+    if frame[:3] == FRAME_REPLY_ERROR:
+        raise Error("the board refused command %u" % command)
     return command, payload
 
 
@@ -166,8 +195,9 @@ def crc8_dvb_s2(data):
 def build_v2(function, payload=b""):
     """One MSP v2 request: `$X<` flags cmd(2, LE) size(2, LE) payload crc.
 
-    `size` counts only the payload here, where a v1 frame's counts the command
-    as well - one more way the two frames are not the same frame.
+    `size` counts only the payload here, as a v1 frame's does too (this
+    comment said v1's counted the command as well, which was the off-by-one
+    the 2026-10-06 audit corrected). What differs is the width: two bytes.
     """
     header = bytes([0, function & 0xFF, (function >> 8) & 0xFF,
                     len(payload) & 0xFF, (len(payload) >> 8) & 0xFF])
@@ -404,16 +434,19 @@ class Msp:
             if head is None:
                 return None
             size = head[0]
-            if size < 1 or size > MAX_PAYLOAD + 1:
+            if size > MAX_PAYLOAD:
                 raise ProtocolError("size byte %u is not a frame" % size)
             rest = b""
-            while len(rest) < size + 1:
+            while len(rest) < size + 2:      # command, payload, checksum
                 piece = byte()
                 if piece is None:
                     raise Timeout("a frame stopped after %u of %u bytes"
-                                  % (len(rest) + 4, size + 5))
+                                  % (len(rest) + 4, size + 6))
                 rest += piece
-            frame = FRAME_REPLY + head + rest
+            # `marker`, not `FRAME_REPLY`: the third byte is `>` for a reply and
+            # `!` for a refusal, and rebuilding the frame with a hardcoded `>`
+            # threw the refusal away. `parse` is what raises on it.
+            frame = marker + head + rest
             self.frames += 1
             command, payload = parse(frame)
             return "v1", command, payload
@@ -450,6 +483,36 @@ class Msp:
         payload, _flags = self.request_v2(MSP2_CLI_SETTING, name.encode(),
                                           timeout)
         return payload.decode("ascii", "replace")
+
+    def set_setting(self, name, value, timeout=None):
+        """Write one setting, and answer with the board's own reply to it.
+
+        `MSP2_CLI_SETTING` is both the read and the write: a payload with an
+        `=` in it is a write, and the board answers with the same
+        `name = value` text it would have answered a read. So **the reply to a
+        write is itself the read-back** -- `msp.c` calls `cliSetSettingByName`
+        and then `cliGetSettingByName` on the same name -- and a caller that
+        reports what it sent rather than what came back is reporting its own
+        request as though it were the aircraft's state.
+
+        A value the board will not take is an error frame, which
+        `request_v2` raises: `cliSetSettingByName` returns false for a value
+        out of range or not a number, and `msp.c` turns that into
+        MSP_RESULT_ERROR. Nothing is clamped, so a refusal is a refusal.
+        """
+        payload, _flags = self.request_v2(
+            MSP2_CLI_SETTING, ("%s = %s" % (name, value)).encode(), timeout)
+        return payload.decode("ascii", "replace")
+
+    def save(self, timeout=None):
+        """Write the running configuration to the board's flash.
+
+        Deliberately its own call and never something `set_setting` does: the
+        two are different acts with different consequences, and a board that
+        refused this (both firmwares refuse it while armed) has still taken
+        the set.
+        """
+        self.request(MSP_EEPROM_WRITE, timeout=timeout)
 
     def setting_info(self, name, timeout=None):
         """One setting's description, in full: what the board says it is.

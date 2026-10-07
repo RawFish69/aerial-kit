@@ -1,19 +1,15 @@
 import { Button, type IconName } from '@blueprintjs/core';
-import { Notice } from './panels';
+import { Notice, Panel } from './panels';
 import { useEffect, useState, type ReactNode } from 'react';
 import { tabState, tabsFor, type Tab, type WorkspaceProps } from './tabs';
 
 /**
- * The sidebar, and the one thing about it worth stating.
+ * The sidebar.
  *
- * A section that cannot be opened is **shown**, disabled, with its reason as the
- * button's title *and* as a line under the body. Both, because a `title` is
- * invisible to a keyboard, to a touch screen and to anyone who does not think
- * to hover, and the reason is the most useful sentence on the page.
- *
- * The reason names an opcode. `reasonFor` is the one place that decides
- * between "this firmware does not answer that" and "this firmware cannot say",
- * and this view does not re-derive it.
+ * Only the sections this board can back are listed. The ones it cannot are not
+ * hidden from the person, only from the rail: the Identity section lists each
+ * with the reason, which names the opcode — "does not answer `preflight`" is
+ * something to search the firmware for; a greyed-out button is not.
  */
 export function TabRail(props: WorkspaceProps & { readonly initialTab?: string; readonly footer?: ReactNode }) {
   const tabs = tabsFor('aerialkit');
@@ -28,56 +24,35 @@ export function TabRail(props: WorkspaceProps & { readonly initialTab?: string; 
   const openTabs = tabs.filter((tab) => tabState(tab, props.snapshot).open);
   const closedTabs = tabs.filter((tab) => !tabState(tab, props.snapshot).open);
 
-  const button = (tab: Tab) => {
-    const item = tabState(tab, props.snapshot);
-    return (
-      <Button
-        key={tab.id}
-        type="button"
-        minimal
-        fill
-        alignText="left"
-        className="tab"
-        icon={TAB_ICONS[tab.id] ?? 'square'}
-        active={tab.id === chosen.id}
-        aria-current={tab.id === chosen.id ? 'page' : undefined}
-        disabled={!item.open}
-        title={item.why ?? undefined}
-        onClick={() => setSelected(tab.id)}
-      >
-        {tab.label}
-      </Button>
-    );
-  };
-
   return (
     <div className="workspace">
       <nav className="rail" aria-label="Workspace sections">
-        {openTabs.map(button)}
-        {closedTabs.length > 0 && (
-          <>
-            <div className="rail-heading bp5-text-muted" aria-hidden="true">Unavailable</div>
-            {closedTabs.map(button)}
-            <details className="unavailable-sections">
-              <summary>Why unavailable?</summary>
-              <dl>{closedTabs.map((tab) => (
-                <div key={tab.id}>
-                  <dt>{tab.label}</dt>
-                  <dd>{tabState(tab, props.snapshot).why}</dd>
-                </div>
-              ))}</dl>
-            </details>
-          </>
-        )}
+        <div className="rail-box">
+        <div className="rail-title" aria-hidden="true">Flight controller</div>
+        {openTabs.map((tab) => (
+          <Button
+            key={tab.id}
+            type="button"
+            minimal
+            fill
+            alignText="left"
+            className="tab"
+            icon={TAB_ICONS[tab.id] ?? 'square'}
+            active={tab.id === chosen.id}
+            aria-current={tab.id === chosen.id ? 'page' : undefined}
+            onClick={() => setSelected(tab.id)}
+          >
+            {tab.label}
+          </Button>
+        ))}
+        </div>
       </nav>
 
       <main className="tabbody">
         <header className="section-heading"><h1>{chosen.label}</h1></header>
         {/*
-          Unreachable through the rail — a disabled button cannot be clicked —
-          but reachable when the *board* changes under a tab that is already
-          open. Handled rather than assumed away, because the alternative is a
-          blank body.
+          A tab that was open can close when the *board* changes under it. Handled
+          rather than assumed away, because the alternative is a blank body.
         */}
         {state.open ? (
           <>{chosen.render(props)}</>
@@ -86,7 +61,19 @@ export function TabRail(props: WorkspaceProps & { readonly initialTab?: string; 
             <strong>{chosen.label} is not available.</strong> {state.why}
           </Notice>
         )}
-        {props.footer !== undefined && <div className="tabfooter">{props.footer}</div>}
+        {chosen.id === 'identity' && closedTabs.length > 0 && (
+          <Panel title="Not yet available">
+            <dl className="kv unavailable">
+              {closedTabs.map((tab) => (
+                <div key={tab.id}>
+                  <dt>{tab.label}</dt>
+                  <dd>{tabState(tab, props.snapshot).why}</dd>
+                </div>
+              ))}
+            </dl>
+          </Panel>
+        )}
+        {chosen.id === 'identity' && props.footer !== undefined && <div className="tabfooter">{props.footer}</div>}
       </main>
     </div>
   );

@@ -14,7 +14,7 @@ make check
 
 The default image is `build/feather/aerialkit-feather-f405.bin`. Set `CROSS=/path/to/toolchain/bin/arm-none-eabi-` if needed; image checks also require that toolchain directory on PATH. `EXTRA_CFLAGS` selects fitted-hardware options and diagnostic instruments. Build a different variant in a separate OUT directory.
 
-Feather F405 includes its pin map and LSM6DSO support. Check the physical sensor address, I2C wiring and board diagnostics before relying on it. The firmware has not been flown.
+Feather F405 includes its pin map and BNO055/LSM6DSO support. Check the physical sensor address, I2C wiring and board diagnostics before relying on it. The firmware has not been flown.
 
 ## ESP32DEV
 
@@ -27,6 +27,9 @@ idf.py build
 ```
 
 This project accepts only `AK_BOARD=ESP32DEV`. The default network profile supports the emulated Ethernet environment; use `sdkconfig.wifi` for a physical devkit's Wi-Fi build. See the [firmware guide](../docs/flight-controller-firmware.md) for both invocations.
+
+See [current runtime and protocol notes](docs/35-public-runtime-sync.md) and the
+[Feather pin map](docs/34-feather-pinmap.md).
 
 ## Configure and verify
 

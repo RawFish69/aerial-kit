@@ -113,10 +113,14 @@ class Serial:
             try:
                 data = os.read(self.fd, count)
             except BlockingIOError:
-                data = b""
-            if data:
-                return data
-            time.sleep(0.002)
+                time.sleep(0.002)
+                continue
+            if not data:
+                # Not "nothing yet" - that is the BlockingIOError above - but
+                # end of file: a tty after a hangup, a board unplugged. Spinning
+                # on it forever meant no timeout above this ever fired.
+                raise IOError("the serial port closed")
+            return data
 
     def write(self, data):
         os.write(self.fd, data)
@@ -323,6 +327,20 @@ class MspConfigurator:
         self.count = 0
         return self
 
+    def reads_settings(self):
+        """Whether this board's *settings protocol* is one this window speaks.
+
+        Betaflight and INAV are both MSP and both have a name list here, and
+        they are not the same settings protocol: `MSP2_CLI_SETTING` (0x3010)
+        with text in and text out is Betaflight's, and INAV answers none of it
+        -- INAV's settings are its own parameter groups behind 0x1003/0x1004/
+        0x1007, with binary typed values and no name in the reply. A window
+        that sent Betaflight's command to an INAV board would be asking a
+        question that board does not have, so the question is not asked.
+        """
+        import msp_settings
+        return msp_settings.firmware_for(self.variant) == "betaflight"
+
     def setting_names(self):
         """`(names, source)` - the names this firmware *release* has, and where
         they were read from, or `([], reason)`.
@@ -410,6 +428,16 @@ class MspConfigurator:
 
     def parameters_note(self):
         names, source = self.setting_names()
+        if names and not self.reads_settings():
+            # The names are this release's own, and they are offered for the
+            # reason `setting_names` exists - but a box that invites a person
+            # to press return has to say when pressing return cannot work.
+            return ("a name at a time: MSP cannot be asked for a list, so the "
+                    "box offers the %u names read from %s - and this window "
+                    "reads settings from a Betaflight board only, so it "
+                    "cannot answer for this one, whose settings are its own "
+                    "parameter groups (docs/27-configurator.md)"
+                    % (len(names), source))
         if names:
             return ("a name at a time: MSP cannot be asked for a list, so the "
                     "box offers the %u names read from %s - pick one and press "
@@ -427,8 +455,27 @@ class MspConfigurator:
         `docs/27-configurator.md`), so the window's filter box asks about the
         one a person names, and the answer is the board's sentence - "name =
         value" - followed by what the board says the setting *is*.
+
+        **Only a Betaflight board is asked.** `MSP2_CLI_SETTING` (0x3010) is
+        Betaflight's command; INAV answers it with nothing at all, because INAV
+        keeps its settings in its own parameter groups behind 0x1003/0x1004/
+        0x1007. This method used to send 0x3010 whatever the board was, and the
+        stand-in used to answer it in INAV mode too, so the two agreed on a
+        conversation no INAV board has. Found on 2026-10-02, when
+        `tools/msp_fake_board.py` was rebuilt to answer each firmware's own
+        commands and this window's question to an INAV board came back as the
+        board refusing 0x3010 -- a refusal the check above it read as a real
+        answer, because the sentence it matched on ("no setting called") was
+        the *window's* wording wrapped around the board's.
         """
-        from msp import Error, ProtocolError
+        from msp import Error, ProtocolError, short_name
+        if not self.reads_settings():
+            raise Error(
+                "not read: this window reads settings from a Betaflight board, "
+                "and this is %s - its settings are its own parameter groups, "
+                "which this window does not read (docs/27-configurator.md)"
+                % (short_name(self.identity) if self.identity else "not a "
+                   "Betaflight board"))
         detail = ""
         try:
             detail = self.msp.setting_info(name)
@@ -593,9 +640,11 @@ def detect(read_some, write, timeout=0.6):
     try:
         ours.connect()
         return "aerialkit", ours
-    except Exception:                                    # noqa: BLE001
-        # Anything at all: detection's whole job is "if this is not ours, move
-        # on", and a foreign board is allowed to answer with anything.
+    except (IOError, OSError, ValueError):
+        # Every way a board can fail to be ours arrives as one of these: a
+        # timeout, a bad checksum, a reply that does not parse. A bug in this
+        # file is not one of them, and is no longer reported as "neither
+        # AerialKit's protocol nor MSP".
         pass
 
     from msp import Msp, Timeout as MspTimeout

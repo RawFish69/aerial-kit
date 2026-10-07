@@ -68,7 +68,8 @@ int ak_log_get(const ak_log_t *log, uint16_t index, ak_log_record_t *out)
 void ak_log_write_record(const ak_log_record_t *record, ak_printf_fn out)
 {
     out("%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,"
-        "%u,%u,%d,%d\n",
+        "%u,%u,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,"
+        "%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u\n",
         record->time_ms,
         record->gyro[0], record->gyro[1], record->gyro[2],
         record->accel[0], record->accel[1], record->accel[2],
@@ -76,7 +77,46 @@ void ak_log_write_record(const ak_log_record_t *record, ak_printf_fn out)
         record->stick[0], record->stick[1], record->stick[2], record->stick[3],
         record->torque[0], record->torque[1], record->torque[2],
         record->motor[0], record->motor[1], record->motor[2], record->motor[3],
-        record->state, record->flags, record->lat_e7, record->lon_e7);
+        record->state, record->flags, record->lat_e7, record->lon_e7,
+        record->gyro_filtered[0], record->gyro_filtered[1],
+        record->gyro_filtered[2],
+        record->notch_hz[0], record->notch_hz[1], record->notch_hz[2],
+        record->notch_engaged[0], record->notch_engaged[1],
+        record->notch_engaged[2],
+        record->time_us,
+        record->rate_setpoint[0], record->rate_setpoint[1],
+        record->rate_setpoint[2],
+        record->pid_p[0], record->pid_p[1], record->pid_p[2],
+        record->pid_i[0], record->pid_i[1], record->pid_i[2],
+        record->pid_d[0], record->pid_d[1], record->pid_d[2],
+        record->vbat_mv);
+}
+
+void ak_log_write_header(ak_printf_fn out)
+{
+    out("# units: gyro 0.1 dps, accel 0.001 g, attitude 0.1 deg, "
+        "alt mm above the take-off reference, sticks per-mille, torque "
+        "percent, motor 0..254\n");
+    /* The two gyro triples are the same quantity either side of the chain, and
+     * the header says which is which rather than leaving it to be worked out
+     * from the column order. `notch_engaged_n` is a count and `notch_hz_n` is a
+     * frequency, or 0 for an axis with no notch engaged. */
+    out("# gyro_* is the driver's reading; gyro_f* is what the notch bank and the "
+        "two low-passes made of it, and is the number the controller flew on\n");
+    out("# notch_hz_* is 0 when no notch is engaged on that axis; notch_engaged_* "
+        "is how many a measurement has put in place there\n");
+    out("# setpoint_* is the rate loop's target in 0.1 dps; p_*, i_*, d_* are its "
+        "terms in torque percent (P + I - D is the torque before its clamp, "
+        "+/-127 is saturated); vbat_mv is 0 unless flags has 0x10; flags 0x08 is "
+        "angle mode\n");
+    out("time_ms,gyro_x,gyro_y,gyro_z,accel_x,accel_y,accel_z,roll,pitch,yaw,"
+        "alt_mm,stick_roll,stick_pitch,stick_yaw,stick_throttle,torque_roll,"
+        "torque_pitch,torque_yaw,motor1,motor2,motor3,motor4,state,flags,"
+        "lat_e7,lon_e7,gyro_fx,gyro_fy,gyro_fz,notch_hz_x,notch_hz_y,notch_hz_z,"
+        "notch_engaged_x,notch_engaged_y,notch_engaged_z,"
+        "time_us,setpoint_roll,setpoint_pitch,setpoint_yaw,"
+        "p_roll,p_pitch,p_yaw,i_roll,i_pitch,i_yaw,d_roll,d_pitch,d_yaw,"
+        "vbat_mv\n");
 }
 
 void ak_log_dump(const ak_log_t *log, ak_printf_fn out)
@@ -87,13 +127,7 @@ void ak_log_dump(const ak_log_t *log, ak_printf_fn out)
     }
     out("\n");
     out("# sampled every %u loop iterations\n", log->decimation);
-    out("# units: gyro 0.1 dps, accel 0.001 g, attitude 0.1 deg, "
-        "alt mm above the take-off reference, sticks per-mille, torque "
-        "percent, motor 0..254\n");
-    out("time_ms,gyro_x,gyro_y,gyro_z,accel_x,accel_y,accel_z,roll,pitch,yaw,"
-        "alt_mm,stick_roll,stick_pitch,stick_yaw,stick_throttle,torque_roll,"
-        "torque_pitch,torque_yaw,motor1,motor2,motor3,motor4,state,flags,"
-        "lat_e7,lon_e7\n");
+    ak_log_write_header(out);
 
     /* Oldest first: when the ring has wrapped, the oldest is the one the head
      * is about to overwrite. */
@@ -164,6 +198,39 @@ unsigned ak_log_encode_record(const ak_log_record_t *record, uint8_t *out,
             out[at++] = (uint8_t)((lon >> (8 * i)) & 0xFFu);
         }
     }
+    /* Everything above this line is version 2's record, and it stays byte for
+     * byte: this is where roadmap 2.4's fields begin, and where a client that
+     * has never heard of them stops reading. */
+    for (int i = 0; i < 3; i++) {
+        at = put_i16(out, at, record->gyro_filtered[i]);
+    }
+    for (int i = 0; i < 3; i++) {
+        uint16_t hz = record->notch_hz[i];
+
+        out[at++] = (uint8_t)(hz & 0xFFu);
+        out[at++] = (uint8_t)((hz >> 8) & 0xFFu);
+    }
+    for (int i = 0; i < 3; i++) {
+        out[at++] = record->notch_engaged[i];
+    }
+    /* Version 3 ends here; roadmap 4.1's fields begin. */
+    for (int i = 0; i < 4; i++) {
+        out[at++] = (uint8_t)((record->time_us >> (8 * i)) & 0xFFu);
+    }
+    for (int i = 0; i < 3; i++) {
+        at = put_i16(out, at, record->rate_setpoint[i]);
+    }
+    for (int i = 0; i < 3; i++) {
+        out[at++] = (uint8_t)record->pid_p[i];
+    }
+    for (int i = 0; i < 3; i++) {
+        out[at++] = (uint8_t)record->pid_i[i];
+    }
+    for (int i = 0; i < 3; i++) {
+        out[at++] = (uint8_t)record->pid_d[i];
+    }
+    out[at++] = (uint8_t)(record->vbat_mv & 0xFFu);
+    out[at++] = (uint8_t)((record->vbat_mv >> 8) & 0xFFu);
     return at;
 }
 
@@ -225,5 +292,33 @@ int ak_log_decode_record(const uint8_t *in, unsigned len,
     out->lat_e7 = (int32_t)get_u32(in, at);
     at += 4u;
     out->lon_e7 = (int32_t)get_u32(in, at);
+    at += 4u;
+    for (int i = 0; i < 3; i++) {
+        out->gyro_filtered[i] = get_i16(in, at);
+        at += 2u;
+    }
+    for (int i = 0; i < 3; i++) {
+        out->notch_hz[i] = (uint16_t)get_i16(in, at);
+        at += 2u;
+    }
+    for (int i = 0; i < 3; i++) {
+        out->notch_engaged[i] = in[at++];
+    }
+    out->time_us = get_u32(in, at);
+    at += 4u;
+    for (int i = 0; i < 3; i++) {
+        out->rate_setpoint[i] = get_i16(in, at);
+        at += 2u;
+    }
+    for (int i = 0; i < 3; i++) {
+        out->pid_p[i] = (int8_t)in[at++];
+    }
+    for (int i = 0; i < 3; i++) {
+        out->pid_i[i] = (int8_t)in[at++];
+    }
+    for (int i = 0; i < 3; i++) {
+        out->pid_d[i] = (int8_t)in[at++];
+    }
+    out->vbat_mv = (uint16_t)get_i16(in, at);
     return 1;
 }

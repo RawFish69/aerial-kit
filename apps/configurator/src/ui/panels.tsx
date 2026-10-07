@@ -120,21 +120,13 @@ export function ArmedBanner({ live, permission }: { live: LiveView; permission: 
         : 'Armed state unknown';
 
   const intent: Intent = live.armed === 'armed' ? 'danger' : live.armed === 'disarmed' ? 'success' : 'warning';
+  // The reason is on hover only; the word and the colour are what a person at
+  // the bench reads, and a refused write says why where it is refused.
   return (
     <div className={`armed ${cls}`} title={permission.reason}>
-      <Tag large intent={intent} icon={live.armed === 'disarmed' ? 'tick-circle' : 'warning-sign'}>
-        <strong>{word}</strong>
+      <Tag intent={intent} icon={live.armed === 'disarmed' ? 'tick-circle' : 'warning-sign'}>
+        {word}
       </Tag>
-      <div className="armed-text">
-        <span className="implication">
-          {live.armed === 'unknown'
-            ? 'this app does not write to an aircraft it cannot account for'
-            : live.armed === 'armed'
-              ? 'no write will be sent'
-              : 'writes are permitted'}
-        </span>
-        <span className="because bp5-text-muted">{permission.reason}</span>
-      </div>
     </div>
   );
 }
@@ -197,16 +189,10 @@ export function Limitations({ items, permission }: { items: readonly Limitation[
  */
 export function IdentityBadge({ identity }: { identity: Identity }) {
   return (
-    <Tag large minimal intent={identity.isDemo ? 'warning' : 'success'} icon={identity.isDemo ? 'lab-test' : 'tick'}>
-      {identity.isDemo ? (
-        <>
-          <span>{identity.product}</span>
-          <span className="kind"> simulated — not hardware</span>
-        </>
-      ) : (
-        <span>{identity.product}</span>
-      )}
-    </Tag>
+    <span className="identity-badge">
+      <Tag minimal icon={identity.isDemo ? 'lab-test' : 'tick'}>{identity.product}</Tag>
+      {identity.isDemo && <Tag minimal intent="warning" title="A simulated board in this page — not hardware">Demo</Tag>}
+    </span>
   );
 }
 
@@ -423,13 +409,7 @@ function NoReceiverInput() {
       <p>
         <strong>This board has no receiver input.</strong>
       </p>
-      <p className="small muted" style={{ marginTop: 8 }}>
-        The answer to <span className="mono">rc channels</span> was one byte — the status
-        value the firmware calls <span className="mono">AK_PROTO_RC_NONE</span> — and it stopped
-        there. That is a statement about the board rather than about a receiver: a board that
-        has a port with nothing plugged into it answers with a full frame, every channel at
-        zero and the link flag clear, and this panel draws that differently.
-      </p>
+      <p className="small muted" style={{ marginTop: 8 }}>This firmware build has no receiver input.</p>
     </>
   );
 }
@@ -501,23 +481,11 @@ function RcReport({ state, age }: { state: RcState; age: number | null }) {
           </div>
         ))}
       </div>
-      <p className="small muted" style={{ marginTop: 8, marginBottom: 14 }}>
-        The counts are the receiver's own, in the order it sends them, and the bars are drawn
-        against 0…2047 — the whole of an 11-bit count field. They are <em>not</em> scaled by the
-        receiver's calibration, which the board holds in <span className="mono">rc_min</span>,{' '}
-        <span className="mono">rc_mid</span> and <span className="mono">rc_max</span> and does not
-        send here. This panel does not name which channel is which stick: that mapping lives in
-        the firmware's <span className="mono">ak_types.h</span> and is not on the wire.
-      </p>
+      <p className="small muted" style={{ marginTop: 8, marginBottom: 14 }}>Raw counts, 0–2047, uncalibrated.</p>
 
       <h3 className="sub-head">Sticks, as the board decoded them</h3>
       {!decoded ? (
-        <p className="muted">
-          The board has not decoded these — it sent a frame it would not use, or none at all. All
-          four values below are zero, and they mean &ldquo;this board does not know where the
-          sticks are&rdquo; rather than &ldquo;the sticks are centred&rdquo;. The two are the same
-          bytes and the link flag above is what tells them apart.
-        </p>
+        <p className="muted">No decoded frame — these zeros are not centred sticks.</p>
       ) : (
         <>
           <div className="rc-sticks">
@@ -540,15 +508,7 @@ function RcReport({ state, age }: { state: RcState; age: number | null }) {
               );
             })}
           </div>
-          <p className="small muted" style={{ marginTop: 8, marginBottom: 14 }}>
-            Roll, pitch and yaw run -1.000 to 1.000 with zero at the centre; throttle runs 0.000 to
-            1.000. The board sends these in thousandths, already decoded against its own{' '}
-            <span className="mono">rc_min</span>, <span className="mono">rc_mid</span>,{' '}
-            <span className="mono">rc_max</span> and <span className="mono">rc_deadband</span> — the
-            same numbers the flight core uses, which is why this app shows what came back instead
-            of working them out from the counts above. A stick that reads exactly 0.000 is inside
-            the deadband, not necessarily perfectly centred.
-          </p>
+          <p className="small muted" style={{ marginTop: 8, marginBottom: 14 }}>Calibrated by the board: roll/pitch/yaw −1…1, throttle 0…1. Exactly 0.000 means inside the deadband.</p>
         </>
       )}
 
@@ -613,14 +573,7 @@ function RcReport({ state, age }: { state: RcState; age: number | null }) {
           </tr>
         </tbody>
       </HTMLTable>
-      <p className="small muted" style={{ marginTop: 10 }}>
-        Each counter is named as its receiver names it, and a counter that is 0 because a protocol
-        has no such thing says so above rather than reading as a clean measurement. Centring the
-        sticks — writing a new <span className="mono">rc_mid</span> — is the console's{' '}
-        <span className="mono">calibrate rc</span> (<span className="mono">ak_rc_cal_apply</span>,
-        in <span className="mono">firmware/src/core/flight/ak_rc.c</span>); this app has no
-        calibration page yet, and the Receiver tab is where you would notice you need one.
-      </p>
+      <p className="small muted" style={{ marginTop: 10 }}>Stick centring: run <span className="mono">calibrate rc</span> on the board console.</p>
     </>
   );
 }
@@ -742,14 +695,7 @@ function SensorSection({ name, answer }: { name: string; answer: SensorAnswer })
         <p>
           <strong>This firmware does not answer for {name}.</strong>
         </p>
-        <p className="small muted" style={{ marginTop: 8 }}>
-          The reply was the status this protocol calls{' '}
-          <span className="mono">AK_PROTO_SENSOR_NO_SUCH</span>, which is a statement about the
-          build and not about this aircraft. A build with the driver compiled in would answer the
-          same question even with nothing soldered in — it would say{' '}
-          <em>present: no</em>, which this panel draws differently. The fix for this one is a
-          firmware update; going looking at the socket would not help.
-        </p>
+        <p className="small muted" style={{ marginTop: 8 }}>This firmware build has no driver for this sensor.</p>
       </section>
     );
   }
@@ -761,13 +707,7 @@ function SensorSection({ name, answer }: { name: string; answer: SensorAnswer })
         <p>
           <strong>This board has no {name} fitted.</strong>
         </p>
-        <p className="small muted" style={{ marginTop: 8 }}>
-          The board knows the question and answered <span className="mono">present: no</span> with
-          no reading after it. The firmware sends no body at all in this case rather than a body
-          of zeros, and that is deliberate: a body of zeros would say this board has a sensor
-          reading zero, which is a sensor that has failed. The two are different faults with
-          different fixes.
-        </p>
+        <p className="small muted" style={{ marginTop: 8 }}>Supported by the firmware, but not detected on this board.</p>
       </section>
     );
   }
@@ -853,11 +793,7 @@ function ImuFields({ body }: { body: ImuBody }) {
         <dt>errors</dt>
         <dd className={body.errors > 0 ? 'bad' : undefined}>{body.errors}</dd>
       </dl>
-      <p className="small muted" style={{ marginBottom: 4 }}>
-        Acceleration is in thousandths of a g and rotation in thousandths of a radian per second,
-        which is the unit the board stores its log records in. A board standing still reads one g
-        on whichever axis points down.
-      </p>
+      <p className="small muted" style={{ marginBottom: 4 }}>Accel in mg, gyro in mrad/s. At rest, the downward axis reads ≈1000 mg.</p>
     </>
   );
 }
@@ -903,13 +839,7 @@ function BaroFields({ body }: { body: BaroBody }) {
           {body.baroSamples} barometer and {body.gpsSamples} GPS samples
         </dd>
       </dl>
-      <p className="small muted" style={{ marginBottom: 4 }}>
-        <strong>The reference is the whole reason to carry a barometer.</strong> The absolute
-        pressure is today's weather; the <em>change</em> since take-off is the altitude. The board
-        takes the reference when it arms or when the GPS settles, and this panel shows the height
-        as a difference from it — which is a different number from the pressure, and the reason
-        both are on screen.
-      </p>
+      <p className="small muted" style={{ marginBottom: 4 }}>Height is relative to the reference taken at arming or GPS fix.</p>
     </>
   );
 }
@@ -1043,12 +973,7 @@ function BatteryFields({ body }: { body: BatteryBody }) {
           {body.samples} <span className="muted small">since power-up, {body.rejected} rejected, {body.returns} state changes</span>
         </dd>
       </dl>
-      <p className="small muted" style={{ marginBottom: 4 }}>
-        The per-cell number is the board's own division, not this app's: the firmware already knows
-        the cell count and applies the thresholds to that figure. This panel does not work it out
-        from the pack voltage, because on a pack that is nearly empty the two would differ in the
-        second decimal and the thresholds are set in the second decimal.
-      </p>
+      <p className="small muted" style={{ marginBottom: 4 }}>Per-cell voltage as computed by the board.</p>
     </>
   );
 }
@@ -1148,11 +1073,7 @@ function GpsFields({ body }: { body: GpsBody }) {
           </tr>
         </tbody>
       </HTMLTable>
-      <p className="small muted" style={{ marginBottom: 4 }}>
-        The position is the receiver's, converted from the wire's ten-millionths of a degree into
-        degrees. Nothing here is a map: this app makes no network requests, so what it can honestly
-        draw is a grid and the aircraft's own numbers, not somebody's tiles.
-      </p>
+      <p className="small muted" style={{ marginBottom: 4 }}>Position in degrees, from the GPS receiver.</p>
     </>
   );
 }

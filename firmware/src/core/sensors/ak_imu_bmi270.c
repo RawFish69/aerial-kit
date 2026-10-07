@@ -63,8 +63,60 @@
  *   ACC_CONF  = high performance (0x80) | OSR4 (0x00) | 1600 Hz (0x0C)
  *   GYRO_CONF = filter performance (0x80) | noise performance (0x40) | 1600 Hz
  */
-#define BMI_ACC_CONF_1600HZ  0x8Cu
-#define BMI_GYRO_CONF_1600HZ 0xCCu
+/* The two configuration bytes without their rate fields: the accelerometer's
+ * high-performance bit and its OSR setting, and the gyro's filter and noise
+ * performance bits. The rate is the low nibble of each and is what phase 1.4
+ * writes; at 1600 Hz these are 0x8C and 0xCC, which is the pair the comment
+ * above describes. */
+#define BMI_ACC_CONF_BASE    0x80u
+#define BMI_GYRO_CONF_BASE   0xC0u
+
+/*
+ * The rates this part's two sensors can be put at, and the difference between
+ * the two lists is the whole reason `set_rate` prints a sentence.
+ *
+ * The gyro reaches 3200 Hz - its native rate, and the number phase 1.4's target
+ * names for a BMI270 - while the accelerometer stops at 1600. Asked for 3200
+ * Hz, this part ends up with a gyro at 3200 and an accelerometer at 1600, and
+ * every sample's two halves are then a different age. That is a fact about the
+ * part and not a mistake in the request, so it is said out loud rather than
+ * rounded to whichever of the two the caller happened to mean.
+ *
+ * Three rates each, not the eight the registers can express: 3200, 1600 and 800
+ * are the values the pinned reference names for this part (Betaflight 2026.6.1,
+ * accgyro_spi_bmi270.c: ODR3200 = 0x0D for the gyro, ODR1600 = 0x0C and
+ * ODR800 = 0x0B for both). The codes below those are in the part's register map
+ * and not in anything this tree can check, so a request for one is refused.
+ */
+typedef struct {
+    uint32_t hz;
+    uint8_t  code;
+} bmi_odr_t;
+
+static const bmi_odr_t bmi_gyro_odr[] = {
+    { 3200u, 0x0Du },
+    { 1600u, 0x0Cu },
+    {  800u, 0x0Bu },
+};
+
+static const bmi_odr_t bmi_accel_odr[] = {
+    { 1600u, 0x0Cu },
+    {  800u, 0x0Bu },
+};
+
+#define BMI_DEFAULT_ODR_HZ 1600u
+
+static const bmi_odr_t *bmi_odr_for(const bmi_odr_t *table, unsigned n,
+                                    uint32_t hz)
+{
+    for (unsigned i = 0; i < n; i++) {
+        if (hz >= table[i].hz) {
+            return &table[i];
+        }
+    }
+    return 0;
+}
+
 
 #define BMI_ACC_RANGE_16G    0x03u /* 2048 counts per g */
 #define BMI_GYRO_RANGE_2000DPS 0x08u /* 16.384 counts per dps */
@@ -95,6 +147,62 @@ static int bmi_write(const ak_bus_t *bus, uint8_t reg, uint8_t value)
         return -1;
     }
     ak_bus_delay_ms(bus, BMI_CONFIG_DELAY_MS);
+    return 0;
+}
+
+static uint32_t bmi_set_rate(const ak_bus_t *bus, uint32_t hz, ak_printf_fn out)
+{
+    const bmi_odr_t *gyro =
+        bmi_odr_for(bmi_gyro_odr,
+                    (unsigned)(sizeof bmi_gyro_odr / sizeof bmi_gyro_odr[0]), hz);
+    const bmi_odr_t *accel =
+        bmi_odr_for(bmi_accel_odr,
+                    (unsigned)(sizeof bmi_accel_odr / sizeof bmi_accel_odr[0]), hz);
+
+    /* Both or neither: the gyro's list is the longer one, so a rate that
+     * reaches the accelerometer's top but is below the gyro's bottom is the
+     * only way to have one without the other, and it cannot happen with these
+     * two lists - asserted rather than assumed, because the failure would be a
+     * half-configured part. */
+    if (gyro == 0 || accel == 0) {
+        return 0;
+    }
+
+    if (bmi_write(bus, BMI_ACC_CONF,
+                  (uint8_t)(BMI_ACC_CONF_BASE | accel->code)) != 0 ||
+        bmi_write(bus, BMI_GYRO_CONF,
+                  (uint8_t)(BMI_GYRO_CONF_BASE | gyro->code)) != 0) {
+        return 0;
+    }
+
+    if (out != 0 && accel->hz != gyro->hz) {
+        out("imu:       bmi270: gyro %u Hz, accelerometer %u Hz - this part's "
+            "accelerometer has no rate above 1600\n",
+            gyro->hz, accel->hz);
+    }
+    return gyro->hz;
+}
+
+/*
+ * The gyro's data-ready on interrupt pin 1, or off.
+ *
+ * Two registers again, and the split between them is this part's: INT1_IO_CTRL
+ * describes the *pad* - active high, and output enabled, which is what makes it
+ * a driven line rather than an input - and INT_MAP_DATA says which internal
+ * source is routed to it. Turning the interrupt off clears the mapping and
+ * leaves the pad configured: an enabled output with nothing mapped to it sits
+ * low, which is a cheaper state to leave a part in than a pad left as an input
+ * with the part's own pull deciding what the trace does.
+ */
+static int bmi_configure_drdy(const ak_bus_t *bus, int enable)
+{
+    if (!enable) {
+        return bmi_write(bus, BMI_INT_MAP_DATA, 0x00u);
+    }
+    if (bmi_write(bus, BMI_INT_MAP_DATA, BMI_INT_MAP_DRDY_INT1) != 0 ||
+        bmi_write(bus, BMI_INT1_IO_CTRL, BMI_INT1_ACTIVE_HIGH) != 0) {
+        return -1;
+    }
     return 0;
 }
 
@@ -146,19 +254,22 @@ static int bmi_init(const ak_bus_t *bus, ak_printf_fn out)
         return -1;
     }
 
-    if (bmi_write(bus, BMI_ACC_CONF, BMI_ACC_CONF_1600HZ) != 0 ||
+    /* The two rate writes go through the same table and the same function a
+     * later `set gyro_rate_hz` reaches, so `init`'s rate and the settable rates
+     * cannot come apart. A zero here is a table that does not contain
+     * BMI_DEFAULT_ODR_HZ, which is a bug in this file rather than a board. */
+    if (bmi_set_rate(bus, BMI_DEFAULT_ODR_HZ, 0) == 0u ||
         bmi_write(bus, BMI_ACC_RANGE, BMI_ACC_RANGE_16G) != 0 ||
-        bmi_write(bus, BMI_GYRO_CONF, BMI_GYRO_CONF_1600HZ) != 0 ||
         bmi_write(bus, BMI_GYRO_RANGE, BMI_GYRO_RANGE_2000DPS) != 0 ||
-        bmi_write(bus, BMI_INT_MAP_DATA, BMI_INT_MAP_DRDY_INT1) != 0 ||
-        bmi_write(bus, BMI_INT1_IO_CTRL, BMI_INT1_ACTIVE_HIGH) != 0 ||
+        bmi_configure_drdy(bus, 1) != 0 ||
         bmi_write(bus, BMI_PWR_CONF, BMI_PWR_CONF_HP) != 0 ||
         bmi_write(bus, BMI_PWR_CTRL, BMI_PWR_CTRL_ON) != 0) {
         return -1;
     }
 
     if (out != 0) {
-        out("imu:       configured for 1600 Hz, gyro 2000 dps, accel 16 g\n");
+        out("imu:       configured for %u Hz, gyro 2000 dps, accel 16 g\n",
+            (unsigned)BMI_DEFAULT_ODR_HZ);
     }
     return 0;
 }
@@ -198,4 +309,6 @@ const ak_imu_driver_t ak_imu_bmi270 = {
     .whoami_value = BMI_WHOAMI_270,
     .init = bmi_init,
     .read = bmi_read,
+    .configure_drdy = bmi_configure_drdy,
+    .set_rate = bmi_set_rate,
 };

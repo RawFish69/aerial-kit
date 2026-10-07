@@ -207,8 +207,29 @@ void ak_nav_distance_bearing(int32_t from_lat_e7, int32_t from_lon_e7,
                              int32_t to_lat_e7, int32_t to_lon_e7,
                              int32_t *distance_m, int32_t *bearing_e2)
 {
+    /*
+     * The longitude difference is taken the short way round, and in 64 bits.
+     *
+     * Both halves are needed and neither is enough. Longitude is carried in
+     * units of 1e-7 degrees, so a coordinate reaches 1.8e9 and the difference
+     * between two of them reaches 3.6e9 - which is past INT32_MAX, so the
+     * subtraction itself is the bug, before any wrap is considered. Wrapping
+     * it into -180..180 degrees afterwards is what makes the answer the
+     * *shorter* of the two ways round: two points either side of the
+     * antimeridian are metres apart, not most of the planet apart.
+     *
+     * Latitude does not wrap and cannot overflow: its difference is at most
+     * 1.8e9, which fits.
+     */
+    int64_t dlon_e7 = (int64_t)to_lon_e7 - (int64_t)from_lon_e7;
+    if (dlon_e7 > 1800000000LL) {
+        dlon_e7 -= 3600000000LL;
+    } else if (dlon_e7 < -1800000000LL) {
+        dlon_e7 += 3600000000LL;
+    }
+
     float dlat_rad = ak_deg2rad((float)(to_lat_e7 - from_lat_e7) * 1e-7f);
-    float dlon_rad = ak_deg2rad((float)(to_lon_e7 - from_lon_e7) * 1e-7f);
+    float dlon_rad = ak_deg2rad((float)dlon_e7 * 1e-7f);
     float mean_lat_rad =
         ak_deg2rad((float)((from_lat_e7 + to_lat_e7) / 2) * 1e-7f);
 
@@ -835,9 +856,15 @@ static void quad_step(ak_nav_t *nav, const ak_nav_input_t *in,
          * seventy degrees out with the aircraft wandering. */
         out->yaw = 0.0f;
 
-        if (ground_m_s < AK_QUAD_NUDGE_SPEED && in->dt_s > 0.0f &&
-            nav->nudge_ms < AK_QUAD_NUDGE_MS) {
-            nav->nudge_ms += (uint32_t)(in->dt_s * 1000.0f + 0.5f);
+        if (ground_m_s < AK_QUAD_NUDGE_SPEED && nav->nudge_ms < AK_QUAD_NUDGE_MS) {
+            /* The shove is a command and the timer is an accumulation, so only
+             * the timer is gated on there having been an interval. The two were
+             * one condition, and the first step of a return has no interval by
+             * construction - see nav_dt() - which would have postponed the
+             * shove by a step for no reason the manoeuvre has. */
+            if (in->dt_s > 0.0f) {
+                nav->nudge_ms += (uint32_t)(in->dt_s * 1000.0f + 0.5f);
+            }
             out->pitch = -AK_QUAD_NUDGE_TILT;
         } else if (nav->nudge_ms >= AK_QUAD_NUDGE_MS) {
             /* It has tried, and the aircraft is not learning which way it
@@ -1028,8 +1055,52 @@ static void hold_step(ak_nav_t *nav, const ak_nav_input_t *in,
     out->throttle = nav->cruise;
 }
 
+/*
+ * The interval this step is allowed to have, which is not always the interval
+ * the caller reported. See AK_NAV_MAX_DT_MS for what the bound is and why.
+ *
+ * Two things are taken out of the caller's number here, and both of them are
+ * intervals the navigator did not fly:
+ *
+ *   - The first step of an engagement is worth nothing, whatever the caller
+ *     says. The caller's interval is measured from *its* last step, and the
+ *     navigator was disengaged for all of it - `main.c` returns before it
+ *     computes the interval while there is no fix and nobody is coming home,
+ *     so the clock it is handed spans the whole time the pilot was flying.
+ *     There is no predecessor in this engagement, so there is no interval:
+ *     the same answer the flight core gives a sample with no predecessor, and
+ *     for the same reason - inventing one would be a claim about a step that
+ *     did not happen. `steps` is zeroed by ak_nav_engage() and not by anything
+ *     else, which is what makes it the right thing to ask.
+ *
+ *   - Anything past the bound. What is left over is *counted* rather than
+ *     quietly dropped, so the console can say a loop ran short instead of
+ *     showing a guidance loop that is simply behaving oddly.
+ *
+ * A zero, a negative, or a NaN all come out as zero rather than being passed
+ * on. The negative and the NaN are not intervals either, and the NaN is the
+ * one that used to reach the arithmetic: every comparison against it is false,
+ * so `quad_climb_sample`'s `dt_s <= 0.0f` guard let it through to a cast.
+ */
+static float nav_dt(ak_nav_t *nav, float dt_s)
+{
+    if (!(dt_s > 0.0f)) {
+        return 0.0f;
+    }
+    if (nav->steps == 0u) {
+        return 0.0f;
+    }
+    if (dt_s > AK_NAV_MAX_DT_S) {
+        nav->dt_clipped_ms += (uint32_t)((dt_s - AK_NAV_MAX_DT_S) * 1000.0f +
+                                         0.5f);
+        return AK_NAV_MAX_DT_S;
+    }
+    return dt_s;
+}
+
 int ak_nav_step(ak_nav_t *nav, const ak_nav_input_t *in, ak_rc_command_t *out)
 {
+    ak_nav_input_t bounded;
     int32_t target_lat;
     int32_t target_lon;
     int32_t distance_m = 0;
@@ -1040,6 +1111,17 @@ int ak_nav_step(ak_nav_t *nav, const ak_nav_input_t *in, ak_rc_command_t *out)
     if (!nav->active || !nav->have_home) {
         return 0;
     }
+
+    /*
+     * Every integrator below reads `in->dt_s`, and there are a lot of them -
+     * the wing's altitude loop, the quadrotor's throttle loop, its climb-rate
+     * window and its station-holding wind - so the interval is bounded once,
+     * here, on a copy, rather than trusted at each of them. `nav_dt()` asks
+     * `nav->steps`, so it runs before the step is counted.
+     */
+    bounded = *in;
+    bounded.dt_s = nav_dt(nav, in->dt_s);
+    in = &bounded;
 
     nav->steps++;
 
@@ -1127,9 +1209,25 @@ int ak_nav_step(ak_nav_t *nav, const ak_nav_input_t *in, ak_rc_command_t *out)
     } else if (arrived && nav->profile == AK_NAV_PROFILE_WING) {
         /* The last waypoint, or home: a wing cannot stop, so it circles. The
          * quadrotor's arrival is the descent its own profile is already
-         * flying - there is nothing here to override. */
+         * flying - there is nothing here to override.
+         *
+         * **Only the roll.** `wing_step()` above has already computed this
+         * step's pitch, from this step's altitude and interval - so computing
+         * it again here was not a second opinion, it was a second *step* of
+         * the same loop: a circling wing advanced `alt_i` twice per control
+         * step and flew its altitude I-gain at twice the gain `alt_ki` names.
+         *
+         * And the second call's answer is the one that reached the output,
+         * because its return value is what this branch assigned - so the
+         * commanded pitch came from an integrator that had just been stepped
+         * twice as well. Measured on a wing two metres low at 50 Hz, twenty
+         * loiter steps, `alt_ki` 0.1: `alt_i` 0.080 with this line gone and
+         * 0.160 with it, and the commanded pitch 0.100 against 0.180.
+         *
+         * The accumulator is the part that carries: `alt_i` is state, and the
+         * extra 0.08 is still there at the start of the next step.
+         */
         out->roll = nav->loiter_roll;
-        out->pitch = hold_altitude(nav, in->alt_mm, in->dt_s);
     }
 
     return 1;

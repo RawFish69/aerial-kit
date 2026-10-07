@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import struct
 import sys
 import xml.etree.ElementTree as ET
 
@@ -60,6 +61,11 @@ MESSAGES = [
     "SYS_STATUS",
     "PARAM_REQUEST_LIST",
     "PARAM_VALUE",
+    # The third message this app sends. It is in this list for the same reason
+    # the other two are: a message a client puts on the wire is one whose
+    # definition it had better have right, and this one changes a number the
+    # autopilot acts on.
+    "PARAM_SET",
     "GPS_RAW_INT",
     "ATTITUDE",
     "GLOBAL_POSITION_INT",
@@ -188,6 +194,228 @@ def messages_from_xml(where: str) -> dict[str, dict]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# The other half of the question: what a peer newer than this table sends.
+# ---------------------------------------------------------------------------
+#
+# `messages` above is the dialect as **pymavlink** publishes it, and pymavlink
+# is pinned and finite. That is the right oracle for "is this app's table
+# correct", and the wrong one for "will this app read what a real vehicle
+# sends" - because MAVLink grows a message by appending fields after
+# `<extensions/>`, and those appended fields are **excluded from `crc_extra`**.
+#
+# That exclusion is the design rather than an oversight: it is what lets a
+# vehicle add a field without invalidating every ground station already in the
+# field. Its consequence is the one that matters here - a frame whose checksum
+# validates may still carry bytes past the definition the validator holds, and
+# the check passing says nothing about those bytes either way.
+#
+# So a payload longer than this app's layout is not a fault and not a newer
+# dialect to refuse; it is an ordinary frame from a vehicle whose dialect grew
+# after this app's table was copied, and the honest reading is its first
+# `structLength` bytes plus a note that there is more. Found on `SYS_STATUS`:
+# the pinned table carries 31 bytes, PX4 1.17.0 sends 43, and the app dropped
+# every frame of the link for the difference.
+#
+# This block therefore records, from PX4's own pinned definition, which of the
+# messages this app carries have grown since the pin, by how many bytes and
+# with which fields - and builds one real frame per grown message, packed
+# longhand to MAVLink's wire rule and checksummed with the `crc_extra`
+# pymavlink derived. `tests/dialect.test.ts` decodes those with the app's own
+# decoder and requires the base fields back exactly as they were put in, which
+# is the one thing hand-typed hex could not establish.
+
+#: PX4's message definitions, relative to its checkout root.
+PX4_XML = os.path.join("src", "modules", "mavlink", "mavlink",
+                       "message_definitions", "v1.0")
+DEFAULT_PX4 = os.path.abspath(os.path.join(HERE, "..", "..", "..",
+                                           "upstream", "px4-1.17.0"))
+
+#: Wire sizes in bytes, and the struct format each type packs as.
+SIZES = {"double": 8, "uint64_t": 8, "int64_t": 8, "float": 4, "uint32_t": 4,
+         "int32_t": 4, "uint16_t": 2, "int16_t": 2, "char": 1, "int8_t": 1,
+         "uint8_t": 1}
+FMT = {"double": "d", "uint64_t": "Q", "int64_t": "q", "float": "f",
+       "uint32_t": "I", "int32_t": "i", "uint16_t": "H", "int16_t": "h",
+       "char": "c", "int8_t": "b", "uint8_t": "B"}
+
+#: The framing the frames below use. Fixed rather than random: the fixture is
+#: compared byte for byte between runs, so anything that varies would make
+#: `--check` red for no reason.
+FRAME_SEQ, FRAME_SYS, FRAME_COMP = 9, 1, 1
+
+
+def field_size(field: dict) -> int:
+    return SIZES[field["type"]] * field.get("count", 1)
+
+
+def wire_order(fields: list[dict]) -> list[dict]:
+    """MAVLink sorts the base fields by descending size, stable within a size.
+
+    Extensions are *not* sorted: they go on the end in declaration order, after
+    every base field. Sorting them too would produce a frame a real vehicle
+    never sends, which would test the wrong thing.
+    """
+    base = [f for f in fields if not f.get("ext")]
+    ext = [f for f in fields if f.get("ext")]
+    return sorted(base, key=lambda f: -SIZES[f["type"]]) + ext
+
+
+def sample_value(field: dict, order: int) -> object:
+    """A value of the field's own type, distinct per field.
+
+    Distinct so that a decoder reading the wrong offset fails rather than
+    happening to agree; of the field's own type so the bytes are legal on the
+    wire; and a pure function of the field's position so the frame is the same
+    on every run.
+    """
+    count = field.get("count", 1)
+    if field["type"] == "char":
+        return "".join(chr(ord("a") + (order + k) % 26) for k in range(count))
+    if count > 1:
+        return [(order * 16 + k + 1) & 0xFF for k in range(count)]
+    width = SIZES[field["type"]] * 8
+    if field["type"] in ("float", "double"):
+        return float(order + 1) * 1.5
+    if field["type"] in ("int8_t", "int16_t", "int32_t", "int64_t"):
+        width -= 1  # keep it positive, so the JSON comparison is exact
+    return ((order + 1) * 0x11) & ((1 << width) - 1)
+
+
+def pack_field(field: dict, value: object) -> bytes:
+    count = field.get("count", 1)
+    if field["type"] == "char":
+        raw = value.encode("ascii")[:count]
+        return raw + bytes(count - len(raw))
+    if count > 1:
+        return struct.pack("<%d%s" % (count, FMT[field["type"]]), *value)
+    if field["type"] in ("float", "double"):
+        return struct.pack("<" + FMT[field["type"]], value)
+    return struct.pack("<" + FMT[field["type"]], value)
+
+
+def crc16_mcrf4xx(data: bytes, extra: int) -> int:
+    """MAVLink's checksum, with the message's `crc_extra` folded in at the end.
+
+    Written out here rather than imported because the two scripts that need it
+    are standalone tools with no shared module between them - the same reason
+    `capture-mavlink-fixtures.py` has its own copy. It is checked the only way
+    that means anything: a wrong implementation makes every `crc_extra` in the
+    file fail to validate a frame, and `read_v2` below refuses to write one.
+    """
+    crc = 0xFFFF
+    for byte in data:
+        tmp = byte ^ (crc & 0xFF)
+        tmp = (tmp ^ (tmp << 4)) & 0xFF
+        crc = ((crc >> 8) ^ (tmp << 8) ^ (tmp << 3) ^ (tmp >> 4)) & 0xFFFF
+    tmp = extra ^ (crc & 0xFF)
+    tmp = (tmp ^ (tmp << 4)) & 0xFF
+    return ((crc >> 8) ^ (tmp << 8) ^ (tmp << 3) ^ (tmp >> 4)) & 0xFFFF
+
+
+def frame_v2(msgid: int, payload: bytes, extra: int) -> bytes:
+    body = bytes([len(payload), 0, 0, FRAME_SEQ, FRAME_SYS, FRAME_COMP,
+                  msgid & 0xFF, (msgid >> 8) & 0xFF, (msgid >> 16) & 0xFF]) + payload
+    return bytes([0xFD]) + body + struct.pack("<H", crc16_mcrf4xx(body, extra))
+
+
+def read_v2(buf: bytes) -> tuple[int, bytes]:
+    """`(msgid, payload)` from a v2 frame, checksum verified against its own id.
+
+    This script's own reader, not pymavlink's, so a frame it accepts is one two
+    independent framings agree on. A frame it rejects fails the run rather than
+    landing in the fixture as a test that cannot pass.
+    """
+    if len(buf) < 12 or buf[0] != 0xFD:
+        raise ValueError("not a v2 frame")
+    length = buf[1]
+    msgid = buf[7] | (buf[8] << 8) | (buf[9] << 16)
+    payload = buf[10:10 + length]
+    if len(payload) != length:
+        raise ValueError("short frame")
+    got = struct.unpack_from("<H", buf, 10 + length)[0]
+    if got != crc16_mcrf4xx(buf[1:10 + length], CRC_EXTRA_BY_ID.get(msgid, -1)):
+        raise ValueError("checksum")
+    return msgid, payload
+
+
+#: Filled in by `newer_peer()` from pymavlink's own `crc_extra`, so `read_v2`
+#: checks against a value this script did not choose.
+CRC_EXTRA_BY_ID: dict[int, int] = {}
+
+
+def newer_peer(px4_dir: str, mine: dict[str, dict]) -> dict:
+    """Which of this app's messages have grown since the pin, and by how much.
+
+    Returns `{"measured": path, ...}` with an empty `messages` list when PX4 is
+    not on this machine - the field lists below come out of that checkout, and
+    inventing them would be worse than saying they were not read.
+    """
+    where = os.path.join(px4_dir, PX4_XML)
+    theirs = messages_from_xml(where) if os.path.isdir(where) else {}
+
+    grown: list[dict] = []
+    for name in MESSAGES:
+        definition = theirs.get(name)
+        if definition is None:
+            continue
+        # A base field list that disagrees is not an extension and not a silence:
+        # MAVLink does not change the base of a message, so this would be a
+        # finding about one of the two sources and must stop the run.
+        first = [f for f in mine[name]["fields"] if not f.get("ext")]
+        second = [f for f in definition["fields"] if not f.get("ext")]
+        if first != second:
+            sys.exit(
+                f"{name}: PX4's definition and pymavlink's disagree about the base "
+                f"fields, which MAVLink does not change.\n  pymavlink: {first}\n"
+                f"  px4:       {second}"
+            )
+        base_bytes = sum(field_size(f) for f in first)
+        ext = [f for f in definition["fields"] if f.get("ext")]
+        if not ext:
+            continue
+
+        order = wire_order(definition["fields"])
+        values = {f["name"]: sample_value(f, i) for i, f in enumerate(order)}
+        payload = b"".join(pack_field(f, values[f["name"]]) for f in order)
+        extra = CRC_EXTRA_BY_ID.get(definition["id"])
+        if extra is None:
+            sys.exit(f"{name}: no crc_extra for id {definition['id']}")
+        frame = frame_v2(definition["id"], payload, extra)
+        got, back = read_v2(frame)
+        if got != definition["id"] or back != payload:
+            sys.exit(f"{name}: this script's own reader did not recover the frame it built")
+
+        grown.append({
+            "name": name,
+            "id": definition["id"],
+            "crc_extra": extra,
+            "base_bytes": base_bytes,
+            "full_bytes": base_bytes + sum(field_size(f) for f in ext),
+            "extension_fields": [f["name"] for f in ext],
+            "frame_hex": frame.hex(),
+            # The *base* fields as they were packed, so the TypeScript side can
+            # require the app's decoder to return them unchanged. The extension
+            # values are deliberately not listed: what the app does with bytes
+            # it has no definition for is the other half of the test, and it is
+            # asserted as "the base fields still agree", not as a value.
+            "expect": {f["name"]: values[f["name"]] for f in first},
+        })
+
+    return {
+        "note": (
+            "Which of the messages this app carries have grown since pymavlink "
+            "2.4.49 was pinned, read from PX4's own definition, and one real "
+            "frame per grown message. See the comment above `newer_peer()` in "
+            "tools/check-dialect.py for why a longer payload is a legal frame "
+            "rather than a fault."
+        ),
+        "measured": where if theirs else None,
+        "source": "px4-1.17.0 common.xml" if theirs else None,
+        "messages": grown,
+    }
+
+
 def cross_check(messages: list[dict]) -> None:
     """Refuse to write anything this script and pymavlink's generated code disagree on.
 
@@ -270,7 +498,7 @@ HOW_TO_INSTALL = (
 )
 
 
-def build() -> dict:
+def build(px4_dir: str = DEFAULT_PX4, disk: dict | None = None) -> dict:
     try:
         import pymavlink as pm
     except ImportError:
@@ -297,8 +525,27 @@ def build() -> dict:
                 "fields": definition["fields"],
             }
         )
+        # Read by `read_v2`, so the frames in the newer-peer block below are
+        # checked against pymavlink's numbers rather than this script's.
+        CRC_EXTRA_BY_ID[definition["id"]] = extras[name]
 
     cross_check(messages)
+
+    peer = newer_peer(px4_dir, xml)
+    if peer["measured"] is None:
+        # PX4's checkout is not part of this repository and not everyone has
+        # one. Rather than drop the block - which would silently turn the check
+        # into one that only covers the pinned dialect, exactly the gap this
+        # half exists to close - the measured block is carried forward as it
+        # stands, and this says so out loud every time.
+        kept = (disk or {}).get("newer_peer") or {"messages": []}
+        print(
+            "check-dialect: no PX4 checkout at %s, so the newer-peer block is "
+            "carried forward from %s as %s measured it (%d messages)."
+            % (px4_dir, OUT, kept.get("source") or "nothing", len(kept.get("messages", []))),
+            file=sys.stderr,
+        )
+        peer = kept
 
     return {
         "note": (
@@ -311,7 +558,17 @@ def build() -> dict:
         "source": "common.xml",
         "pymavlink": pm.__version__,
         "messages": messages,
+        "newer_peer": peer,
     }
+
+
+def read_disk() -> dict | None:
+    """What is in the fixture now, for the newer-peer block to be carried in."""
+    try:
+        with open(OUT) as handle:
+            return json.load(handle)
+    except (FileNotFoundError, ValueError):
+        return None
 
 
 def main() -> int:
@@ -321,9 +578,15 @@ def main() -> int:
         action="store_true",
         help="fail if tests/fixtures/dialect.json is not what the dialect says",
     )
+    parser.add_argument(
+        "--px4",
+        default=DEFAULT_PX4,
+        help="a PX4 checkout, read for the fields it has added to the messages "
+             "this app carries since pymavlink was pinned (default: %(default)s)",
+    )
     args = parser.parse_args()
 
-    derived = build()
+    derived = build(args.px4, read_disk())
     text = json.dumps(derived, indent=2, sort_keys=False) + "\n"
 
     if args.check:
@@ -340,7 +603,9 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        print(f"dialect.json matches {derived['source']} from pymavlink {derived['pymavlink']}")
+        print(f"dialect.json matches {derived['source']} from pymavlink {derived['pymavlink']}, "
+              f"and {len(derived['newer_peer']['messages'])} grown messages from "
+              f"{derived['newer_peer']['source'] or 'a block carried forward'}")
         return 0
 
     with open(OUT, "w") as handle:
@@ -350,6 +615,11 @@ def main() -> int:
         f"wrote {OUT}: {len(derived['messages'])} messages, {total} fields, "
         f"from pymavlink {derived['pymavlink']}"
     )
+    for entry in derived["newer_peer"]["messages"]:
+        print(
+            f"  {entry['name']} has grown: {entry['base_bytes']} -> "
+            f"{entry['full_bytes']} bytes, +{', '.join(entry['extension_fields'])}"
+        )
     return 0
 
 

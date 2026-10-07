@@ -16,15 +16,26 @@ import struct
 import subprocess
 import sys
 
-from akproto import (Client, HELLO, LOG_FIELDS, LOG_INFO, LOG_SOURCES, PARAM_GET,
+from akproto import (Client, HELLO, LOG_FIELDS, LOG_INFO, LOG_SOURCES, LOG_STREAM,
+                     LOG_STREAM_DONE, LOG_STREAM_MAX_HZ,
+                     LOG_STREAM_RECORD, OUTPUT_INFO, OUTPUT_INFO_OK,
+                     OUTPUT_MOTOR, LOG_RECORD_BYTES, LOG_RECORD_V2_BYTES,
+                     LOG_RECORD_V3_BYTES, parse_log_record,
+                     OUTPUT_SERVO, OUTPUT_TEST, OUTPUT_TEST_ARMED,
+                     OUTPUT_TEST_HOLD, OUTPUT_TEST_NO_OP, OUTPUT_TEST_NO_OUTPUT,
+                     OUTPUT_TEST_OK, OUTPUT_TEST_STOP, OUTPUT_TEST_STOPPED,
+                     PARAM_GET,
                      PARAM_SET, PARAM_SAVE, RC_CHANNELS, RC_MAX_CHANNELS, RC_NONE,
                      SENSOR_BARO, SENSOR_BATTERY, SENSOR_BODY_LENGTH, SENSOR_GPS,
                      SENSOR_IMU, SENSOR_INFO, SENSOR_NO_SUCH, SENSOR_OK,
                      SENSOR_RANGE, SENSOR_TOPICS,
                      STATUS, c_string,
-                     fetch_log, parse_hello, parse_rc_channels, parse_sensor_info,
+                     fetch_log, fetch_log_streamed, next_log_frame, output_info,
+                     output_test, parse_hello,
+                     parse_output_info, parse_output_test, parse_rc_channels,
+                     parse_sensor_info,
                      parse_status, parse_telemetry, select_log, sensor_info,
-                     set_reply)
+                     set_reply, start_log_stream, stop_outputs)
 
 # A telemetry frame the ESP32 produced under QEMU on 2026-09-14, the first one
 # after a client subscribed at 20 Hz. It is the `frame` line of
@@ -251,6 +262,31 @@ def check_sensor_replies():
            full["body"]["driver"] == "lsm6dsotwo")
 
 
+def check_record_versions():
+    """A record's length is its version: 87, 66 and 51 decode, nothing else.
+
+    The simulator only speaks version 4, so the older lengths are checked here
+    on the bytes of a version 4 record cut to them - which is exactly what an
+    older board sends, because every version appended to the one before."""
+    body = bytes(range(1, LOG_RECORD_BYTES + 1))
+    full = parse_log_record(b"\0" + body)
+    v3 = parse_log_record(b"\0" + body[:LOG_RECORD_V3_BYTES])
+    v2 = parse_log_record(b"\0" + body[:LOG_RECORD_V2_BYTES])
+    expect("a version 4 record fills every column",
+           len(full) == len(LOG_FIELDS) and "" not in full)
+    expect("a version 3 record decodes to the same first 35 columns and "
+           "leaves the controller's fourteen empty",
+           v3[:35] == full[:35] and v3[35:] == [""] * 14)
+    expect("a version 2 record leaves the last 23 empty",
+           v2[:26] == full[:26] and v2[26:] == [""] * 23)
+    try:
+        parse_log_record(b"\0" + body[:70])
+        cut = False
+    except IOError:
+        cut = True
+    expect("a record cut between versions is a fault, not a version", cut)
+
+
 def check_reply_shapes():
     """The receiver parser against frames no peer here can produce.
 
@@ -357,9 +393,10 @@ def check_reply_shapes():
 # binary happened to be in build-host - built by some earlier, unrelated
 # command. The check passed, and it was not checking the build under test.
 SIM = os.environ.get("AK_SIM", "build-host/aerialkit-sim")
-# And how to start it: the protocol simulator takes no arguments (it *is* the
-# protocol's other end), where the whole firmware in a console session needs
-# `0 console`. Empty by default, so nothing about the simulator changes.
+# And how to start it: the protocol simulator takes one word - `stream`, for the
+# link that can be pushed at; nothing, for the console's shape - where the whole
+# firmware in a console session needs `0 console`. Empty by default, so the
+# simulator starts as the console-shaped peer unless a check asks otherwise.
 SIM_ARGS = os.environ.get("AK_SIM_ARGS", "").split()
 
 # The product the firmware under test was built as, which the Makefile passes
@@ -382,16 +419,24 @@ def expect(name, condition):
         failures += 1
 
 
-def main():
-    process = subprocess.Popen([SIM] + SIM_ARGS, stdin=subprocess.PIPE,
-                               stdout=subprocess.PIPE,
+def start_sim(*args):
+    """A simulator and a client reading it, with `args` handed to the binary.
+
+    The simulator takes one word: `stream` makes its single link the network's,
+    which is the kind that can be pushed at. Started with nothing it is the
+    console's shape - a wire somebody types at - which is what every check but
+    the pushed-range one wants, and it is why the streaming block below starts
+    its own peer instead of putting this whole file on the other link.
+    """
+    process = subprocess.Popen([SIM] + SIM_ARGS + list(args),
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL)
+    return process, Client(process.stdout.read, lambda data: (
+        process.stdin.write(data), process.stdin.flush()))
 
-    def write(data):
-        process.stdin.write(data)
-        process.stdin.flush()
 
-    client = Client(process.stdout.read, write)
+def main():
+    process, client = start_sim()
 
     print("client against the firmware's own protocol code")
 
@@ -404,10 +449,11 @@ def main():
     # table that grew or shrank without anybody noticing is exactly what this is
     # here to catch. It moved from 27 to 28 with `arm_max_tilt_deg`, from 28 to
     # 31 with the fixed wing's lost-link descent, to 32 with the gyro's low
-    # pass, and to 33 with the arming gate's accelerometer low pass - and each
-    # time the number is *here* rather than read from `AK_FLIGHT_PARAM_COUNT` on
-    # purpose: a check that took the count from the firmware could not notice the
-    # firmware changing it.
+    # pass, to 33 with the arming gate's accelerometer low pass, and to 39 with
+    # the two filter chains - eight parameters where there had been two - and
+    # each time the number is *here* rather than read from
+    # `AK_FLIGHT_PARAM_COUNT` on purpose: a check that took the count from the
+    # firmware could not notice the firmware changing it.
     #
     # The 33rd is the one that shows why the number is worth writing down. The
     # gate-filter patch added `arm_accel_lpf_hz` to the table and did not move
@@ -415,7 +461,25 @@ def main():
     # reached over the protocol, and `proto-test` is a different stage. It was
     # green everywhere the patch was measured and red the first time the stage
     # that owns this number ran.
-    expect("and reports the parameter table", count == 33)
+    #
+    # The move to 39 is the same detector firing again, on the milestone that
+    # renamed two parameters into eight. `gyro_lpf_hz` became
+    # `gyro_lpf1_static_hz`/`_dyn_min_hz`/`_dyn_max_hz` and
+    # `gyro_lpf2_static_hz`; `d_cutoff_hz` became the same four for the D-term
+    # chain. 33 - 2 + 8 = 39, and this stage is where the arithmetic was
+    # checked rather than assumed.
+    #
+    # The move to 43 is the notch bank's four: `dyn_notch_count`, `_q`,
+    # `_min_hz` and `_max_hz`. 39 + 4 = 43, and the same arithmetic was done
+    # here rather than read out of `AK_FLIGHT_PARAM_COUNT`. The bank itself
+    # notches nothing at this loop rate - it refuses below 2 kHz - and the
+    # parameters are still in the table, because a parameter that exists only
+    # at rates a board can be asked for is a parameter, not a mode.
+    #
+    # The move to 45 is the receiver's two switch channels, `arm_channel` and
+    # `mode_channel` (2026-10-05): ExpressLRS and the custom ESP-NOW radio both
+    # arm on CH5, and the fixed order read CH5 as the mode switch. 43 + 2 = 45.
+    expect("and reports the parameter table", count == 45)
 
     # ---- the capability word, on the stand-in -----------------------------
     #
@@ -441,9 +505,23 @@ def main():
     parsed = parse_hello(hello)
     expect("the stand-in carries a capability word at all",
            parsed["features"] is not None)
-    expect("and it is exactly the one this binary can keep "
-           "(PARAM_INFO, and not APPLIES_ON_WRITE)",
-           parsed["features"] == 1 << 0)
+    # Exact, and not a subset test, because both directions of a wrong word are
+    # the same lie: a bit left out under-reports to every client, and a bit put
+    # in over-promises. The four here are PARAM_INFO, OUTPUT_INFO, OUTPUT_TEST
+    # and LOG_STREAM, and each is there because `ak_proto.c` has the `case` and
+    # this binary answers it - the first through `param info`, the two output
+    # ones through the callbacks and the checks below, the last through the push
+    # loop at the bottom of `akproto_sim.c`. APPLIES_ON_WRITE is the one that
+    # must stay clear: this binary has no `on_change` and nothing to re-apply.
+    #
+    # This line is also the one that caught the two output bits when they were
+    # added: the sim's initialiser grew them and this check failed, which is the
+    # correct direction of surprise - a capability word is a claim, and the
+    # claim changing should be something a person sees.
+    expect("and it is exactly the ones this binary can keep "
+           "(PARAM_INFO, OUTPUT_INFO, OUTPUT_TEST and LOG_STREAM, and not "
+           "APPLIES_ON_WRITE)",
+           parsed["features"] == (1 << 0) | (1 << 6) | (1 << 7) | (1 << 8))
 
     first = client.request(PARAM_GET, bytes([0]))
     name = c_string(first, 1)
@@ -510,11 +588,50 @@ def main():
     # tool needs to say where the aircraft was, and the ones where a client
     # that forgot the layout grew after the state and the flags writes a
     # column of zeroes that look exactly like a flight with no fix.
+    #
+    # Indexed by name rather than by "the second from the end". They were last
+    # when this was written, and then roadmap 2.4 appended the filtering
+    # columns behind them - so the arithmetic that said "the last two" quietly
+    # came to mean the notch centres, which is the same bug this assertion
+    # exists to catch, one level up.
+    lat_at = LOG_FIELDS.index("lat_e7")
+    lon_at = LOG_FIELDS.index("lon_e7")
     expect("and the position decodes where the layout says",
-           first[len(LOG_FIELDS) - 2] == "521234500" and
-           first[len(LOG_FIELDS) - 1].strip() == "-49876500" and
-           last[len(LOG_FIELDS) - 2] == "521234505" and
-           last[len(LOG_FIELDS) - 1].strip() == "-49876495")
+           first[lat_at] == "521234500" and
+           first[lon_at].strip() == "-49876500" and
+           last[lat_at] == "521234505" and
+           last[lon_at].strip() == "-49876495")
+    # And the tail, which is what a client reads to judge the filter: the
+    # columns are the ones the app's blackbox tab plots, so an offset that is
+    # one byte out in the *client* has to be caught here, where the simulator
+    # is the only authority on what it sent.
+    expect("and the filtering columns decode past the record's old end",
+           first[LOG_FIELDS.index("gyro_fx")] == "90" and
+           first[LOG_FIELDS.index("gyro_fy")] == "-70" and
+           first[LOG_FIELDS.index("gyro_fz")] == "11" and
+           first[LOG_FIELDS.index("notch_hz_x")] == "211" and
+           first[LOG_FIELDS.index("notch_hz_y")] == "233" and
+           first[LOG_FIELDS.index("notch_hz_z")] == "257" and
+           first[LOG_FIELDS.index("notch_engaged_x")] == "1" and
+           last[LOG_FIELDS.index("gyro_fx")] == "95")
+    # And version 4's tail past that (roadmap 4.1), by name for the same
+    # reason: the controller's columns are what a tuning session reads, and the
+    # clock is the one field wider than 16 bits that a decoder could truncate.
+    col = {name: LOG_FIELDS.index(name) for name in LOG_FIELDS}
+    expect("and the controller columns decode past version 3's end",
+           first[col["time_us"]] == "4000123" and
+           first[col["setpoint_roll"]] == "-1234" and
+           first[col["setpoint_pitch"]] == "567" and
+           first[col["setpoint_yaw"]] == "8" and
+           [first[col[n]] for n in ("p_roll", "p_pitch", "p_yaw")]
+           == ["12", "-34", "56"] and
+           [first[col[n]] for n in ("i_roll", "i_pitch", "i_yaw")]
+           == ["-7", "9", "-11"] and
+           [first[col[n]] for n in ("d_roll", "d_pitch", "d_yaw")]
+           == ["3", "-127", "127"] and
+           first[col["vbat_mv"]].strip() == "15987" and
+           last[col["time_us"]] == "4020123" and
+           last[col["vbat_mv"]].strip() == "15992")
 
     # The log in flash, over the same two commands: this is the whole path a
     # tool uses to pull the log that survived the crash - source, count, and
@@ -534,8 +651,90 @@ def main():
     expect("and the source it had is still selected afterwards",
            fetch_log(client, rows.append, LOG_SOURCES["fast"]) == 6)
 
+    # ---- the same ring, pushed rather than asked for ----------------------
+    #
+    # `log get` costs a round trip per record, which is nothing for this
+    # stand-in's six-record ring and 6 552 round trips for the F405's flash
+    # log. `LOG_STREAM` is the other shape, and what makes it worth checking
+    # *here* - rather than only in the C tests - is that reassembling a range
+    # out of pushed frames is the client's half of it. The C tests drive the
+    # parser's state directly; this drives frames through a pipe into
+    # `next_log_frame`, which is the code the configurator and `akproto.py log`
+    # will actually use.
+    #
+    # The comparison is the point of the check. The same records, by the same
+    # indices, both ways: a stream that dropped one and renumbered the rest
+    # would look perfect on its own, and only a second reading of the same ring
+    # can say otherwise.
+    #
+    # It runs against a second simulator, started in `stream` mode, because a
+    # link that can be pushed at is not the link everything above this is
+    # about. The board has two - a console, where a pushed frame among a
+    # person's keystrokes is a console nobody can use, and a network link,
+    # which is the only place `LOG_STREAM` means anything - and the simulator
+    # says which one it is standing in for rather than being both at once.
+    # `akconfig_check.py` is the other side of that: it drives the default,
+    # console-shaped simulator and asserts the zero this one does not answer.
+    push_process, push_client = start_sim("stream")
+    select_log(client, LOG_SOURCES["fast"])
+    one_at_a_time = []
+    fetch_log(client, one_at_a_time.append, LOG_SOURCES["fast"])
+    pushed = []
+    got, holes = fetch_log_streamed(push_client, pushed.append,
+                                    LOG_SOURCES["fast"])
+    expect("a range pushed by the board is the same log as one asked for record "
+           "by record",
+           got == 6 and holes == 0 and pushed[1:] == one_at_a_time[1:] and
+           pushed[0].startswith("# aerialkit blackbox (fast)"))
+
+    # And the same request against the console-shaped simulator is answered
+    # with a zero rather than a rate no frame would arrive at - the difference
+    # between the two links, checked rather than described.
+    expect("a link that cannot push says so instead of naming a rate",
+           start_log_stream(client, LOG_SOURCES["fast"], 0, 6,
+                            LOG_STREAM_MAX_HZ) ==
+           (LOG_SOURCES["fast"], 0, 0, 0))
+
+    answer = start_log_stream(push_client, LOG_SOURCES["fast"], 1, 3,
+                              LOG_STREAM_MAX_HZ)
+    expect("a range is answered with the source, the first index, the count and "
+           "the rate that will actually be sent",
+           answer == (LOG_SOURCES["fast"], 1, 3, LOG_STREAM_MAX_HZ))
+    seen = []
+    while True:
+        status, source, index, record = next_log_frame(push_client)
+        if status == LOG_STREAM_DONE:
+            break
+        seen.append((status, source, index))
+    # The index comes off every frame, not from a counter here. A client that
+    # counted would report the records after a hole against the wrong
+    # timestamps, and would do it without saying so.
+    expect("and every pushed frame names its own status, source and index",
+           seen == [(LOG_STREAM_RECORD, LOG_SOURCES["fast"], 1),
+                    (LOG_STREAM_RECORD, LOG_SOURCES["fast"], 2),
+                    (LOG_STREAM_RECORD, LOG_SOURCES["fast"], 3)])
+
+    # What will be sent, not what was asked for - the one thing that makes a
+    # range safe to name without checking the ring's size first.
+    expect("a count past the end of the ring comes back clamped",
+           start_log_stream(push_client, LOG_SOURCES["fast"], 4, 99, 10) ==
+           (LOG_SOURCES["fast"], 4, 2, 10))
+    expect("a rate past the cap comes back as the cap",
+           start_log_stream(push_client, LOG_SOURCES["fast"], 0, 1, 200) ==
+           (LOG_SOURCES["fast"], 0, 1, LOG_STREAM_MAX_HZ))
+    expect("a range with nothing in it is answered with nothing to send",
+           start_log_stream(push_client, LOG_SOURCES["fast"], 100, 4, 10) ==
+           (LOG_SOURCES["fast"], 0, 0, 0))
+    expect("and a log this device does not have is refused, not reported empty",
+           start_log_stream(push_client, LOG_SOURCES["long"], 0, 1, 10) is None)
+    expect("and a request that names no rate is refused, not defaulted to one",
+           push_client.request(LOG_STREAM,
+                               bytes([LOG_SOURCES["fast"], 0, 0]))[0] != 0)
+    push_process.kill()
+
     check_captured_telemetry()
     check_reply_shapes()
+    check_record_versions()
 
     # The other half of the receiver, and the reason it is checked here rather
     # than against the whole firmware: this stand-in has no `rc_state` callback,
@@ -587,6 +786,108 @@ def main():
     expect("and refuses a request that named no topic",
            parse_sensor_info(client.request(SENSOR_INFO, b""))["status"] ==
            SENSOR_NO_SUCH)
+
+    # ---- the outputs, and the one verb on this wire that spins a motor ------
+    #
+    # This stand-in *has* outputs - `sim_outputs` is a fixed shape of four
+    # motors and two servos - so it is the opposite half of the receiver and
+    # sensor checks above, where this binary had no callback at all. Both halves
+    # are needed: the dispatch answers NONE for a null callback, and nothing in
+    # this file would exercise that if the stand-in had no outputs. The whole
+    # firmware's check drives the board's real callback; this drives a fiction
+    # whose servo 1 is deliberately reversed with a negative trim, which is the
+    # pair of fields a client reading the entry from the wrong offset loses.
+    listing = output_info(client)
+    expect("a board with outputs answers with a list and the split",
+           listing["status"] == OUTPUT_INFO_OK and listing["count"] == 6 and
+           listing["motors"] == 4 and listing["servos"] == 2)
+    expect("and every entry is seven bytes, counted off the frame rather than "
+           "taken from the struct that wrote it",
+           len(client.last_frame) - 7 == 5 + listing["count"] * 7)
+    # The cap comes with the list on every path, and it is the firmware's number
+    # rather than the board's: a client that only learned it from a board with
+    # outputs would have no ceiling to draw on a board without.
+    expect("and states the cap the output test will hold to",
+           listing["cap_pct"] == 15)
+
+    kinds = [o["kind"] for o in listing["outputs"]]
+    expect("the four motors come first, then the two servos",
+           kinds == [OUTPUT_MOTOR] * 4 + [OUTPUT_SERVO] * 2)
+    expect("and a motor carries no neutral or travel, because it has neither",
+           [o["trim_us"] for o in listing["outputs"][:4]] == [None] * 4 and
+           [o["travel_us"] for o in listing["outputs"][:4]] == [None] * 4)
+    # The two fields a client draws, at values neither zero nor symmetric - the
+    # sim's own shape, which is why a misread offset shows up here.
+    servo1 = listing["outputs"][5]
+    expect("and the reversed servo carries its reversal and its signed trim",
+           servo1["kind"] == OUTPUT_SERVO and servo1["index"] == 1 and
+           servo1["reversed"] is True and servo1["trim_us"] == -25 and
+           servo1["travel_us"] == 480)
+
+    # ---- the gate, which needs a disarmed aircraft to be about --------------
+    #
+    # The stand-in reports itself armed - that is its default, and `akproto_check`
+    # asserts it elsewhere - so a hold must be refused here. That refusal is the
+    # half this peer can show. The *accepted* hold needs the other aircraft, so
+    # this starts one, the same way the streaming block above starts its own
+    # peer rather than putting the whole file on another link's shape.
+    armed = output_test(client, OUTPUT_TEST_HOLD, OUTPUT_MOTOR, 0, 10)
+    expect("a hold on an armed aircraft is refused as a policy, not as an error",
+           armed["status"] == OUTPUT_TEST_ARMED and armed["level_pct"] == 0 and
+           armed["remaining_ms"] == 0)
+    # A stop is answered before every other check, which is why `op` is a value
+    # on the wire rather than a second command: the one verb that must always
+    # work cannot be behind the gate it exists to open.
+    stopped = stop_outputs(client)
+    expect("and a stop is answered anyway, naming the verb it stopped",
+           stopped["status"] == OUTPUT_TEST_STOPPED and
+           stopped["op"] == OUTPUT_TEST_STOP)
+
+    # A verb this header does not define, and a request that named nothing at
+    # all. Both are the dispatch's, and neither reaches the board. The second is
+    # the one that matters: 0xFF is out of range for both `kind` and `index`, so
+    # "you did not say" does not read as output zero, which is a motor somebody
+    # would then go and look at.
+    expect("a verb this build does not define is refused by the wire",
+           client.request(OUTPUT_TEST,
+                          bytes([7, OUTPUT_MOTOR, 0, 10]))[0] ==
+           OUTPUT_TEST_NO_OP)
+    short = parse_output_test(client.request(OUTPUT_TEST, b""))
+    expect("and a request that named nothing comes back as nothing, not as "
+           "output zero",
+           short["status"] == OUTPUT_TEST_NO_OP and short["kind"] == 0xFF and
+           short["index"] == 0xFF and short["kind_name"] is None)
+
+    # The board's own refusals, which the dispatch passes through with the
+    # request echoed. Both name what was asked for, so a client polling several
+    # outputs can tell which answer it is holding.
+    expect("an output number no pad has is the board's refusal",
+           output_test(client, OUTPUT_TEST_HOLD, OUTPUT_SERVO, 9, 10)["status"]
+           == OUTPUT_TEST_NO_OUTPUT)
+    expect("and a kind that is neither a motor nor a servo is refused too",
+           output_test(client, OUTPUT_TEST_HOLD, 2, 0, 10)["status"] ==
+           OUTPUT_TEST_NO_OUTPUT)
+    expect("and the refusal names the output that was asked about",
+           output_test(client, OUTPUT_TEST_HOLD, OUTPUT_SERVO, 9, 10)["index"]
+           == 9)
+
+    # The aircraft that can be driven. Its own peer, started disarmed, because
+    # the gate is the whole point and this is the only shape that gets past it.
+    flyable, flyable_client = start_sim("disarmed")
+    held = output_test(flyable_client, OUTPUT_TEST_HOLD, OUTPUT_SERVO, 1, 4)
+    expect("a disarmed aircraft takes the hold and says what it will drive",
+           held["status"] == OUTPUT_TEST_OK and held["level_pct"] == 4 and
+           held["remaining_ms"] == 500)
+    # The reply is what will be driven, not what was asked for: asking for more
+    # than the cap is neither an error nor obeyed, and a UI that counted down
+    # from its own request would be counting something the board never agreed to.
+    clamped = output_test(flyable_client, OUTPUT_TEST_HOLD, OUTPUT_MOTOR, 0, 200)
+    expect("and asking past the cap is answered with the cap",
+           clamped["status"] == OUTPUT_TEST_OK and clamped["level_pct"] == 15)
+    expect("and the stop is honoured on this aircraft too",
+           stop_outputs(flyable_client)["status"] == OUTPUT_TEST_STOPPED)
+    flyable.stdin.close()
+    flyable.wait(timeout=5)
 
     process.stdin.close()
     process.wait(timeout=5)
