@@ -36,16 +36,16 @@ Standalone Python sim (Matplotlib 3D, follow camera):
 
 [**Open the configurator**](https://rawfish69.github.io/aerial-kit/) · [Guide](docs/web-configurator.md)
 
-Live attitude and parameter editing in the browser. Screenshots use the built-in demo board.
+Live attitude, receiver, sensors and parameter editing in the browser, over USB. Screenshots use the built-in demo board.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/configurator-attitude.jpg" alt="Web configurator showing live attitude on the demo board" width="100%"></td>
-    <td width="50%"><img src="docs/configurator-parameters.jpg" alt="Web configurator showing parameter groups and staged edits" width="100%"></td>
+    <td width="50%"><img src="docs/configurator-classic.jpg" alt="Aerial Kit Configurator in the Classic theme: the demo board's attitude in 3D, with the About text file open" width="100%"></td>
+    <td width="50%"><img src="docs/configurator-og.jpg" alt="Aerial Kit Configurator in the OG theme: the same view in 95/98 style" width="100%"></td>
   </tr>
   <tr>
-    <td><em>Attitude and connection status.</em></td>
-    <td><em>Review parameter edits before sending and saving.</em></td>
+    <td><em>Classic theme.</em></td>
+    <td><em>OG theme. A dark Modern theme is the default.</em></td>
   </tr>
 </table>
 
