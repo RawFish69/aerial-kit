@@ -65,7 +65,7 @@ attitude, barometric altitude, and GPS position.*
 
 ## What's in this repo
 
-- **Controller** - standalone Python and ROS 2 control: PID, LQR, MPC, plus L1/TECS for fixed wing.
+- **Controller** - standalone Python and ROS 2 control: PID, LQR, MPC, constrained MPC and MPPI, plus L1/TECS for fixed wing. The [`uav_control`](ros2_ws/src/uav_control/README.md) ROS 2 package flies missions with the constrained MPC or MPPI.
 - **Planner** - straight, A*, RRT, RRT* and Dubins paths with shared terrain models.
 - **Simulator** - Python simulation without ROS, plus ROS 2 / Gazebo backends.
 - **AK Firmware** - our custom C flight controller, for Feather F405 and ESP32DEV, with a portable control core and image checks.
