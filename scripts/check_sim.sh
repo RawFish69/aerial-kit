@@ -1,58 +1,20 @@
 #!/bin/bash
-# Quick diagnostic for simulator issues
+# Quick diagnostic for the ROS 2 simulation stack (sim_fast or sim_gazebo).
+# Run in a terminal with the workspace sourced, while a bringup is running.
 
-echo "=== Simulator Diagnostics ==="
-echo ""
-
-echo "1. Checking if nodes are running:"
+echo "=== Nodes ==="
 ros2 node list
-echo ""
+echo
 
-echo "2. Checking simulator parameters:"
-echo "c1 (thrust coefficient):"
-ros2 param get /dynamics_node c1 2>/dev/null || echo "  Node not running or param not found"
-echo "c0:"
-ros2 param get /dynamics_node c0 2>/dev/null || echo "  Node not running"
-echo "hover_thrust:"
-ros2 param get /dynamics_node hover_thrust 2>/dev/null || echo "  Node not running"
-echo ""
+echo "=== Mission follower (one of these should be running) ==="
+ros2 node list | grep -E "mission_executor_node|mpc_tracker_node" || echo "  none running"
+ros2 param get /mpc_tracker_node controller 2>/dev/null && \
+    ros2 param get /mpc_tracker_node velocity_loop_tau_s 2>/dev/null
+echo
 
-echo "3. Checking controller parameters:"
-echo "hover_thrust (controller):"
-ros2 param get /pid_controller hover_thrust 2>/dev/null || ros2 param get /lqr_controller hover_thrust 2>/dev/null || echo "  Controller not running"
-echo ""
+echo "=== Command manager ==="
+timeout 3s ros2 topic echo /uav/telemetry --once --field status_text 2>/dev/null || echo "  no /uav/telemetry"
+echo
 
-echo "4. Checking if controller is publishing:"
-timeout 2s ros2 topic echo /cmd/body_rate_thrust --once 2>/dev/null
-if [ $? -eq 124 ]; then
-  echo "  ❌ Controller NOT publishing to /cmd/body_rate_thrust"
-else
-  echo "  ✓ Controller is publishing"
-fi
-echo ""
-
-echo "5. Checking if safety gate is publishing:"
-timeout 2s ros2 topic echo /cmd/final/body_rate_thrust --once 2>/dev/null
-if [ $? -eq 124 ]; then
-  echo "  ❌ Safety gate NOT publishing to /cmd/final/body_rate_thrust"
-else
-  echo "  ✓ Safety gate is publishing"
-fi
-echo ""
-
-echo "6. Checking simulator state:"
-echo "Current altitude (z position):"
-timeout 2s ros2 topic echo /state/odom --once 2>/dev/null | grep -A 2 "position:" | grep "z:" || echo "  Could not read odom"
-echo ""
-
-echo "7. Actual thrust being commanded:"
-timeout 2s ros2 topic echo /cmd/final/body_rate_thrust --once 2>/dev/null | grep "thrust:" || echo "  Could not read thrust"
-echo ""
-
-echo "=== Quick Fix ==="
-echo "If c1 is not 2.0, run:"
-echo "  cd ros2_ws"
-echo "  colcon build --packages-select sim_dyn"
-echo "  source install/setup.bash"
-echo "  ros2 launch sim_dyn sim_pid.launch.py"
-
+echo "=== Topic samples (/uav/* contract) ==="
+exec bash "$(dirname "$0")/check_ros2_v2_topics.sh"

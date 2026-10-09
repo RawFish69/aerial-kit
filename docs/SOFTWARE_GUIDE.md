@@ -1,769 +1,374 @@
 # aerial-kit - Software Guide
 
-A comprehensive guide to the aerial-kit system covering simulation, hardware integration, controllers, and all features.
+How the software side of the stack fits together, and how to run, tune and test it:
+the Python control library and simulator, the ROS 2 workspace, and where the
+hardware backends plug in.
+
+> **Moved on from the first ROS 2 prototype.** Earlier versions of this guide described
+> C++ `controllers_pid` / `controllers_lqr` / `controllers_mpc` packages, a `sim_dyn`
+> simulator, a `safety_gate` node and `/cmd/body_rate_thrust` topics. Those were removed
+> when the workspace was consolidated. The current stack is described below; the old one
+> is in git history (`git log -- ros2_ws/src/controllers_mpc`).
+
+For airframe support, Docker images and the package table, see the
+[stack guide](STACK-GUIDE.md). For worked examples, see [EXAMPLE_USAGE.md](EXAMPLE_USAGE.md).
 
 ---
 
-## Table of Contents
+## Contents
 
-1. [Overview](#overview)
-2. [Quick Start](#quick-start)
-3. [Installation & Setup](#installation--setup)
-4. [Simulation](#simulation)
-5. [Controllers](#controllers)
-6. [Terrain Generator](#terrain-generator)
-7. [Hardware Integration](#hardware-integration)
-8. [Monitoring & Debugging](#monitoring--debugging)
-9. [Configuration & Tuning](#configuration--tuning)
+1. [Layout](#layout)
+2. [Python: control library and simulator](#python-control-library-and-simulator)
+3. [Controllers](#controllers)
+4. [ROS 2 workspace](#ros-2-workspace)
+5. [Mission followers: executor and predictive tracker](#mission-followers-executor-and-predictive-tracker)
+6. [Hardware backends](#hardware-backends)
+7. [Testing and CI](#testing-and-ci)
+8. [Monitoring and debugging](#monitoring-and-debugging)
+9. [Configuration reference](#configuration-reference)
 10. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Overview
+## Layout
 
-aerial-kit is a multi-purpose control system for **aerial robots**. Multirotors are
-implemented and flying today; fixed-wing, monocopter, and TVC airframes are being added — see
-the airframe table in the [root README](STACK-GUIDE.md#supported-airframes). Features:
-
-- **Airframes**: quadcopter (reference, flying); hexacopter, octacopter, twin-motor wing,
-  single-motor wing, monocopter, and TVC are planned
-- **Controllers**: PID (cascaded), LQR (optimal), MPC (Model Predictive Control)
-- **Safety**: Multi-layer validation, slew limiting, timeout watchdog
-- **Autopilots**: Betaflight over CRSF, PX4 / ArduPilot over MAVLink, and this repo's own
-  ESP32 firmware
-- **Hardware**: Custom TX/RX with universal protocol support (CRSF, SBUS, PPM, iBus, FrSky)
-- **Simulation**: 200Hz dynamics with RViz visualization
-- **Terrain Generation**: Forest, Mountains, and Plains environments
-
-> Anything in this guide that names a quadcopter — hover throttle, four-motor mixing, the
-> `x3` / `lr_drone` Gazebo models — is describing the reference airframe, not a limit of the
-> architecture.
-
-### Architecture
-
-**Simulation Mode:**
 ```
-Controllers → Safety Gate → Simulator → RViz
+aerial_kit/        ROS-free control library (pip install aerial-kit): airframes,
+                   dynamics, controllers, guidance, simulator API
+sim_py/            Standalone simulator: planners, backends, visualizer, tests
+ros2_ws/src/       ROS 2 packages (uav_msgs, air_unit, uav_control, sim_fast,
+                   sim_gazebo, sim_bridge, planner, ground_station, hw_bridge,
+                   mavlink_bridge, terrain_generator, uav_algorithms)
+scripts/           Run / build / diagnostic helpers
+examples/          Runnable quadrotor, fixed-wing and firmware examples
+firmware/          AerialKit flight controller firmware and legacy radio projects
 ```
 
-**Autonomous Flight (Hardware):**
+Two ways to fly the same algorithms:
+
 ```
-ROS Controllers → Safety Gate → CRSF Adapter → UDP → TX → ESP-NOW → RX → Protocol → FC
-```
-
-**Manual Flight (Hardware):**
-```
-TX (IMU+Joystick) → ESP-NOW → RX → Protocol → FC
-```
-*No computer needed for manual flight!*
-
----
-
-## Quick Start
-
-### Build the Workspace
-
-```bash
-cd ros2_ws
-colcon build --symlink-install
-source install/setup.bash
-```
-
-### Run Your First Simulation
-
-**With Visualization:**
-```bash
-# PID controller
-./scripts/run_sim_pid.sh
-
-# LQR controller
-./scripts/run_sim_lqr.sh
-
-# MPC controller
-./scripts/run_sim_mpc.sh
-```
-
-**Headless Mode (No Display):**
-```bash
-./scripts/run_sim_pid.sh headless
-./scripts/run_sim_lqr.sh headless
-./scripts/run_sim_mpc.sh headless
-```
-
-The vehicle (a quadcopter in the default configuration) should hover at 1m altitude in RViz
-(or run silently in headless mode).
-
----
-
-## Installation & Setup
-
-### Prerequisites
-
-- **ROS 2 Humble** (required for autonomous control)
-- **Python 3.8+** (for simulation and utilities)
-- **C++17 compiler** (GCC 9+ or Clang 10+)
-- **Eigen3** (for matrix operations)
-
-### Build Instructions
-
-```bash
-# Navigate to workspace
-cd ros2_ws
-
-# NOTE: No Python virtual environment is required for the ROS 2 workspace.
-
-# Build all packages
-# Ensure your ROS 2 distro is sourced (e.g. source /opt/ros/jazzy/setup.bash)
-colcon build --symlink-install
-
-# Source the workspace (do this every time you open a new terminal)
-source install/setup.bash
-```
-
-### Build Specific Packages
-
-```bash
-# Build only controllers
-colcon build --packages-select controllers_pid controllers_lqr controllers_mpc
-
-# Build with verbose output
-colcon build --event-handlers console_direct+
-
-# Rebuild after config changes
-colcon build --packages-select <package_name>
+Python only:   planner -> controller -> dynamics backend -> Matplotlib 3D
+ROS 2:         ground station -> /uav/mission -> mission follower -> command manager
+               -> backend (sim_fast | Gazebo | CRSF/Betaflight | MAVLink/PX4/ArduPilot)
 ```
 
 ---
 
-## Simulation
+## Python: control library and simulator
 
-### Running Simulations
+### Install
 
-#### Method 1: Using Scripts (Recommended)
-
-**With Visualization:**
 ```bash
-./scripts/run_sim_pid.sh    # PID controller
-./scripts/run_sim_lqr.sh     # LQR controller
-./scripts/run_sim_mpc.sh     # MPC controller
+python -m pip install -e ".[sim]"          # numpy, scipy, matplotlib, pyyaml
+python -m pip install -e ".[rotorpy]"      # optional RotorPy backend
 ```
 
-**Headless Mode:**
+Python 3.10-3.12 are tested in CI.
+
+### Run
+
 ```bash
-./scripts/run_sim_pid.sh headless
-./scripts/run_sim_lqr.sh headless
-./scripts/run_sim_mpc.sh headless
+# Bundled examples
+python examples/quadrotor/run.py
+python examples/fixed_wing/run.py --no-show --save fixed-wing.png
+
+# The simulator CLI (also installed as `aerial-kit-sim`)
+python -m aerial_kit.sim.cli --controller constrained_mpc --no-show
+python -m aerial_kit.sim.cli --config sim_py/sim_config.yaml \
+    --controller warm_mppi --terrain forest --planner rrtstar
+
+# Keyboard teleop
+python examples/quadrotor/teleop.py
 ```
 
-#### Method 2: Direct Launch Files
+Options of `aerial_kit.sim.cli`:
 
-**With Visualization:**
+| Flag | Values |
+|---|---|
+| `--config` / `--example` | a YAML file, or `quadrotor` / `fixed-wing` |
+| `--controller` | `pid`, `lqr`, `mpc`, `mppi`, `constrained_mpc`, `warm_mppi`, `l1_tecs` |
+| `--planner` | `straight`, `astar`, `rrt`, `rrtstar`, `dubins` |
+| `--backend` | `pointmass`, `multirotor`, `rotorpy`, `mujoco`, `fixedwing` |
+| `--airframe` | `quad`, `hex`, `octo`, `twin_wing` |
+| `--terrain` | `forest`, `mountains`, `plains` |
+| `--sim-time`, `--dt` | override the config |
+| `--no-show`, `--save PATH` | headless runs |
+
+The source-tree entry point `python -m sim_py.run_sim` takes the same component names
+and reads `sim_py/sim_config.yaml` by default.
+
+The helper scripts wrap the CLI with forest terrain and RRT* by default:
+
 ```bash
-ros2 launch sim_dyn sim_pid.launch.py use_rviz:=true
-ros2 launch sim_dyn sim_lqr.launch.py use_rviz:=true
-ros2 launch sim_dyn sim_mpc.launch.py use_rviz:=true
+./scripts/run_sim_pid.sh               # also run_sim_lqr.sh, run_sim_mpc.sh, run_sim_mppi.sh
+./scripts/run_sim_mpc.sh headless      # no window; saves results/constrained_mpc.png
+TERRAIN=mountains ./scripts/run_sim.sh warm_mppi
+./scripts/run_terrain_sim.sh mpc mountains true
 ```
 
-**Headless Mode:**
-```bash
-ros2 launch sim_dyn sim_pid.launch.py use_rviz:=false
-ros2 launch sim_dyn sim_lqr.launch.py use_rviz:=false
-ros2 launch sim_dyn sim_mpc.launch.py use_rviz:=false
-```
+### Use the library directly
 
-### When to Use Headless Mode
+```python
+import numpy as np
+from aerial_kit.controllers import ConstrainedMPC, MPPI, PathReference, SphereObstacle
 
-- SSH sessions without X11 forwarding
-- CI/CD pipelines and automated testing
-- Remote servers without display
-- Performance testing (no visualization overhead)
-- Batch simulations for data collection
+path = PathReference(np.array([[0, 0, 2], [10, 0, 2], [10, 10, 3]]), decel_mps2=1.5)
+mpc = ConstrainedMPC(max_speed_xy=2.0, speed_limit_xy="disc", max_accel_xy=3.0)
 
-### Simulation Features
-
-- **200Hz dynamics** with RK4 integration
-- **Realistic physics** including drag and gravity
-- **RViz visualization** (optional)
-- **Real-time state publishing** (odometry, attitude, angular velocity)
-- **TF transforms** for visualization
-
-### Starting RViz Separately
-
-If you started in headless mode but want visualization later:
-
-```bash
-rviz2 -d install/sim_dyn/share/sim_dyn/rviz/overview.rviz
+p, v = np.array([0.0, 0.0, 2.0]), np.zeros(3)
+ref = path.sample(path.project(p), cruise_mps=2.0, dt=mpc.dt, horizon=mpc.horizon)
+plan = mpc.solve(p, v, ref)
+plan.accel                  # world-frame acceleration to apply now (z up)
+plan.predicted_positions    # (N, 3) the plan behind it
 ```
 
 ---
 
 ## Controllers
 
-### PID Controller
+All position controllers produce a world-frame acceleration demand (`ControlTarget.accel_cmd`,
+z up, gravity excluded). Each reads its settings from `controller.<name>` in the
+simulator config.
 
-**Cascaded PID** with anti-windup protection.
+| Name | Class | What it is |
+|---|---|---|
+| `pid` | `PIDController` | PD on position |
+| `lqr` | `LQRController` | infinite-horizon LQR per axis |
+| `mpc` | `MPCController` | finite-horizon discrete LQ (Riccati); output clipped afterwards |
+| `mppi` | `MPPIController` | stateless sampling MPPI (kept for comparison) |
+| `constrained_mpc` | `ConstrainedMPCController` -> `ConstrainedMPC` | QP MPC: acceleration and speed limits inside the optimisation, horizon reference, smoothing term; solved by ADMM (`BoxQP`) with warm start |
+| `warm_mppi` | `WarmMPPIController` -> `MPPI` | vectorised MPPI with a persistent nominal plan; sphere obstacles, floor and speed costs |
+| `l1_tecs` | `FixedWingL1TECSController` | fixed wing: L1 lateral guidance + TECS, produces a wrench |
 
-**Configuration:** `ros2_ws/src/controllers_pid/config/pid_params.yaml`
+### `constrained_mpc`
 
-**Key Parameters:**
-- `kp`, `ki`, `kd`: Proportional, integral, derivative gains
-- `anti_windup`: Integral term clamping
-- `control_rate`: Update frequency (default: 100 Hz)
+```yaml
+controller:
+  constrained_mpc:
+    dt: 0.1              # plan step [s]; the wrapper holds each command for one step
+    horizon: 20
+    q_pos: 8.0
+    q_vel: 1.0
+    r_acc: 0.5
+    r_delta: 0.0         # penalty on step-to-step acceleration change (smoothness)
+    terminal: dare       # dare (infinite-horizon cost-to-go) | stage
+    max_accel_xy: 6.0
+    max_accel_z: 4.0
+    max_speed_xy: 3.0    # optional
+    max_speed_z: 1.5     # optional
+    speed_limit_xy: box  # box: |vx|,|vy| <= limit; disc: |v_xy| <= limit (octagon)
+```
 
-**Tuning Tips:**
-- Start with low `kp` values
-- Increase `kd` to reduce oscillations
-- Use `anti_windup` to prevent integral saturation
+- With the limits inactive and `terminal: stage`, it computes exactly the same command as `mpc`. A
+  test checks this.
+- `speed_limit_xy: box` lets a diagonal reach 1.41x the limit. `disc` bounds the norm, by
+  an inscribed polygon (`disc_sides`, default 8), so it gives away at most 8 % along the flats.
+- If the aircraft is already above a speed limit, the bound relaxes to what 90 % braking
+  can reach, so the QP stays feasible from any state.
 
-### LQR Controller
+### `warm_mppi`
 
-**Linear Quadratic Regulator** for optimal state feedback.
+```yaml
+controller:
+  warm_mppi:
+    dt: 0.1
+    horizon: 20
+    samples: 512
+    temperature: 0.1             # relative: lambda = temperature * (median - min) cost
+    temperature_mode: relative   # or absolute
+    noise_std: 2.0
+    q_pos: 8.0
+    q_terminal: 20.0
+    max_speed: 3.0
+    min_altitude: 1.0
+    obstacles:
+      - {center: [50, 40, 10], radius: 3.0}
+    obstacle_margin: 0.5
+    seed: 0
+```
 
-**Configuration:** `ros2_ws/src/controllers_lqr/config/lqr_params.yaml`
-
-**Key Parameters:**
-- `K`: Gain matrix (4x6, row-major format)
-- `mass`, `Jx`, `Jy`, `Jz`: System parameters
-- `hover_thrust`: Nominal thrust for hover
-
-**Tuning:**
-- Compute K matrix offline using LQR solver
-- Adjust Q and R matrices for desired performance
-- Default gains are conservative (not true LQR solution)
-
-### MPC Controller
-
-**Model Predictive Control** with prediction horizon.
-
-**Configuration:** `ros2_ws/src/controllers_mpc/config/mpc_params.yaml`
-
-**Key Parameters:**
-- `horizon`: Prediction horizon (default: 4)
-- `Ts`: Sampling time (default: 0.1s)
-- `Q`, `S`, `R`: State, terminal, and control cost matrices
-- `Jx`, `Jy`, `Jz`, `Jtp`: Inertia parameters
-
-**Features:**
-- Incremental MPC (control increments)
-- LPV (Linear Parameter Varying) model updates
-- QP solver for optimization
+Both wrappers solve once per plan step and hold the command between solves, because the
+simulator calls `compute` every integration step. A change of target triggers an immediate
+re-solve.
 
 ---
 
-## Terrain Generator
+## ROS 2 workspace
 
-Generate realistic environments for path planning and obstacle avoidance testing.
-
-### Available Terrain Types
-
-1. **Forest** - Dense trees with configurable density
-2. **Mountains** - Peaks and ridges with varying heights
-3. **Plains** - Sparse obstacles (bushes, rocks, trees)
-
-### Usage
-
-**Launch Terrain Generator:**
-```bash
-# Forest
-ros2 launch terrain_generator terrain_generator.launch.py terrain_type:=forest
-
-# Mountains
-ros2 launch terrain_generator terrain_generator.launch.py terrain_type:=mountains
-
-# Plains
-ros2 launch terrain_generator terrain_generator.launch.py terrain_type:=plains
-```
-
-**Configuration:** `ros2_ws/src/terrain_generator/config/terrain_params.yaml`
-
-**Forest Parameters:**
-- `grid_size`: Number of grid cells (default: 10)
-- `radius_range`: Tree radius range [min, max] in meters
-- `height_range`: Tree height range [min, max] in meters
-- `density`: Probability of tree per cell (0-1)
-
-**Mountains Parameters:**
-- `num_peaks`: Number of mountain peaks
-- `base_size_range`: Base size range [min, max] in meters
-- `height_range`: Peak height range [min, max] in meters
-
-**Plains Parameters:**
-- `num_obstacles`: Number of obstacles
-- `obstacle_types`: List of types ['bush', 'rock', 'tree']
-
-**Visualization:**
-- Terrain obstacles are published as RViz markers
-- View in RViz: `/terrain/obstacles` topic
-- Different colors for each terrain type
-
----
-
-## Hardware Integration
-
-### Overview
-
-The system supports two hardware modes:
-
-1. **Manual Flight**: TX with IMU+joystick, no ROS needed
-2. **Autonomous Flight**: ROS controllers → TX via UDP → ESP-NOW → RX → FC
-
-### TX/RX System
-
-**Transmitter Features:**
-- Hybrid IMU (BNO085/MPU6050) + Joystick control
-- ESP-NOW wireless (low latency)
-- Configurable sensitivity and update rates
-
-**Receiver Features:**
-- **Universal Protocol Support**:
-  - ✅ CRSF (Crossfire/ELRS) - Betaflight, INAV
-  - ✅ SBUS (Futaba) - Universal compatibility
-  - ✅ PPM - Traditional flight controllers
-  - ✅ iBus (FlySky) - FlySky receivers
-  - ✅ FrSky S.PORT - FrSky telemetry systems
-
-### Autonomous Mode Setup
-
-**Step 1: Modify TX Firmware**
-
-Add UDP support to `firmware/legacy/espnow/src/main.cpp` in the `#ifdef BUILD_TX` section:
-
-```cpp
-#include <WiFi.h>
-#include <WiFiUdp.h>
-
-WiFiUDP udp;
-const int UDP_PORT = 9000;
-bool udpActive = false;
-
-void setup() {
-  // ... existing setup ...
-  
-  // Setup WiFi AP for ROS connection
-  WiFi.softAP("UAV_TX", "uav12345");
-  Serial.printf("TX IP: %s\n", WiFi.softAPIP().toString().c_str());
-  
-  udp.begin(UDP_PORT);
-  udpActive = true;
-}
-
-void loop() {
-  // Check for ROS commands via UDP
-  if (udpActive) {
-    int packetSize = udp.parsePacket();
-    if (packetSize == 20) {
-      uint8_t buffer[20];
-      udp.read(buffer, 20);
-      
-      float* floats = (float*)buffer;
-      float roll = floats[0];
-      float pitch = floats[1];
-      float yaw = floats[2];
-      float throttle = floats[3];
-      
-      // Convert to CRSF channels
-      rcChannels[0] = (uint16_t)(roll * 819.0 + 992.0);
-      rcChannels[1] = (uint16_t)(pitch * 819.0 + 992.0);
-      rcChannels[2] = (uint16_t)(172.0 + throttle * 1639.0);
-      rcChannels[3] = (uint16_t)((-yaw) * 819.0 + 992.0);
-      
-      CustomProtocol_SendRcCommand(rcChannels);
-    }
-  }
-  
-  // ... existing code ...
-}
-```
-
-**Step 2: Flash TX**
+### Build
 
 ```bash
-cd firmware/legacy/espnow
-pio run -e transmitter -t upload
+cd ros2_ws
+source /opt/ros/jazzy/setup.bash      # or humble
+colcon build --symlink-install
+source install/setup.bash
 ```
 
-**Step 3: Connect and Run**
+`./scripts/build.sh` does the same. ROS packages import `aerial_kit` from the repo. Run
+from inside the repo, install it with `pip install -e .`, or set `AERIAL_KIT_REPO_ROOT`.
+
+### Topics
+
+| Topic | Type | From -> to |
+|---|---|---|
+| `/uav/command` | `uav_msgs/Command` | ground station -> command manager, mission follower |
+| `/uav/mission` | `uav_msgs/Trajectory` | ground station / planner -> mission follower |
+| `/uav/internal/mission_cmd_vel` | `geometry_msgs/Twist` | mission follower -> command manager |
+| `/uav/mission_status` | `uav_msgs/MissionStatus` | mission follower -> ground station |
+| `/uav/backend/cmd_twist`, `/uav/backend/enable` | `Twist`, `Bool` | command manager -> backend |
+| `/uav/backend/odom` | `nav_msgs/Odometry` | backend / estimator -> telemetry adapter |
+| `/uav/backend/telemetry_raw` | `uav_msgs/Telemetry` | telemetry adapter -> command manager, follower |
+| `/uav/telemetry` | `uav_msgs/Telemetry` | command manager -> ground station |
+| `/uav/control/predicted_path` | `nav_msgs/Path` | predictive tracker -> RViz |
+
+The command manager owns the flight modes: takeoff, hover hold, mission, land and RTL. In
+mission mode it forwards the follower's velocity setpoint to the backend.
+
+### Simulators
 
 ```bash
-# Connect computer to "UAV_TX" WiFi network (password: uav12345)
-# TX IP will be 192.168.4.1
+# Headless point-mass backend: no Gazebo needed
+ros2 launch sim_fast bringup.launch.py start_demo:=true
+ros2 launch sim_fast bringup.launch.py start_demo:=true mission_tracker:=mpc
 
-# Launch ROS autonomous control
-cd aerial-kit
-source ros2_ws/install/setup.bash
-./scripts/run_crsf_link_pid.sh transport:=udp udp_host:=192.168.4.1
-```
-
-### Protocol Configuration
-
-Edit `firmware/legacy/espnow/src/config.h` to select output protocol:
-
-```cpp
-#define OUTPUT_PROTOCOL PROTOCOL_CRSF  // or PROTOCOL_SBUS, PROTOCOL_PPM, etc.
-```
-
-Then reflash the receiver.
-
----
-
-## Monitoring & Debugging
-
-### Check Running Nodes
-
-```bash
-ros2 node list
-
-# Expected nodes:
-# /dynamics_node
-# /pid_controller (or /lqr_controller or /mpc_controller)
-# /safety_gate
-# /rviz2 (if visualization enabled)
-```
-
-### Monitor Topics
-
-**Controller Output:**
-```bash
-ros2 topic echo /cmd/body_rate_thrust
-```
-
-**After Safety Gate:**
-```bash
-ros2 topic echo /cmd/final/body_rate_thrust
-```
-
-**Simulator State:**
-```bash
-ros2 topic echo /state/odom
-ros2 topic echo /state/attitude
-ros2 topic echo /state/angular_velocity
-```
-
-**Check Publishing Rates:**
-```bash
-ros2 topic hz /cmd/body_rate_thrust  # Should be ~100 Hz
-ros2 topic hz /state/odom           # Should be ~200 Hz
-```
-
-### Run Diagnostics
-
-```bash
-./scripts/check_sim.sh
-```
-
-### Debug Topics
-
-```bash
-./scripts/debug_topics.sh
-```
-
-### Universal Protocol Visualizer
-
-Monitor RC channels from your receiver:
-
-**3D Web Visualizer (Recommended):**
-```bash
-cd tools
-pip install -r requirements.txt
-python drone_visualizer.py COM3  # or /dev/ttyUSB0 on Linux
-```
-
-Then open browser to `http://localhost:5000`
-
-**Features:**
-- Switch protocols on-the-fly (CRSF/SBUS/iBus)
-- 3D quadcopter visualization
-- Real-time telemetry
-- Flight mode switching (ANGLE/ACRO)
-
-**Terminal Monitors:**
-```bash
-python crsf_serial.py COM3   # For CRSF
-python sbus_serial.py COM3   # For SBUS
-python ibus_serial.py COM3   # For iBus
+# Gazebo (see ros2_ws/README.md for the forest / mountains demos)
+ros2 launch sim_gazebo bringup.launch.py
+ros2 launch sim_gazebo bringup.launch.py mission_tracker:=mppi
+ros2 launch ground_station ground.launch.py start_planner:=true
+ros2 run ground_station ground_station_demo_mission
 ```
 
 ---
 
-## Configuration & Tuning
+## Mission followers: executor and predictive tracker
 
-### Configuration Files
+Two nodes can follow `/uav/mission`. They publish to the same topic, so run only one; both
+bringups pick it with `mission_tracker:=executor|mpc|mppi`.
 
-All configuration files are in each package's `config/` directory:
+| | `air_unit/mission_executor_node` | `uav_control/mpc_tracker_node` |
+|---|---|---|
+| Law | P on position to the active waypoint, speed and slew limits | `ConstrainedMPC` or `MPPI` over a horizon |
+| Waypoints | stops at each one | flies through intermediate ones; stops at holds and at the end |
+| Limits | clamps after the fact | accel and speed limits inside the plan |
+| Obstacles | from the planner's path only | MPPI: `obstacle_spheres`, `min_altitude_m` |
+| Onboard planning | yes (`PLANNING_ONBOARD`) | no; it flies the trajectory it is given |
 
-| Package | Config File | Purpose |
-|---------|------------|---------|
-| `controllers_pid` | `pid_params.yaml` | PID gains, anti-windup, limits |
-| `controllers_lqr` | `lqr_params.yaml` | LQR K matrix, system parameters |
-| `controllers_mpc` | `mpc_params.yaml` | MPC horizon, cost matrices, parameters |
-| `safety_gate` | `safety_params.yaml` | Safety limits, timeouts |
-| `sim_dyn` | `sim_params.yaml` | Dynamics model parameters |
-| `adapters_crsf` | `crsf_params.yaml` | TX connection settings |
-| `terrain_generator` | `terrain_params.yaml` | Terrain generation parameters |
+The tracker turns a planned acceleration into the velocity setpoint the backend's own
+velocity loop needs: `v + a * velocity_loop_tau_s`. Set `velocity_loop_tau_s` to match
+the backend; `sim_fast`'s is 0.67 s, and its launch sets it. More detail is in
+[uav_control/README.md](../ros2_ws/src/uav_control/README.md).
 
-### Tuning Controllers
+Frames: Gazebo's models fly nose along body +Y and take body-frame twists, so both
+followers default to `command_frame: body`, `nose_axis: +y`. `sim_fast` takes world-frame
+velocity and has no yaw, so its launch runs them with `command_frame: world` and heading
+control off.
 
-#### PID Tuning
+---
 
-Edit `ros2_ws/src/controllers_pid/config/pid_params.yaml`:
+## Hardware backends
 
-```yaml
-pid_controller:
-  ros__parameters:
-    kp: [2.0, 2.0, 1.0]  # Increase for faster response
-    ki: [0.1, 0.1, 0.05]  # Increase to reduce steady-state error
-    kd: [0.5, 0.5, 0.3]  # Increase to reduce oscillations
+| Autopilot | Package | Launch |
+|---|---|---|
+| Betaflight over CRSF (ESP-NOW TX) | `hw_bridge` | `ros2 launch hw_bridge hw_crsf.launch.py udp_host:=192.168.4.1` |
+| PX4 / ArduPilot over MAVLink | `mavlink_bridge` | `ros2 launch mavlink_bridge real_hardware.launch.py` |
+
+Wiring, the TX UDP receiver and the packet format are in [HARDWARE.md](HARDWARE.md). MAVLink
+setup is in [mavlink_bridge/README.md](../ros2_ws/src/mavlink_bridge/README.md).
+
+`hw_bridge` notes. These changed recently; check your configs:
+
+- `hw_state_estimator_node` estimates altitude **and climb rate** from the barometer
+  (`baro_filter_hz`, default 1 Hz; this replaces `baro_alpha`). It used to publish a climb rate of
+  exactly zero. It differences GPS velocity per fix, not per tick.
+- `crsf_backend_adapter_node` maps the velocity **error** (demand minus measured) to sticks,
+  because in Angle mode the sticks command acceleration. `vz_feedback` is on by default.
+  `vxy_feedback` (GPS-derived) is opt-in until you have checked its velocity is smooth on
+  your vehicle. Without fresh odometry it falls back to the open-loop mapping.
+- Before flight, tune `hover_throttle`, `kz` and `kv_xy` per airframe, and keep Betaflight in
+  Angle mode.
+
+---
+
+## Testing and CI
+
+```bash
+# Library + simulator
+python -m pytest sim_py/tests -q
+
+# ROS packages' logic, no ROS needed (run from each package directory)
+cd ros2_ws/src/uav_control && python -m pytest test -q
+cd ros2_ws/src/hw_bridge   && python -m pytest test -q
+cd ros2_ws/src/air_unit    && python -m pytest test -q
+
+# With a sourced, built workspace, the same commands also run the rclpy tests:
+#   hw_bridge/test/test_sitl_closed_loop.py: fake FC -> estimator -> CRSF adapter ->
+#     command manager -> executor: takeoff, hover, land, mission, RTL
+#   uav_control/test/test_ros_sim_fast.py: tracker missions against sim_fast
 ```
 
-**Tuning Process:**
-1. Start with low gains
-2. Increase `kp` until oscillations appear
-3. Increase `kd` to dampen oscillations
-4. Add `ki` to eliminate steady-state error
-5. Rebuild: `colcon build --packages-select controllers_pid`
+`.github/workflows/python-tests.yml` runs on every pull request:
 
-#### LQR Tuning
+- the simulator suite on Python 3.10 and 3.12
+- the ROS-free package tests
+- a `ros:jazzy` job that runs both rclpy integration tests
 
-Edit `ros2_ws/src/controllers_lqr/config/lqr_params.yaml`:
+In-process ROS tests use a `SingleThreadedExecutor`. With several executor threads in one
+process, the nodes starve each other of the GIL. A launch runs each node in its own
+process, so this doesn't apply there.
 
-```yaml
-lqr_controller:
-  ros__parameters:
-    K: [6.0, 0.0, 0.0, 1.0, 0.0, 0.0, ...]  # 4x6 matrix, row-major
+---
+
+## Monitoring and debugging
+
+```bash
+./scripts/check_sim.sh              # nodes, which follower is running, topic samples
+./scripts/debug_topics.sh           # follows a command hop by hop; the first silent hop is the break
+./scripts/check_ros2_v2_topics.sh   # /uav/* topic samples
+
+ros2 topic echo /uav/mission_status
+ros2 topic echo /uav/telemetry --field status_text
+ros2 topic hz /uav/backend/odom
 ```
 
-**Note:** For true LQR, compute K matrix offline using your A, B, Q, R matrices.
+In RViz, add `Path` on `/uav/control/predicted_path` to see the tracker's plan, and
+`MarkerArray` on `/gs/planner/planned_path_markers` and `/terrain/obstacles`.
 
-#### MPC Tuning
+---
 
-Edit `ros2_ws/src/controllers_mpc/config/mpc_params.yaml`:
+## Configuration reference
 
-```yaml
-mpc_controller:
-  ros__parameters:
-    horizon: 4  # Increase for longer prediction
-    Q: [[10.0, 0.0, 0.0], ...]  # State cost (higher = prioritize tracking)
-    R: [[10.0, 0.0, 0.0], ...]  # Control cost (higher = smoother control)
-```
-
-### Safety Limits
-
-Edit `ros2_ws/src/safety_gate/config/safety_params.yaml`:
-
-```yaml
-safety_gate:
-  ros__parameters:
-    max_roll_rate: 5.0   # rad/s
-    max_pitch_rate: 5.0  # rad/s
-    max_yaw_rate: 3.0    # rad/s
-    max_thrust: 1.0      # normalized
-    min_thrust: 0.0      # normalized
-```
+| What | Where |
+|---|---|
+| Python sim scenario, controllers | `sim_py/sim_config.yaml`, `examples/*/config.yaml`, `aerial_kit/sim/defaults/*.yaml` |
+| Terrain (shared with ROS) | `ros2_ws/src/terrain_generator/config/terrain_params.yaml` |
+| Predictive tracker | `ros2_ws/src/uav_control/config/mpc_tracker.yaml`, `mppi_tracker.yaml` |
+| Executor / command manager (Gazebo) | `ros2_ws/src/sim_gazebo/config/mission_executor_safe_tracking.yaml`, `command_manager_safe_custom.yaml` |
+| CRSF adapter, estimator | `ros2_ws/src/hw_bridge/config/crsf_adapter.yaml`, `hw_estimator.yaml` |
+| MAVLink | `ros2_ws/src/mavlink_bridge/config/mavlink_bridge_default.yaml` |
 
 ---
 
 ## Troubleshooting
 
-### Build Issues
+**`ModuleNotFoundError: aerial_kit` in a ROS node.** Run from inside the repo,
+`pip install -e .` the repo, or `export AERIAL_KIT_REPO_ROOT=/path/to/aerial-kit`.
 
-**Build Errors:**
-```bash
-# Clean build
-cd ros2_ws
-rm -rf build install log
-colcon build --symlink-install
+**`rclpy._rclpy_pybind11` not found, or colcon fails with `install_layout`.** The
+`python3` on `PATH` is not the one your ROS distro was built for (Jazzy: 3.12, Humble: 3.10).
+Put the distro's interpreter first on `PATH` before sourcing and building.
 
-# Verbose output
-colcon build --event-handlers console_direct+
-```
+**`No module named 'matplotlib.tri.triangulation'`.** An apt `python3-matplotlib` is
+shadowing a pip-installed matplotlib's `mpl_toolkits`. Use one or the other.
 
-**Missing Dependencies:**
-```bash
-# Install Eigen3 (Ubuntu/Debian)
-sudo apt-get install libeigen3-dev
+**The aircraft creeps to waypoints with the predictive tracker.** `velocity_loop_tau_s` is
+much smaller than the backend's velocity-loop time constant, so the aircraft gets only a
+fraction of each planned acceleration.
 
-# Install ROS 2 dependencies
-rosdep update
-rosdep install --from-paths src --ignore-src -r -y
-```
+**The mission doesn't start.** The follower acts only in `MODE_MISSION` and pauses on manual
+override. Check `/uav/telemetry` `status_text`, and that only one follower is running.
 
-### Simulation Issues
+**It doesn't move in `sim_fast`.** Body-frame, forward-only commands with no yaw in the
+backend; use the provided launch, which sets `command_frame: world`.
 
-**Quad Falling / Deadlock:**
-The simulation may have a circular dependency where controller needs state and dynamics needs commands. To break the deadlock:
-
-```bash
-# Publish initial hover command to start simulation
-ros2 topic pub --once /cmd/final/body_rate_thrust common_msgs/msg/BodyRateThrust \
-  "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: 'body'}, \
-   body_rates: {x: 0.0, y: 0.0, z: 0.0}, \
-   thrust: 0.5}"
-```
-
-**Check thrust model parameter:**
-```bash
-ros2 param get /dynamics_node c1  # Should be 2.0
-
-# If wrong, rebuild simulator
-colcon build --packages-select sim_dyn
-source install/setup.bash
-```
-
-**Nodes Not Starting:**
-```bash
-# Always source workspace!
-source ros2_ws/install/setup.bash
-
-# Check for build errors
-colcon build --event-handlers console_direct+
-```
-
-**RViz "Could not connect to display":**
-- Run in headless mode: `use_rviz:=false`
-- Or use remote desktop/X11 forwarding for SSH
-
-**RViz Not Showing Terrain:**
-1. Enable Grid display in RViz (check the box)
-2. Add terrain obstacles display: Click "Add" → "By topic" → `/terrain/obstacles` → "MarkerArray"
-3. Set Fixed Frame to `map` (not `<Fixed Frame>`)
-4. Zoom out if terrain is far from origin
-5. Verify terrain is publishing: `ros2 topic hz /terrain/obstacles`
-
-**Oscillations:**
-- Reduce PID `kp` gains
-- Increase PID `kd` gains
-- Edit config, rebuild: `colcon build --packages-select controllers_pid`
-
-### Hardware Issues
-
-**TX Not Receiving UDP:**
-```bash
-# Check WiFi connection
-ping 192.168.4.1
-
-# Verify UDP port
-netstat -ulnp | grep 9000
-```
-
-**RX Not Responding:**
-- Check ESP-NOW link (LED indicators)
-- Verify CRSF wiring (GPIO 21)
-- Check receiver power
-
-**No FC Response:**
-- Verify FC set to CRSF input
-- Check protocol match in `config.h`
-- Test with manual TX mode first
-
-### Topic Issues
-
-**No Data on Topics:**
-```bash
-# Check if nodes are running
-ros2 node list
-
-# Check topic exists
-ros2 topic list
-
-# Check publishing rate
-ros2 topic hz /topic_name
-```
-
----
-
-## Advanced Topics
-
-### Running Tests
-
-```bash
-cd ros2_ws
-colcon test
-colcon test-result --verbose
-```
-
-### Package Structure
-
-```
-ros2_ws/src/
-├── controllers_pid/     # PID controller
-├── controllers_lqr/     # LQR controller
-├── controllers_mpc/     # MPC controller
-├── safety_gate/         # Safety validation
-├── sim_dyn/             # Dynamics simulator
-├── adapters_crsf/       # ROS → TX bridge
-├── terrain_generator/   # Terrain generation
-└── common_msgs/         # Custom message types
-```
-
-### Message Types
-
-| Topic | Type | Description |
-|-------|------|-------------|
-| `/cmd/body_rate_thrust` | `BodyRateThrust` | Controller output |
-| `/cmd/final/body_rate_thrust` | `BodyRateThrust` | After safety (sim) |
-| `/cmd/final/rc` | `VirtualRC` | After safety (hardware) |
-| `/state/odom` | `Odometry` | Current state |
-| `/state/attitude` | `QuaternionStamped` | Orientation |
-| `/state/angular_velocity` | `Vector3Stamped` | Body rates |
-| `/terrain/obstacles` | `MarkerArray` | Terrain obstacles |
-
----
-
-## Quick Reference
-
-### Common Commands
-
-```bash
-# Build
-cd ros2_ws && colcon build --symlink-install && source install/setup.bash
-
-# Run simulation
-./scripts/run_sim_pid.sh
-./scripts/run_sim_lqr.sh
-./scripts/run_sim_mpc.sh
-
-# Headless mode
-./scripts/run_sim_pid.sh headless
-
-# Monitor topics
-ros2 topic echo /state/odom
-ros2 topic hz /cmd/body_rate_thrust
-
-# Check nodes
-ros2 node list
-
-# Run diagnostics
-./scripts/check_sim.sh
-```
-
-### Configuration Locations
-
-- PID: `ros2_ws/src/controllers_pid/config/pid_params.yaml`
-- LQR: `ros2_ws/src/controllers_lqr/config/lqr_params.yaml`
-- MPC: `ros2_ws/src/controllers_mpc/config/mpc_params.yaml`
-- Safety: `ros2_ws/src/safety_gate/config/safety_params.yaml`
-- Sim: `ros2_ws/src/sim_dyn/config/sim_params.yaml`
-- Terrain: `ros2_ws/src/terrain_generator/config/terrain_params.yaml`
-
----
-
-## Additional Resources
-
-- **📖 [Example Usage](EXAMPLE_USAGE.md)** - Complete walkthrough of using controllers with generated terrain
-- **Hardware Details**: See `docs/HARDWARE.md` for detailed TX/RX integration
-- **Firmware**: See `firmware/README.md` for the ESP-NOW / ELRS / LoRa / GPS project index
-- **Protocol Visualizer**: See `tools/README.md` for monitoring tools
-
----
-
-## Support
-
-For issues, check:
-1. This guide's Troubleshooting section
-2. Build output: `colcon build --event-handlers console_direct+`
-3. Node logs: Check terminal output when launching
-4. Topic monitoring: `ros2 topic echo /topic_name`
-
----
-
-**Last Updated**: 2026-01-26
+**`gz: command not found`, or Gazebo topics missing.** See the troubleshooting section of
+[ros2_ws/README.md](../ros2_ws/README.md).

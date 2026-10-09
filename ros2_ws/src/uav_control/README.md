@@ -50,12 +50,16 @@ ros2 launch uav_control mpc_tracker.launch.py                   # config/mpc_tra
 ros2 launch uav_control mpc_tracker.launch.py controller:=mppi  # config/mppi_tracker.yaml
 ```
 
-In the fast headless sim, the launch file already sets the frame and
-`velocity_loop_tau_s` for that backend:
+Both sim bringups can start it in place of the executor:
 
 ```bash
 ros2 launch sim_fast bringup.launch.py start_demo:=true mission_tracker:=mpc   # or mppi
+ros2 launch sim_gazebo bringup.launch.py mission_tracker:=mpc                  # or mppi
 ```
+
+`sim_fast` sets the frame and `velocity_loop_tau_s` for its backend. In Gazebo the node's
+defaults (body frame, nose +Y, forward-only) match the X3 model. Both have been flown
+end to end under ROS 2 Jazzy and Gazebo Harmonic.
 
 `aerial_kit` must be importable, either from `pip install -e .` at the repo root
 or found through `uav_algorithms.repo_paths` (set `AERIAL_KIT_REPO_ROOT` if the

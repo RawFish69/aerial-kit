@@ -70,6 +70,15 @@ def generate_launch_description():
     # ── params-file pass-through for air unit nodes ───────────────────
     # Same pattern as ground.launch.py: two Node entries per node,
     # one with params file (when use_X_params_file=true) and one without.
+    mission_tracker_arg = DeclareLaunchArgument(
+        'mission_tracker', default_value='executor',
+        description='executor (air_unit P-controller) | mpc | mppi (uav_control predictive tracker)',
+    )
+    tracker_params_arg = DeclareLaunchArgument(
+        'tracker_params_file',
+        default_value=PathJoinSubstitution([FindPackageShare('uav_control'), 'config', 'mpc_tracker.yaml']),
+        description='Parameter file for mpc_tracker_node (mission_tracker:=mpc|mppi)',
+    )
     use_mission_executor_params_arg = DeclareLaunchArgument(
         'use_mission_executor_params_file', default_value='false',
         description='Load mission_executor_params_file into mission_executor_node',
@@ -207,13 +216,16 @@ def generate_launch_description():
     )
 
     # mission_executor: two variants (with / without params file)
+    _executor_selected = [" and '", LaunchConfiguration('mission_tracker'), "' == 'executor'"]
     _me_with = PythonExpression([
         "'", LaunchConfiguration('start_air_unit'), "' == 'true' and '",
         LaunchConfiguration('use_mission_executor_params_file'), "' == 'true'",
+        *_executor_selected,
     ])
     _me_without = PythonExpression([
         "'", LaunchConfiguration('start_air_unit'), "' == 'true' and '",
         LaunchConfiguration('use_mission_executor_params_file'), "' != 'true'",
+        *_executor_selected,
     ])
     mission_executor_with_params = Node(
         package='air_unit',
@@ -229,6 +241,24 @@ def generate_launch_description():
         name='mission_executor_node',
         output='screen',
         condition=IfCondition(_me_without),
+    )
+
+    # uav_control's predictive tracker in place of the executor. Its defaults
+    # are the Gazebo convention (body frame, nose +Y, forward-only), and
+    # mission_tracker is also the controller name.
+    mission_tracker_node = Node(
+        package='uav_control',
+        executable='mpc_tracker_node',
+        name='mpc_tracker_node',
+        output='screen',
+        parameters=[
+            LaunchConfiguration('tracker_params_file'),
+            {'controller': LaunchConfiguration('mission_tracker')},
+        ],
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration('start_air_unit'), "' == 'true' and '",
+            LaunchConfiguration('mission_tracker'), "' in ('mpc', 'mppi')",
+        ])),
     )
 
     # command_manager: two variants (with / without params file)
@@ -278,6 +308,8 @@ def generate_launch_description():
         path_marker_topic_arg,
         terrain_surface_type_arg,
         terrain_config_file_arg,
+        mission_tracker_arg,
+        tracker_params_arg,
         use_mission_executor_params_arg,
         mission_executor_params_arg,
         use_command_manager_params_arg,
@@ -298,6 +330,7 @@ def generate_launch_description():
         telemetry_adapter,
         mission_executor_with_params,
         mission_executor_no_params,
+        mission_tracker_node,
         command_manager_with_params,
         command_manager_no_params,
         air_planner,

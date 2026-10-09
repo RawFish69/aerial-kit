@@ -396,6 +396,10 @@ Keyboard teleop keys (focus terminal):
 - `v`: toggle `manual_override`
 - `Esc` or `Ctrl+C`: quit
 
+Predictive tracker instead of the executor: add `mission_tracker:=mpc` (or `mppi`) to the
+`sim_gazebo` bringup. Parameters come from `uav_control/config/mpc_tracker.yaml`;
+override them with `tracker_params_file:=...`. See `src/uav_control/README.md`.
+
 ## Run (Gazebo, Onboard Planning)
 
 Terminal 1:
