@@ -50,6 +50,13 @@ ros2 launch uav_control mpc_tracker.launch.py                   # config/mpc_tra
 ros2 launch uav_control mpc_tracker.launch.py controller:=mppi  # config/mppi_tracker.yaml
 ```
 
+In the fast headless sim, the launch file already sets the frame and
+`velocity_loop_tau_s` for that backend:
+
+```bash
+ros2 launch sim_fast bringup.launch.py start_demo:=true mission_tracker:=mpc   # or mppi
+```
+
 `aerial_kit` must be importable, either from `pip install -e .` at the repo root
 or found through `uav_algorithms.repo_paths` (set `AERIAL_KIT_REPO_ROOT` if the
 install tree is outside the repo).
@@ -57,7 +64,10 @@ install tree is outside the repo).
 ## Test
 
 The tracking logic is in `uav_control/tracking_core.py`, which doesn't depend on
-rclpy. The tests fly it against a velocity-controlled plant, with no ROS needed:
+rclpy. `test_tracking_core.py` flies it against a velocity-controlled plant,
+with no ROS needed. `test_ros_sim_fast.py` flies the real node in a ROS 2 graph
+with the `sim_fast` backend, telemetry adapter and command manager. It skips
+itself when rclpy isn't importable, and CI runs it in `ros:jazzy`.
 
 ```bash
 cd ros2_ws/src/uav_control && python -m pytest test -q

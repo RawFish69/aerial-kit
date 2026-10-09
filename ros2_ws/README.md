@@ -433,6 +433,19 @@ Onboard planner:
 ros2 launch sim_fast bringup.launch.py start_offboard_planner:=false start_onboard_planner:=true start_demo:=true demo_planning_mode:=onboard
 ```
 
+Mission follower (`mission_tracker`): `executor` (default, `air_unit`'s
+P-controller), or `mpc` / `mppi` for the predictive tracker in
+[`uav_control`](src/uav_control/README.md):
+```bash
+ros2 launch sim_fast bringup.launch.py start_demo:=true mission_tracker:=mpc
+```
+On the default forest demo (86 A* waypoints to a goal 170 m away) both
+predictive trackers finish the mission in about 135 s, against about 210 s for
+the executor. The fast backend has no yaw and takes world-frame velocity, so
+this launch runs either follower with `command_frame: world` and heading
+control off. With the Gazebo defaults (body frame, forward-only), the executor
+never left the origin here.
+
 ## Topic / Node Diagram
 
 ```mermaid
