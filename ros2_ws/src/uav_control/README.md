@@ -29,8 +29,13 @@ It publishes to the executor's command topic, so **run one or the other**, not b
   are flown through, not stopped at. A `PathReference` moves along the leg at
   cruise speed (or the waypoint's `desired_speed_mps`) and decelerates into the stop.
 - The controller plans accelerations over `horizon x plan_dt`. The backends
-  take velocity setpoints, so the node sends the plan's predicted velocity
-  `velocity_lead_steps` ahead, clamped to `max_xy_speed_mps` / `max_z_speed_mps`.
+  take velocity setpoints and run their own velocity loop, so the node sends
+  `v + a * velocity_loop_tau_s`, the setpoint that a first-order loop with that
+  time constant turns back into the planned acceleration, clamped to
+  `max_xy_speed_mps` / `max_z_speed_mps`. **Set `velocity_loop_tau_s` to match
+  your backend**: about 0.67 s for `sim_fast` (its velocity gain is 1.5 /s). If
+  it is far too small, the aircraft gets only a fraction of each planned
+  acceleration and creeps.
 - A stop is reached inside its acceptance radius *and* below `settle_speed_mps`;
   then it holds, and moves on.
 - Heading follows the plan's xy displacement over the horizon, using the same

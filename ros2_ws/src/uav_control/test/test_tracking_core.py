@@ -141,7 +141,9 @@ def test_a_path_that_doubles_back_still_completes():
     core = TrackingCore(TrackerConfig(controller="mpc"))
     log = run_mission(core, mission, p0=(0.0, 0.0, 2.0))
     assert log["out"][-1].complete
-    assert log["p"][:, 0].max() > 7.5  # it went out to the turn before coming back
+    # It went out to the turn before coming back. Intermediate waypoints are
+    # flown through, so a hairpin is cut by about a metre at cruise speed.
+    assert log["p"][:, 0].max() > 7.0
 
 
 def test_status_reports_progress_through_the_mission():
@@ -155,9 +157,10 @@ def test_status_reports_progress_through_the_mission():
 
 
 def test_planned_displacement_points_along_the_leg_from_a_standstill():
-    """The node steers heading by this. From rest the velocity setpoint is
-    small, but the plan already goes somewhere."""
-    core = TrackingCore(TrackerConfig(controller="mpc"))
+    """The node steers heading by this, not by the setpoint: with a fast
+    backend (small velocity_loop_tau_s) the setpoint from rest is tiny, but the
+    plan already goes somewhere."""
+    core = TrackingCore(TrackerConfig(controller="mpc", velocity_loop_tau_s=0.05))
     core.load_mission([wp(10, 0, 2)], np.array([0.0, 0.0, 2.0]))
     out = core.step(0.0, np.array([0.0, 0.0, 2.0]), np.zeros(3))
     assert np.linalg.norm(out.velocity_world[:2]) < 0.3
@@ -188,6 +191,31 @@ def test_no_mission_is_idle_and_a_new_mission_replaces_the_old_one():
     assert core.step(0.2, np.zeros(3), np.zeros(3)).state == STATE_IDLE
 
 
+def test_matching_the_backend_velocity_loop_is_what_lets_it_settle():
+    """A slow velocity loop (sim_fast's is 0.67 s) and a tracker that assumes a
+    fast one: each planned acceleration arrives at a fraction of its size and
+    the aircraft creeps. Matching tau is the fix, not more gain."""
+    mission = [wp(6, 0, 2, acceptance_radius_m=0.3), wp(6, 6, 2, acceptance_radius_m=0.3)]
+
+    def fly(tau_assumed):
+        core = TrackingCore(TrackerConfig(controller="mpc", velocity_loop_tau_s=tau_assumed))
+        plant = VelocityPlant((0.0, 0.0, 2.0), tau=1.0 / 1.5, max_accel=2.0)
+        core.load_mission(mission, plant.p.copy())
+        t = 0.0
+        while t < 30.0:
+            out = core.step(t, plant.p.copy(), plant.v.copy())
+            if out.complete:
+                return t
+            plant.step(out.velocity_world, 0.05)
+            t += 0.05
+        return None
+
+    matched = fly(1.0 / 1.5)
+    assert matched is not None and matched < 20.0
+    mismatched = fly(0.1)
+    assert mismatched is None or mismatched > 1.5 * matched
+
+
 def test_bad_config_is_rejected():
     with pytest.raises(ValueError, match="controller"):
         TrackerConfig(controller="pid")
@@ -195,6 +223,8 @@ def test_bad_config_is_rejected():
         TrackerConfig(max_xy_speed_mps=0.0)
     with pytest.raises(ValueError):
         TrackerConfig(cruise_speed_mps=-1.0)
+    with pytest.raises(ValueError):
+        TrackerConfig(velocity_loop_tau_s=0.0)
 
 
 # ---------------------------------------------------------------------------

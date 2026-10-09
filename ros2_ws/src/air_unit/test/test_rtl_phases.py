@@ -26,3 +26,18 @@ def test_cruise_speed_clamped():
 def test_arrived_when_within_radius():
     vx, vy, vz, phase = rtl_command(pr(), pos=(0.5, 0.0, 15.0), home=(0.0, 0.0))
     assert phase == RTL_ARRIVED
+
+
+RTL, LAND, HOVER = 5, 4, 2  # uav_msgs/Command values
+
+
+def test_repeated_rtl_request_keeps_landing_once_rtl_handed_over():
+    from air_unit.rtl import resolve_mode_request
+
+    # Before arrival, RTL is RTL.
+    assert resolve_mode_request(RTL, False, rtl_mode=RTL, land_mode=LAND) == (RTL, False)
+    # After RTL switched to LAND, the ground station's next RTL must not climb again.
+    assert resolve_mode_request(RTL, True, rtl_mode=RTL, land_mode=LAND) == (LAND, True)
+    # Any other request clears the latch and is honoured.
+    assert resolve_mode_request(HOVER, True, rtl_mode=RTL, land_mode=LAND) == (HOVER, False)
+    assert resolve_mode_request(RTL, False, rtl_mode=RTL, land_mode=LAND) == (RTL, False)

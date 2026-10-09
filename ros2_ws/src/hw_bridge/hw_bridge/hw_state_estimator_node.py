@@ -7,7 +7,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Imu, NavSatFix
 from std_msgs.msg import Bool, Float64
 
-from hw_bridge.fusion import AltitudeFilter
+from hw_bridge.fusion import BaroVerticalFilter, GpsVelocity
 from hw_bridge.geo import GeoOrigin, lla_to_enu
 
 
@@ -22,25 +22,25 @@ class HwStateEstimatorNode(Node):
         self.declare_parameter("enable_topic", "/uav/backend/enable")
         self.declare_parameter("odom_topic", "/uav/backend/odom")
         self.declare_parameter("publish_rate_hz", 30.0)
-        self.declare_parameter("baro_alpha", 0.98)
+        # Bandwidth of the baro altitude / climb-rate filter (see fusion.py).
+        self.declare_parameter("baro_filter_hz", 1.0)
         self.declare_parameter("min_gps_status", 0)  # NavSatStatus.STATUS_FIX = 0
 
         g = self.get_parameter
         self.min_gps_status = int(g("min_gps_status").value)
-        self.alt_filter = AltitudeFilter(alpha=float(g("baro_alpha").value))
+        self.alt_filter = BaroVerticalFilter(hz=float(g("baro_filter_hz").value))
 
         self.origin: Optional[GeoOrigin] = None
         self.home_baro: Optional[float] = None
         self.enabled = False
         self.last_enabled = False
         self.orientation = Quaternion(w=1.0)
-        self.vz_imu = 0.0
+        self.vz = 0.0
         self.last_baro: Optional[float] = None
         self.last_fix: Optional[NavSatFix] = None
         self.east = 0.0
         self.north = 0.0
-        self.prev_east: Optional[float] = None
-        self.prev_north: Optional[float] = None
+        self.gps_velocity = GpsVelocity()
         self.vx = 0.0
         self.vy = 0.0
 
@@ -56,7 +56,6 @@ class HwStateEstimatorNode(Node):
 
     def _on_imu(self, msg: Imu) -> None:
         self.orientation = msg.orientation
-        self.vz_imu += float(msg.linear_acceleration.z) * 0.0  # placeholder; baro drives vz
 
     def _on_baro(self, msg: Float64) -> None:
         self.last_baro = float(msg.data)
@@ -76,6 +75,7 @@ class HwStateEstimatorNode(Node):
             self.origin = GeoOrigin(lat=self.last_fix.latitude, lon=self.last_fix.longitude)
             self.home_baro = self.last_baro if self.last_baro is not None else 0.0
             self.alt_filter.reset()
+            self.gps_velocity.reset()
             self.get_logger().info(
                 f"Home captured: ({self.origin.lat:.7f}, {self.origin.lon:.7f}) baro={self.home_baro}"
             )
@@ -94,7 +94,7 @@ class HwStateEstimatorNode(Node):
             gps_alt = None
             if self.last_fix is not None and self.home_baro is not None:
                 gps_alt = None  # GPS altitude noisy; left None unless enabled later
-            z = self.alt_filter.update(baro_alt=baro_rel, vz=0.0, dt=self._period, gps_alt=gps_alt)
+            z, self.vz = self.alt_filter.update(baro_alt=baro_rel, dt=self._period, gps_alt=gps_alt)
 
         # Horizontal from GPS relative to home origin
         if (
@@ -105,10 +105,9 @@ class HwStateEstimatorNode(Node):
             self.east, self.north = lla_to_enu(
                 self.origin, self.last_fix.latitude, self.last_fix.longitude
             )
-            if self.prev_east is not None and self.prev_north is not None:
-                self.vx = (self.east - self.prev_east) / self._period
-                self.vy = (self.north - self.prev_north) / self._period
-            self.prev_east, self.prev_north = self.east, self.north
+            stamp = self.last_fix.header.stamp
+            t_fix = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
+            self.vx, self.vy = self.gps_velocity.update(self.east, self.north, t_fix)
 
         odom = Odometry()
         odom.header.stamp = self.get_clock().now().to_msg()
@@ -120,6 +119,7 @@ class HwStateEstimatorNode(Node):
         odom.pose.pose.orientation = self.orientation
         odom.twist.twist.linear.x = float(self.vx)
         odom.twist.twist.linear.y = float(self.vy)
+        odom.twist.twist.linear.z = float(self.vz)
         self.pub.publish(odom)
 
 

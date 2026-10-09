@@ -8,7 +8,7 @@ import pytest
 
 rclpy = pytest.importorskip("rclpy")
 from uav_msgs.msg import Command, MissionStatus, Telemetry, Trajectory, Waypoint
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 
 _SRC_DIR = Path(__file__).resolve().parents[2]
@@ -20,6 +20,7 @@ from air_unit.mission_executor_node import MissionExecutorNode
 from air_unit.telemetry_adapter_node import TelemetryAdapterNode
 from fake_fc_sim import FakeFcSimNode
 from hw_bridge.crsf_backend_adapter_node import CrsfBackendAdapterNode
+from hw_bridge.fusion import BaroVerticalFilter
 from hw_bridge.hw_state_estimator_node import HwStateEstimatorNode
 
 
@@ -132,9 +133,18 @@ def test_closed_loop_hover_land_nav_rtl():
     # Force loopback link for local SITL execution.
     crsf.udp_host = "127.0.0.1"
     crsf.udp_port = 9000
+    # fake_fc_sim's baro and GPS are noise-free, so this SITL can afford what
+    # real sensors cannot: a 2 Hz climb-rate filter (the 1 Hz hardware default
+    # leaves a +/-0.4 m hover limit cycle) and horizontal velocity feedback
+    # (off by default on hardware until GPS velocity is checked on the vehicle).
+    estimator.alt_filter = BaroVerticalFilter(hz=2.0)
+    crsf.vxy_feedback = True
 
     nodes = [fake, estimator, crsf, telemetry, command_mgr, mission, driver]
-    executor = MultiThreadedExecutor(num_threads=8)
+    # Single-threaded: with eight threads in one process the nodes starve each
+    # other of the GIL, odometry goes stale and the adapter drops to its
+    # open-loop fallback. Launched, every node is its own process.
+    executor = SingleThreadedExecutor()
     for node in nodes:
         executor.add_node(node)
 

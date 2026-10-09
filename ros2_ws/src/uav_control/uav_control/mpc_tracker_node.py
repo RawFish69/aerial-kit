@@ -55,7 +55,7 @@ _TRACKER_PARAMS = {
     'max_accel_z_mps2': 1.5,
     'approach_decel_mps2': 1.0,
     'settle_speed_mps': 0.3,
-    'velocity_lead_steps': 1,
+    'velocity_loop_tau_s': 0.25,
     'q_pos': 8.0,
     'q_vel': 1.0,
     'r_acc': 0.5,
@@ -69,8 +69,9 @@ _TRACKER_PARAMS = {
 
 
 class MpcTrackerNode(Node):
-    def __init__(self) -> None:
-        super().__init__('mpc_tracker_node')
+    def __init__(self, **node_kwargs) -> None:
+        # node_kwargs (e.g. parameter_overrides) let tests build it in-process.
+        super().__init__('mpc_tracker_node', **node_kwargs)
         self.declare_parameter('mission_topic', '/uav/mission')
         self.declare_parameter('command_topic', '/uav/command')
         self.declare_parameter('telemetry_raw_topic', '/uav/backend/telemetry_raw')

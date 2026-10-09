@@ -13,7 +13,7 @@ mpc_tracker_node:
     max_accel_z_mps2: 1.5
     approach_decel_mps2: 1.0   # how the reference slows into a stop waypoint
     settle_speed_mps: 0.3      # a stop counts as reached below this speed
-    velocity_lead_steps: 1     # send the plan's velocity this many steps ahead
+    velocity_loop_tau_s: 0.25  # backend velocity-loop time constant: setpoint = v + a * tau
     # Cost weights (both controllers)
     q_pos: 8.0
     q_vel: 1.0

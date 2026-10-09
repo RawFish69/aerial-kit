@@ -15,9 +15,15 @@ How it flies a mission:
   into the stop at ``approach_decel_mps2``.
 * Each tick the controller (:class:`~aerial_kit.controllers.ConstrainedMPC` or
   :class:`~aerial_kit.controllers.MPPI`) plans accelerations over the horizon.
-  The backends this stack drives take **velocity** setpoints, so what is sent
-  is the plan's predicted velocity ``velocity_lead_steps`` steps ahead, clamped
-  to the xy/z speed limits.
+  The backends this stack drives take **velocity** setpoints and close their
+  own velocity loop, so the planned acceleration has to be turned into a
+  setpoint *that loop* will turn back into that acceleration. For a
+  first-order loop ``v' = (v_sp - v) / tau`` that is ``v_sp = v + a * tau``,
+  with ``tau = velocity_loop_tau_s``, clamped to the xy/z speed limits. Get
+  ``tau`` wrong by a lot and the aircraft only receives a fraction of every
+  planned acceleration - which is how a first version of this, sending
+  ``v + a * plan_dt`` (0.1 s) to sim_fast's 0.67 s loop, crept up to waypoints
+  it never quite settled on.
 * A stop is reached when the aircraft is inside its acceptance radius *and*
   slower than ``settle_speed_mps``. It then holds for ``hold_time_sec`` and
   moves to the next leg, or reports the mission complete.
@@ -74,7 +80,7 @@ class TrackerConfig:
     max_accel_z_mps2: float = 1.5
     approach_decel_mps2: float = 1.0
     settle_speed_mps: float = 0.3
-    velocity_lead_steps: int = 1
+    velocity_loop_tau_s: float = 0.25  # time constant of the backend's velocity loop
     # MPC weights
     q_pos: float = 8.0
     q_vel: float = 1.0
@@ -97,7 +103,8 @@ class TrackerConfig:
         if self.cruise_speed_mps <= 0.0:
             raise ValueError("cruise speed must be positive")
         self.horizon = max(int(self.horizon), 2)
-        self.velocity_lead_steps = min(max(int(self.velocity_lead_steps), 1), self.horizon)
+        if self.velocity_loop_tau_s <= 0.0:
+            raise ValueError("velocity_loop_tau_s must be positive")
 
 
 @dataclass
@@ -336,9 +343,11 @@ class TrackingCore:
             status = f"tracking wp {self._active + 1}/{total} dist_to_stop={dist_stop:.2f}m"
 
         solution = self.controller.solve(p, v, reference)
-        lead = self.cfg.velocity_lead_steps - 1
+        # Invert the backend's velocity loop (see the module docstring).
         v_cmd = clamp_velocity(
-            solution.predicted_velocities[lead], self.cfg.max_xy_speed_mps, self.cfg.max_z_speed_mps
+            v + solution.accel * self.cfg.velocity_loop_tau_s,
+            self.cfg.max_xy_speed_mps,
+            self.cfg.max_z_speed_mps,
         )
         info = {"accel": solution.accel.copy()}
         if hasattr(solution, "converged"):

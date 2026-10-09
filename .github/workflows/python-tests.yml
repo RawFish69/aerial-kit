@@ -81,3 +81,46 @@ jobs:
       - name: uav_control
         working-directory: ros2_ws/src/uav_control
         run: python -m pytest test -q
+
+  ros2-jazzy:
+    # The tests above skip anything that needs rclpy. This job runs them for
+    # real: hw_bridge's SITL scenario (fake FC -> estimator -> CRSF adapter ->
+    # command manager -> mission executor: takeoff, hover, land, mission, RTL)
+    # and uav_control's tracker flying a mission against the sim_fast backend.
+    # Neither had ever run in CI, and both found real bugs the first time.
+    name: ROS 2 Jazzy integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: ros:jazzy
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3-numpy python3-scipy python3-yaml python3-pytest \
+            ros-jazzy-nav-msgs ros-jazzy-geometry-msgs ros-jazzy-sensor-msgs
+      # Only the message package needs building; the tests import the Python
+      # packages from the source tree.
+      - name: Build uav_msgs
+        working-directory: ros2_ws
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --packages-select uav_msgs
+      - name: hw_bridge (incl. SITL closed loop)
+        working-directory: ros2_ws/src/hw_bridge
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ../../install/setup.bash
+          export PYTHONPATH="$GITHUB_WORKSPACE:$PYTHONPATH"
+          python3 -m pytest test -q
+      - name: uav_control (incl. sim_fast mission)
+        working-directory: ros2_ws/src/uav_control
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ../../install/setup.bash
+          export PYTHONPATH="$GITHUB_WORKSPACE:$PYTHONPATH"
+          python3 -m pytest test -q

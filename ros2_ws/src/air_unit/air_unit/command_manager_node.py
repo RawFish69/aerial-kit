@@ -2,7 +2,7 @@ import math
 from typing import Optional
 
 import rclpy
-from air_unit.rtl import RTL_ARRIVED, RtlParams, rtl_command
+from air_unit.rtl import RTL_ARRIVED, RtlParams, resolve_mode_request, rtl_command
 from uav_msgs.msg import Command, Telemetry
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
@@ -103,6 +103,7 @@ class CommandManagerNode(Node):
         self._hover_target_altitude: Optional[float] = None
         self._home_xy: tuple[float, float] | None = None
         self._prev_mode = self.mode
+        self._rtl_landing = False  # RTL handed over to LAND; see resolve_mode_request
 
         self.get_logger().info('Command manager started')
 
@@ -117,11 +118,17 @@ class CommandManagerNode(Node):
             self.mode = Command.MODE_IDLE
             self.status_text = 'disarmed'
             self._home_xy = None
+            self._rtl_landing = False
         elif msg.arm:
             self.armed = True
             self.status_text = 'armed'
 
-        self.mode = int(msg.mode_request)
+        self.mode, self._rtl_landing = resolve_mode_request(
+            int(msg.mode_request),
+            self._rtl_landing,
+            rtl_mode=Command.MODE_RTL,
+            land_mode=Command.MODE_LAND,
+        )
         self.last_manual_cmd = self._command_to_manual_twist(msg)
         if msg.arm and not was_armed and self.last_raw_telemetry is not None and self._home_xy is None:
             self._home_xy = (
@@ -229,6 +236,7 @@ class CommandManagerNode(Node):
                     enable.data = False
                     self.mode = Command.MODE_IDLE
                     self._home_xy = None
+                    self._rtl_landing = False
                     self.land_confirmed_count = 0
                     self.status_text = 'landed -> disarmed'
                 else:
@@ -241,6 +249,7 @@ class CommandManagerNode(Node):
             self.takeoff_confirmed_count = 0
             if self._home_xy is None or altitude is None or self.last_raw_telemetry is None:
                 self.mode = Command.MODE_LAND
+                self._rtl_landing = True
                 self.status_text = 'RTL: no home -> land in place'
             else:
                 params = RtlParams(
@@ -257,6 +266,7 @@ class CommandManagerNode(Node):
                 vx, vy, vz, phase = rtl_command(params, pos, self._home_xy)
                 if phase == RTL_ARRIVED:
                     self.mode = Command.MODE_LAND
+                    self._rtl_landing = True
                     self.status_text = 'RTL: arrived -> land'
                 else:
                     cmd.linear.x, cmd.linear.y, cmd.linear.z = vx, vy, vz
