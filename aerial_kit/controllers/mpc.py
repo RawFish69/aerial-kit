@@ -17,10 +17,16 @@ the limit, and the plan behind it assumed accelerations it will never get.
 
 The model is per-axis and decoupled: ``p' = v, v' = a`` on each of x, y, z. The
 three axes therefore share one Hessian and one constraint matrix, and are solved
-together by :class:`~.qp.BoxQP` as a batch of three. That is also why the
-velocity limit in xy is a box (``|vx|, |vy| <= max_speed_xy``) and not a disc:
-a norm bound couples the axes and makes it a different problem. The box is a
-conservative-in-one-direction approximation and is documented as such.
+together by :class:`~.qp.BoxQP` as a batch of three. In that default
+(``speed_limit_xy="box"``) the xy speed limit is a box, ``|vx|, |vy| <=
+max_speed_xy``, so a diagonal can reach ``sqrt(2)`` times the limit.
+
+``speed_limit_xy="disc"`` bounds ``|v_xy|`` itself, by a regular polygon
+(``disc_sides``, default 8) inscribed in the circle of radius
+``max_speed_xy``: inside the polygon is inside the circle, and the polygon
+gives away at most ``1 - cos(pi / sides)`` (8 % for an octagon) along its
+flats. A norm bound couples x and y, so in this mode they are solved as one
+2N-variable QP and z on its own.
 
 Units and frame are this repository's: metres, seconds, world frame, z up. The
 acceleration is the *demand* the point-mass and multirotor backends integrate,
@@ -92,6 +98,8 @@ class ConstrainedMPC:
         max_accel_z: float = 4.0,
         max_speed_xy: float | None = None,
         max_speed_z: float | None = None,
+        speed_limit_xy: str = "box",
+        disc_sides: int = 8,
         rho: float | None = None,
         max_iter: int = 400,
         tol: float = 1e-5,
@@ -111,6 +119,11 @@ class ConstrainedMPC:
         terminal = str(terminal).lower()
         if terminal not in {"dare", "stage"}:
             raise ValueError("terminal must be 'dare' or 'stage'")
+        speed_limit_xy = str(speed_limit_xy).lower()
+        if speed_limit_xy not in {"box", "disc"}:
+            raise ValueError("speed_limit_xy must be 'box' or 'disc'")
+        if speed_limit_xy == "disc" and int(disc_sides) < 4:
+            raise ValueError("disc_sides must be at least 4")
 
         self.q_pos, self.q_vel = float(q_pos), float(q_vel)
         self.r_acc, self.r_delta = float(r_acc), float(r_delta)
@@ -145,17 +158,31 @@ class ConstrainedMPC:
         H = 2.0 * (self._Gamma.T @ Qbar @ self._Gamma + self.r_acc * np.eye(N) + self.r_delta * D.T @ D)
         self._H = H
 
-        C = [np.eye(N)]
-        if self.speed_limit is not None:
-            C.append(self._Gamma[1::2])  # velocity rows
-        self._C = np.vstack(C)
         # ADMM's step wants to be on the scale of the Hessian; 0.6 x its mean
         # diagonal is a measured sweet spot across the default weights.
         rho = 0.6 * float(np.mean(np.diag(H))) if rho is None else float(rho)
-        self._qp = BoxQP(H, self._C, rho=rho, max_iter=max_iter, eps_abs=tol, eps_rel=tol)
+        qp_kw = dict(rho=rho, max_iter=max_iter, eps_abs=tol, eps_rel=tol)
+        Gv = self._Gamma[1::2]  # velocity rows: v_k = v_free_k + Gv[k] U
+        self.disc = speed_limit_xy == "disc" and max_speed_xy is not None
+        if not self.disc:
+            C = [np.eye(N)]
+            if self.speed_limit is not None:
+                C.append(Gv)
+            self._C = np.vstack(C)
+            self._qp = BoxQP(H, self._C, **qp_kw)
+        else:
+            sides = int(disc_sides)
+            theta = 2.0 * np.pi * np.arange(sides) / sides
+            self._normals = np.stack([np.cos(theta), np.sin(theta)], axis=1)  # (sides, 2)
+            self._apothem = float(max_speed_xy) * float(np.cos(np.pi / sides))
+            # Rows ordered side-major: row j*N + k is n_j . v_k <= apothem.
+            poly = np.vstack([np.hstack([c * Gv, s_ * Gv]) for c, s_ in self._normals])
+            self._qp_xy = BoxQP(np.kron(np.eye(2), H), np.vstack([np.eye(2 * N), poly]), **qp_kw)
+            Cz = [np.eye(N)] + ([Gv] if max_speed_z is not None else [])
+            self._qp_z = BoxQP(H, np.vstack(Cz), **qp_kw)
 
         self._last_u: np.ndarray | None = None  # (N, 3)
-        self._last_y: np.ndarray | None = None
+        self._last_y = None  # duals; a tuple (xy, z) in disc mode
         self._last_applied = np.zeros(3)
 
     def reset(self) -> None:
@@ -200,35 +227,34 @@ class ConstrainedMPC:
             q -= 2.0 * self.r_delta * (self._D.T @ e0) @ self._last_applied.reshape(1, 3)
 
         a_lim = self.accel_limit.reshape(1, 3)
-        lower = [np.repeat(-a_lim, N, axis=0)]
-        upper = [np.repeat(a_lim, N, axis=0)]
-        if self.speed_limit is not None:
-            steps = np.arange(1, N + 1, dtype=float).reshape(-1, 1) * self.dt
-            v_free = free[1::2]
-            # Bounds the plan can actually meet: if the aircraft is already
-            # faster than the limit, the bound relaxes to what 90 % braking can
-            # reach by step k. Full braking would also be feasible, but it would
-            # leave exactly one feasible plan, and ADMM crawls on a feasible set
-            # that has no interior.
-            reach_hi = v0.reshape(1, 3) + 0.9 * a_lim * steps
-            reach_lo = v0.reshape(1, 3) - 0.9 * a_lim * steps
-            v_hi = np.maximum(self.speed_limit.reshape(1, 3), reach_lo)
-            v_lo = np.minimum(-self.speed_limit.reshape(1, 3), reach_hi)
-            lower.append(v_lo - v_free)
-            upper.append(v_hi - v_free)
-        lower = np.vstack(lower)
-        upper = np.vstack(upper)
+        steps = np.arange(1, N + 1, dtype=float).reshape(-1, 1) * self.dt
+        v_free = free[1::2]  # (N, 3)
 
-        x_init = y_init = None
+        x_init = None
         if self.warm_start and self._last_u is not None:
             x_init = np.vstack([self._last_u[1:], self._last_u[-1:]])
-            y_init = self._last_y
+        y_init = self._last_y if self.warm_start else None
 
-        res = self._qp.solve(q, lower, upper, x0=x_init, y0=y_init)
-        U = np.clip(res.x, -a_lim, a_lim)  # ADMM is feasible only to tolerance
+        if not self.disc:
+            lower = [np.repeat(-a_lim, N, axis=0)]
+            upper = [np.repeat(a_lim, N, axis=0)]
+            if self.speed_limit is not None:
+                v_lo, v_hi = self._reachable_box(v0, a_lim, steps, self.speed_limit.reshape(1, 3))
+                lower.append(v_lo - v_free)
+                upper.append(v_hi - v_free)
+            res = self._qp.solve(q, np.vstack(lower), np.vstack(upper), x0=x_init, y0=y_init)
+            U_raw, y_new = res.x, res.y
+            iterations, converged = res.iterations, res.converged
+            residuals = (res.primal_residual, res.dual_residual)
+        else:
+            U_raw, y_new, iterations, converged, residuals = self._solve_disc(
+                q, v0, v_free, a_lim, steps, x_init, y_init
+            )
+
+        U = np.clip(U_raw, -a_lim, a_lim)  # ADMM is feasible only to tolerance
         X = free + self._Gamma @ U
         self._last_u = U.copy()
-        self._last_y = res.y.copy()
+        self._last_y = y_new
         self._last_applied = U[0].copy()
 
         return MPCSolution(
@@ -236,9 +262,64 @@ class ConstrainedMPC:
             accel_sequence=U.copy(),
             predicted_positions=X[0::2].copy(),
             predicted_velocities=X[1::2].copy(),
-            iterations=res.iterations,
-            converged=res.converged,
-            metadata={"primal_residual": res.primal_residual, "dual_residual": res.dual_residual},
+            iterations=iterations,
+            converged=converged,
+            metadata={"primal_residual": residuals[0], "dual_residual": residuals[1]},
+        )
+
+    @staticmethod
+    def _reachable_box(v0, a_lim, steps, limit):
+        """Per-axis velocity bounds the plan can actually meet.
+
+        If the aircraft is already faster than the limit, the bound relaxes to
+        what 90 % braking can reach by step k. Full braking would also be
+        feasible, but it would leave exactly one feasible plan, and ADMM crawls
+        on a feasible set that has no interior.
+        """
+        reach_hi = v0.reshape(1, -1) + 0.9 * a_lim * steps
+        reach_lo = v0.reshape(1, -1) - 0.9 * a_lim * steps
+        return np.minimum(-limit, reach_hi), np.maximum(limit, reach_lo)
+
+    def _solve_disc(self, q, v0, v_free, a_lim, steps, x_init, y_init):
+        """xy as one QP under the polygon speed bound, z on its own."""
+        N = self.horizon
+        y_xy, y_z = y_init if isinstance(y_init, tuple) else (None, None)
+
+        # xy: [Ux; Uy] with accel boxes, then n_j . v_k <= apothem (relaxed,
+        # as in the box case, to what 90 % braking along n_j reaches).
+        n = self._normals
+        along_free = v_free[:, :2] @ n.T  # (N, sides): n_j . v_free_k
+        along_now = n @ v0[:2]  # (sides,)
+        bound = np.maximum(self._apothem, along_now[None, :] - 0.9 * a_lim[0, 0] * steps)
+        poly_hi = (bound - along_free).T.reshape(-1)  # side-major, matching the rows
+        a_xy = np.full(2 * N, a_lim[0, 0])
+        lo_xy = np.concatenate([-a_xy, np.full(poly_hi.size, -np.inf)])
+        hi_xy = np.concatenate([a_xy, poly_hi])
+        x0_xy = None if x_init is None else np.concatenate([x_init[:, 0], x_init[:, 1]])
+        rxy = self._qp_xy.solve(
+            np.concatenate([q[:, 0], q[:, 1]]), lo_xy, hi_xy, x0=x0_xy, y0=y_xy
+        )
+
+        lo_z = [np.full(N, -a_lim[0, 2])]
+        hi_z = [np.full(N, a_lim[0, 2])]
+        if np.isfinite(self.speed_limit[2]):
+            v_lo, v_hi = self._reachable_box(
+                v0[2:], a_lim[:, 2:], steps, self.speed_limit[2:].reshape(1, 1)
+            )
+            lo_z.append((v_lo - v_free[:, 2:]).reshape(-1))
+            hi_z.append((v_hi - v_free[:, 2:]).reshape(-1))
+        rz = self._qp_z.solve(
+            q[:, 2], np.concatenate(lo_z), np.concatenate(hi_z),
+            x0=None if x_init is None else x_init[:, 2], y0=y_z,
+        )
+
+        U = np.stack([rxy.x[:N], rxy.x[N:], rz.x], axis=1)
+        return (
+            U,
+            (rxy.y, rz.y),
+            max(rxy.iterations, rz.iterations),
+            rxy.converged and rz.converged,
+            (max(rxy.primal_residual, rz.primal_residual), max(rxy.dual_residual, rz.dual_residual)),
         )
 
 

@@ -19,6 +19,7 @@ mpc_tracker_node:
     q_vel: 1.0
     r_acc: 0.5
     r_delta: 2.0               # MPC only: penalty on step-to-step accel change
+    speed_limit_xy: disc       # MPC only: disc bounds |v_xy| (octagon); box bounds |vx|, |vy|
     # MPPI only
     mppi_samples: 384
     mppi_temperature: 1.0

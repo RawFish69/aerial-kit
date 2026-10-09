@@ -27,7 +27,7 @@ from .mppi import MPPI, SphereObstacle
 _MPC_KEYS = {
     "dt", "horizon", "q_pos", "q_vel", "r_acc", "r_delta", "terminal",
     "max_accel_xy", "max_accel_z", "max_speed_xy", "max_speed_z",
-    "rho", "max_iter", "tol", "warm_start",
+    "speed_limit_xy", "disc_sides", "rho", "max_iter", "tol", "warm_start",
 }
 _MPPI_KEYS = {
     "dt", "horizon", "samples", "temperature", "noise_std", "q_pos", "q_vel",

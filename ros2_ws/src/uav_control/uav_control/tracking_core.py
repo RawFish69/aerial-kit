@@ -86,6 +86,7 @@ class TrackerConfig:
     q_vel: float = 1.0
     r_acc: float = 0.5
     r_delta: float = 2.0
+    speed_limit_xy: str = "disc"  # MPC: bound |v_xy| (octagon), or "box" per axis
     # MPPI settings
     mppi_samples: int = 384
     mppi_temperature: float = 1.0
@@ -136,9 +137,11 @@ def build_controller(cfg: TrackerConfig, obstacles: Sequence[SphereObstacle] = (
             r_delta=cfg.r_delta,
             max_accel_xy=cfg.max_accel_xy_mps2,
             max_accel_z=cfg.max_accel_z_mps2,
-            # Box limits per axis; the xy norm is clamped again on the output.
             max_speed_xy=cfg.max_xy_speed_mps,
             max_speed_z=cfg.max_z_speed_mps,
+            # The output is norm-clamped anyway; planning with the same bound
+            # keeps the plan the controller follows the one it can fly.
+            speed_limit_xy=cfg.speed_limit_xy,
         )
     return MPPI(
         dt=cfg.plan_dt,

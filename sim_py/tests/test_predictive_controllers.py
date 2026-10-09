@@ -145,6 +145,39 @@ def test_mpc_plan_and_flight_respect_the_speed_limit():
     assert np.max(np.abs(vel[:, 2])) <= 1.0 + 0.02
 
 
+def test_mpc_box_speed_limit_lets_a_diagonal_exceed_the_limit():
+    """The documented weakness of the default: |vx|, |vy| <= limit each."""
+    _, vel, _ = fly(ConstrainedMPC(max_speed_xy=2.0), lambda p: np.array([30.0, 30.0, 0.0]), duration=20.0)
+    assert np.hypot(vel[:, 0], vel[:, 1]).max() == pytest.approx(2.0 * np.sqrt(2.0), abs=0.05)
+
+
+@pytest.mark.parametrize("sides", [8, 12])
+def test_mpc_disc_speed_limit_bounds_the_xy_norm(sides):
+    mpc = ConstrainedMPC(max_speed_xy=2.0, speed_limit_xy="disc", disc_sides=sides)
+    target = np.array([30.0, 18.0, 4.0])  # not on an axis or a polygon vertex
+    pos, vel, _ = fly(mpc, lambda p: target, duration=30.0)
+    speed = np.hypot(vel[:, 0], vel[:, 1])
+    assert speed.max() <= 2.0 + 0.02
+    # The inscribed polygon gives away at most 1 - cos(pi / sides).
+    assert speed.max() >= 2.0 * np.cos(np.pi / sides) - 0.02
+    assert np.linalg.norm(pos[-1] - target) < 0.05
+
+
+def test_mpc_disc_mode_matches_box_mode_when_no_speed_limit_binds():
+    p, v, target = np.array([1.0, -2.0, 0.5]), np.array([0.3, 0.0, -0.1]), np.zeros(3)
+    box = ConstrainedMPC(max_speed_xy=50.0, tol=1e-9, max_iter=5000).solve(p, v, target)
+    disc = ConstrainedMPC(max_speed_xy=50.0, speed_limit_xy="disc", tol=1e-9, max_iter=5000).solve(p, v, target)
+    np.testing.assert_allclose(disc.accel, box.accel, atol=1e-5)
+
+
+def test_mpc_disc_mode_brakes_from_above_the_limit():
+    mpc = ConstrainedMPC(max_speed_xy=2.0, speed_limit_xy="disc", max_accel_xy=4.0, max_iter=2000)
+    sol = mpc.solve(np.zeros(3), np.array([4.0, 4.0, 0.0]), np.array([100.0, 100.0, 0.0]))
+    assert sol.converged
+    np.testing.assert_allclose(sol.accel[:2], [-3.6, -3.6], atol=1e-2)
+    assert np.hypot(*sol.predicted_velocities[-1, :2]) <= 2.0 + 1e-3
+
+
 def test_mpc_starting_above_the_speed_limit_brakes_instead_of_failing():
     """The velocity bound relaxes to what 90 % braking can reach, so the QP is
     feasible from any state. With the target far ahead the plan rides that
@@ -196,7 +229,10 @@ def test_mpc_warm_start_saves_iterations_on_the_next_solve():
 
 @pytest.mark.parametrize(
     "kwargs",
-    [{"r_acc": 0.0}, {"q_pos": -1.0}, {"max_accel_xy": 0.0}, {"max_speed_z": -1.0}, {"terminal": "nope"}],
+    [
+        {"r_acc": 0.0}, {"q_pos": -1.0}, {"max_accel_xy": 0.0}, {"max_speed_z": -1.0},
+        {"terminal": "nope"}, {"speed_limit_xy": "square"}, {"speed_limit_xy": "disc", "disc_sides": 3},
+    ],
 )
 def test_mpc_rejects_bad_settings(kwargs):
     with pytest.raises(ValueError):
