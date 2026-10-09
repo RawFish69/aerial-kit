@@ -323,6 +323,30 @@ def test_mppi_minimum_altitude_keeps_it_off_the_floor():
     assert pos[:, 2].min() > 0.8
 
 
+def test_mppi_relative_temperature_is_invariant_to_the_cost_scale():
+    """Multiply every weight by 4 and every rollout cost is 4x: the relative
+    lambda scales with it and the update is identical. An absolute lambda
+    turns the same change into a sharper, lower-ESS update."""
+    weights = dict(q_pos=8.0, q_vel=1.0, q_terminal=20.0, r_acc=0.05)
+    scaled = {k: 4.0 * v for k, v in weights.items()}
+    args = (np.zeros(3), np.zeros(3), np.array([5.0, -2.0, 1.0]))
+
+    a = MPPI(seed=3, **weights).solve(*args)
+    b = MPPI(seed=3, **scaled).solve(*args)
+    np.testing.assert_allclose(a.accel_sequence, b.accel_sequence, atol=1e-12)
+    assert a.effective_samples == pytest.approx(b.effective_samples)
+
+    c = MPPI(seed=3, temperature=1000.0, temperature_mode="absolute", **weights).solve(*args)
+    d = MPPI(seed=3, temperature=1000.0, temperature_mode="absolute", **scaled).solve(*args)
+    assert d.effective_samples < 0.1 * c.effective_samples  # 292 -> 7 here
+
+
+def test_mppi_default_update_averages_many_rollouts():
+    mppi = MPPI(seed=0)
+    ess = [mppi.solve(np.zeros(3), np.zeros(3), np.array([6.0, 2.0, 1.0])).effective_samples for _ in range(5)]
+    assert np.median(ess) > 10.0  # not a noisy argmin
+
+
 def test_mppi_rejects_bad_settings():
     with pytest.raises(ValueError):
         MPPI(temperature=0.0)
@@ -330,6 +354,8 @@ def test_mppi_rejects_bad_settings():
         MPPI(noise_std=-1.0)
     with pytest.raises(ValueError):
         MPPI(max_accel_z=0.0)
+    with pytest.raises(ValueError):
+        MPPI(temperature_mode="kelvin")
     with pytest.raises(ValueError, match="non-finite"):
         MPPI().solve(np.array([np.inf, 0.0, 0.0]), np.zeros(3), np.zeros(3))
 

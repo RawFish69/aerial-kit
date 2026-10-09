@@ -62,7 +62,7 @@ _TRACKER_PARAMS = {
     'r_delta': 2.0,
     'speed_limit_xy': 'disc',
     'mppi_samples': 384,
-    'mppi_temperature': 1.0,
+    'mppi_temperature': 0.1,
     'mppi_noise_std': 1.0,
     'mppi_seed': 0,
     'obstacle_margin_m': 0.5,

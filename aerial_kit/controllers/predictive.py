@@ -30,7 +30,7 @@ _MPC_KEYS = {
     "speed_limit_xy", "disc_sides", "rho", "max_iter", "tol", "warm_start",
 }
 _MPPI_KEYS = {
-    "dt", "horizon", "samples", "temperature", "noise_std", "q_pos", "q_vel",
+    "dt", "horizon", "samples", "temperature", "temperature_mode", "noise_std", "q_pos", "q_vel",
     "q_terminal", "r_acc", "max_accel_xy", "max_accel_z", "max_speed",
     "speed_penalty", "obstacle_margin", "obstacle_penalty", "min_altitude",
     "altitude_penalty", "seed",

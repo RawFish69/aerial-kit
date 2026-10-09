@@ -89,7 +89,7 @@ class TrackerConfig:
     speed_limit_xy: str = "disc"  # MPC: bound |v_xy| (octagon), or "box" per axis
     # MPPI settings
     mppi_samples: int = 384
-    mppi_temperature: float = 1.0
+    mppi_temperature: float = 0.1  # relative to the batch's cost spread
     mppi_noise_std: float = 1.0
     mppi_seed: Optional[int] = 0
     obstacle_margin_m: float = 0.5

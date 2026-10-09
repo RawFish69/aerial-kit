@@ -17,7 +17,14 @@ controller is in a loop:
   minimum altitude, which a linear MPC cannot express.
 
 The update follows Williams et al. (2017): rollouts ``U_k = clip(U_nom + eps_k)``,
-weights ``w_k ~ exp(-(S_k - min S) / lambda)``, ``U_nom <- sum w_k U_k``. Two
+weights ``w_k ~ exp(-(S_k - min S) / lambda)``, ``U_nom <- sum w_k U_k``.
+
+``lambda`` is relative by default: ``temperature * (median S - min S)``. An
+absolute ``lambda`` only suits one cost scale, and these costs scale with the
+weights, the horizon and the distance to the reference. At the first absolute
+default (1.0) the effective sample size was 2 of 514: the "average" was the
+single best noisy rollout, and the command was 2.6x rougher than it needed to
+be. ``temperature_mode="absolute"`` keeps the textbook form. Two
 extra rollouts are always included - the unperturbed nominal and a "brake"
 sequence of zero acceleration - so a bad batch of noise can never make the
 update worse than both of them.
@@ -82,7 +89,8 @@ class MPPI:
         dt: float = 0.1,
         horizon: int = 20,
         samples: int = 512,
-        temperature: float = 1.0,
+        temperature: float = 0.1,
+        temperature_mode: str = "relative",
         noise_std: float | Sequence[float] = 2.0,
         q_pos: float = 8.0,
         q_vel: float = 1.0,
@@ -105,6 +113,9 @@ class MPPI:
         if temperature <= 0.0:
             raise ValueError("temperature must be positive")
         self.temperature = float(temperature)
+        self.temperature_mode = str(temperature_mode).lower()
+        if self.temperature_mode not in {"absolute", "relative"}:
+            raise ValueError("temperature_mode must be 'absolute' or 'relative'")
         std = np.broadcast_to(np.asarray(noise_std, dtype=float), (3,)).copy()
         if np.any(std < 0.0):
             raise ValueError("noise_std must be non-negative")
@@ -198,7 +209,10 @@ class MPPI:
         costs = self.trajectory_costs(pos, vel, U, reference, obstacles)
 
         min_cost = float(np.min(costs))
-        w = np.exp(-(costs - min_cost) / self.temperature)
+        lam = self.temperature
+        if self.temperature_mode == "relative":
+            lam *= max(float(np.median(costs)) - min_cost, 1e-9)
+        w = np.exp(-(costs - min_cost) / lam)
         w /= float(np.sum(w))
         self._nominal = np.clip(np.tensordot(w, U, axes=1), -lim, lim)
 

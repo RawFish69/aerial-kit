@@ -22,7 +22,7 @@ mpc_tracker_node:
     speed_limit_xy: disc       # MPC only: disc bounds |v_xy| (octagon); box bounds |vx|, |vy|
     # MPPI only
     mppi_samples: 384
-    mppi_temperature: 1.0
+    mppi_temperature: 0.1      # x (median - min) rollout cost: scale-free
     mppi_noise_std: 1.0
     mppi_seed: 0
     obstacle_margin_m: 0.5
