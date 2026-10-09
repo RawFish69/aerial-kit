@@ -15,6 +15,8 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from aerial_kit.types import SimState
 
+from ..mpl_compat import add_line_collection3d
+
 from .camera import CameraController
 from .commands import TeleopCommand, describe_axes
 from .input_state import control_help_bar
@@ -111,7 +113,7 @@ class QuadArtist:
         self.display_colors = list(colors)
 
         self.frame = Line3DCollection(parts, colors=colors, linewidths=widths, zorder=12)
-        ax.add_collection3d(self.frame)
+        add_line_collection3d(ax, self.frame, parts)
 
         axis_parts = geometry.body_axis_segments_body()
         self._axis_split = np.cumsum([len(part) for part in axis_parts])[:-1]
@@ -124,7 +126,7 @@ class QuadArtist:
             zorder=11,
         )
         self.body_axes.set_visible(show_body_axes)
-        ax.add_collection3d(self.body_axes)
+        add_line_collection3d(ax, self.body_axes, axis_parts)
 
     def motor_positions_world(
         self, position: np.ndarray, attitude_quat: np.ndarray | None
@@ -188,7 +190,7 @@ class WingArtist:
         self.display_colors = list(colors)
 
         self.frame = Line3DCollection(parts, colors=colors, linewidths=widths, zorder=12)
-        ax.add_collection3d(self.frame)
+        add_line_collection3d(ax, self.frame, parts)
 
     def update(
         self,
@@ -338,8 +340,10 @@ class TeleopRenderer:
         for y in np.arange(0.0, span_y + spacing * 0.5, spacing):
             grid.append(np.array([[0.0, y, 0.0], [span_x, y, 0.0]], dtype=float))
         if grid:
-            ax.add_collection3d(
-                Line3DCollection(grid, colors=GRID_COLOR, linewidths=0.7, alpha=0.7, zorder=1)
+            add_line_collection3d(
+                ax,
+                Line3DCollection(grid, colors=GRID_COLOR, linewidths=0.7, alpha=0.7, zorder=1),
+                grid,
             )
 
         if world.terrain is not None and hasattr(world.terrain, "heights"):

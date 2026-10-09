@@ -1,0 +1,83 @@
+name: Python tests
+
+# Until this existed, the only thing that ran the Python suite was the PyPI
+# release workflow - after a merge to main, as a gate on publishing. A pull
+# request that broke a controller found out when the release failed.
+#
+# Two jobs:
+#   * the `aerial_kit` / `sim_py` suite, on the oldest and newest supported
+#     Python, because pyproject allows numpy>=1.22 and numpy has removed APIs
+#     (trapz) the suite once used;
+#   * the ROS 2 packages' ROS-free tests. Those packages keep their logic in
+#     plain modules (air_unit.rtl, hw_bridge.fusion, uav_control.tracking_core,
+#     ...) so it can be tested without rclpy; tests that need rclpy skip
+#     themselves with pytest.importorskip.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sim:
+    name: aerial_kit + sim_py (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[sim]" pytest
+      - name: sim_py tests
+        run: python -m pytest sim_py/tests -q
+      - name: Firmware example tests
+        working-directory: examples/firmware
+        run: python -m pytest test_examples.py -q
+
+  ros-packages:
+    name: ROS 2 package logic (no ROS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+      # Each package is run from its own directory, which is how its tests
+      # import the package without a colcon build.
+      - name: air_unit
+        working-directory: ros2_ws/src/air_unit
+        run: python -m pytest test -q
+      - name: hw_bridge
+        working-directory: ros2_ws/src/hw_bridge
+        run: python -m pytest test -q
+      - name: mavlink_bridge
+        working-directory: ros2_ws/src/mavlink_bridge
+        run: python -m pytest test -q
+      - name: uav_control
+        working-directory: ros2_ws/src/uav_control
+        run: python -m pytest test -q
