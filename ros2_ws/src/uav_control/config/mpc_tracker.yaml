@@ -1,0 +1,40 @@
+# Parameters for uav_control/mpc_tracker_node. Defaults in the node match these
+# values; this file is here to be copied and tuned.
+mpc_tracker_node:
+  ros__parameters:
+    controller: mpc            # mpc (constrained QP) | mppi (sampling, obstacle-aware)
+    control_rate_hz: 20.0
+    plan_dt: 0.1               # planner step [s]; horizon * plan_dt is the look-ahead
+    horizon: 20
+    cruise_speed_mps: 2.0      # a waypoint's desired_speed_mps > 0 overrides this
+    max_xy_speed_mps: 2.0
+    max_z_speed_mps: 1.0
+    max_accel_xy_mps2: 2.5
+    max_accel_z_mps2: 1.5
+    approach_decel_mps2: 1.0   # how the reference slows into a stop waypoint
+    settle_speed_mps: 0.3      # a stop counts as reached below this speed
+    velocity_loop_tau_s: 0.25  # backend velocity-loop time constant: setpoint = v + a * tau
+    # Cost weights (both controllers)
+    q_pos: 8.0
+    q_vel: 1.0
+    r_acc: 0.5
+    r_delta: 2.0               # MPC only: penalty on step-to-step accel change
+    speed_limit_xy: disc       # MPC only: disc bounds |v_xy| (octagon); box bounds |vx|, |vy|
+    # MPPI only
+    mppi_samples: 384
+    mppi_temperature: 0.1      # x (median - min) rollout cost: scale-free
+    mppi_noise_std: 1.0
+    mppi_seed: 0
+    obstacle_margin_m: 0.5
+    obstacle_spheres: [0.0]    # flat [x, y, z, r, ...]; [0.0] = none
+    min_altitude_m: -1.0       # < 0 disables the floor cost
+    # Output
+    command_frame: body        # body | world
+    nose_axis: "+y"            # +y for the Gazebo models in this repo, +x otherwise
+    body_lateral_enabled: false
+    heading_control_enabled: true
+    yaw_kp: 1.5
+    max_yaw_rate_rps: 1.2
+    heading_min_distance_m: 0.3  # turn toward the plan once it moves this far in xy
+    yaw_alignment_min_speed_scale: 0.1
+    frame_id: map

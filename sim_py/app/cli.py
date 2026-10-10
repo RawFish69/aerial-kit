@@ -4,6 +4,16 @@ from __future__ import annotations
 
 import argparse
 
+from aerial_kit.registry import CONTROLLERS, register_builtin_components
+
+
+def _controller_choices() -> list[str]:
+    # From the registry, so a newly registered controller is selectable here
+    # without editing a second list (this one had fallen behind: mppi,
+    # constrained_mpc and warm_mppi were registered but not accepted).
+    register_builtin_components()
+    return sorted(set(CONTROLLERS) | {"teleop"})
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Standalone UAV simulator (no ROS2).")
@@ -30,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--controller",
         type=str,
-        choices=["pid", "lqr", "mpc", "teleop", "l1_tecs"],
+        choices=_controller_choices(),
         default="pid",
         help="Controller type to use. l1_tecs pairs with --airframe twin_wing "
         "--backend fixedwing (AIRSPEED_NAV) -- see sim_py/INFO.md.",

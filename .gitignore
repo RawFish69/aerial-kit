@@ -55,3 +55,6 @@ plans/
 
 # Personal release runbook (kept local)
 aerial_kit/PUBLISHING.md
+
+# scripts/run_sim.sh headless output
+results/

@@ -8,13 +8,16 @@ echo "=== Building aerial-kit Workspace ==="
 # Navigate to workspace
 cd "$(dirname "$0")/../ros2_ws"
 
-# Source ROS 2
-if [ -f "/opt/ros/humble/setup.bash" ]; then
-    source /opt/ros/humble/setup.bash
-else
-    echo "Error: ROS 2 Humble not found. Please install ROS 2 Humble."
+# Source ROS 2 (Jazzy on Ubuntu 24.04, Humble on 22.04)
+ROS_SETUP=""
+for distro in jazzy humble; do
+    if [ -f "/opt/ros/$distro/setup.bash" ]; then ROS_SETUP="/opt/ros/$distro/setup.bash"; break; fi
+done
+if [ -z "$ROS_SETUP" ]; then
+    echo "Error: no ROS 2 install found under /opt/ros (tried jazzy, humble)."
     exit 1
 fi
+source "$ROS_SETUP"
 
 # Build with colcon
 echo "Building packages..."

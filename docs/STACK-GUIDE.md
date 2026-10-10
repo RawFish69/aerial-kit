@@ -6,9 +6,9 @@ Detailed simulator, ROS 2, hardware-link and airframe guidance. For the custom f
 
 | Airframe | Simulation | Control |
 |----------|-----------|---------|
-| Quadcopter | ✅ Working | ✅ PID / LQR / MPC |
-| Hexacopter | ✅ Mixer verified | ✅ PID / LQR / MPC |
-| Octacopter | ✅ Mixer verified | ✅ PID / LQR / MPC |
+| Quadcopter | ✅ Working | ✅ PID / LQR / MPC / MPPI |
+| Hexacopter | ✅ Mixer verified | ✅ PID / LQR / MPC / MPPI |
+| Octacopter | ✅ Mixer verified | ✅ PID / LQR / MPC / MPPI |
 | Twin-motor wing | 🚧 6-DOF backend | 🚧 L1/TECS guidance |
 | Single-motor wing | ⏳ To be added | ⏳ To be added |
 | Monocopter | ⏳ To be added | ⏳ To be added |
@@ -306,9 +306,12 @@ For the current tested Gazebo + terrain + planner demo commands (including dense
 
 ### Legacy ROS2 prototype scripts
 
-The old RViz/controller prototype workspace was replaced during consolidation.
-If you still need the legacy PID/LQR/MPC ROS2 stack, recover it from git history.
-Current ROS2 workflows are documented in `ros2_ws/README.md`.
+The old RViz/controller prototype workspace (`sim_dyn`, C++ `controllers_*`) was replaced
+during consolidation; recover it from git history if you need it. The
+`scripts/run_sim_{pid,lqr,mpc,mppi}.sh` and `run_terrain_sim.sh` helpers that used to
+launch it now run the standalone Python simulator. The predictive tracker for the
+current ROS 2 stack is `uav_control`; pick it with `mission_tracker:=mpc|mppi` on the
+`sim_fast` or `sim_gazebo` bringup. Current ROS 2 workflows are in `ros2_ws/README.md`.
 
 ## Docker quick start
 Dockerfiles are split by workflow:
@@ -364,6 +367,7 @@ The host-side live dashboard is `tools/gps_dashboard.py` (see `tools/GPS_DASHBOA
 | `ros2_ws/src/sim_fast` | Python | Headless simulation bringup |
 | `ros2_ws/src/sim_gazebo` | Python | Gazebo Sim bringup and assets |
 | `ros2_ws/src/uav_algorithms` | Python | Shared algorithms / planning API helpers |
+| `ros2_ws/src/uav_control` | Python | Predictive mission tracker (constrained MPC / MPPI), alternative to the executor |
 | `ros2_ws/src/uav_msgs` | ROS msgs/srvs | Command, telemetry, mission, planner interfaces |
 | `ros2_ws/src/terrain_generator` | Python | Terrain + obstacles (forest/mountains/plains) |
 | `sim_py` | Python | Standalone planner/controller/dynamics/visualization |

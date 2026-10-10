@@ -1,0 +1,11 @@
+# MPPI variant of mpc_tracker.yaml: same node, sampling controller, a floor,
+# and an example obstacle. Edit obstacle_spheres for your world.
+mpc_tracker_node:
+  ros__parameters:
+    controller: mppi
+    horizon: 25
+    mppi_samples: 512
+    mppi_noise_std: 1.2
+    obstacle_margin_m: 0.75
+    obstacle_spheres: [10.0, 0.0, 3.0, 1.5]
+    min_altitude_m: 1.0

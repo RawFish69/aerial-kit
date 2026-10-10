@@ -12,3 +12,10 @@ crsf_backend_adapter_node:
     throttle_max: 0.95
     max_yaw_rate_rps: 1.5
     disarmed_throttle: 0.0
+    # Velocity feedback from the estimator's odometry: stick offset acts on
+    # (demand - measured). vz uses the baro climb rate; vxy uses GPS-differenced
+    # velocity and is off until you have checked it is smooth on your vehicle.
+    odom_topic: "/uav/backend/odom"
+    vz_feedback: true
+    vxy_feedback: false
+    odom_timeout_sec: 0.5

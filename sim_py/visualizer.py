@@ -16,6 +16,8 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 from aerial_kit.sim.terrain import BoxObstacle, CylinderObstacle, HeightFieldTerrain
 
+from .mpl_compat import add_line_collection3d
+
 
 def _quat_wxyz_to_rotmat(quat_wxyz: np.ndarray) -> np.ndarray:
     """Convert quaternion [w, x, y, z] into a 3x3 rotation matrix."""
@@ -465,7 +467,9 @@ def plot_follow_view(
     colors, widths = geometry.segment_styles(motor_thrust=motor_thrust)
     rotation = quat_to_rotation_matrix(quat)
     world_parts = [transform_points(part, rotation, position) for part in parts]
-    ax.add_collection3d(Line3DCollection(world_parts, colors=colors, linewidths=widths, zorder=12))
+    add_line_collection3d(
+        ax, Line3DCollection(world_parts, colors=colors, linewidths=widths, zorder=12), world_parts
+    )
 
     camera.apply(ax, position)
     fig.subplots_adjust(left=0.0, right=1.0, top=1.0, bottom=0.04)

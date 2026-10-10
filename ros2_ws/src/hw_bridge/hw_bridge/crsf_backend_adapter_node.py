@@ -1,9 +1,12 @@
+import math
 import socket
 import struct
 import time
+from typing import Optional
 
 import rclpy
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from std_msgs.msg import Bool
 
@@ -33,6 +36,13 @@ class CrsfBackendAdapterNode(Node):
         self.declare_parameter("throttle_max", 0.95)
         self.declare_parameter("max_yaw_rate_rps", 1.5)
         self.declare_parameter("disarmed_throttle", 0.0)
+        # Close the velocity loop on the estimator's odometry (see rc_mapping).
+        # Vertical uses the baro climb rate and is on by default; horizontal uses
+        # GPS-differenced velocity, which is steppy at GPS rate, so it is opt-in.
+        self.declare_parameter("odom_topic", "/uav/backend/odom")
+        self.declare_parameter("vz_feedback", True)
+        self.declare_parameter("vxy_feedback", False)
+        self.declare_parameter("odom_timeout_sec", 0.5)
 
         g = self.get_parameter
         self.udp_host = str(g("udp_host").value)
@@ -50,6 +60,12 @@ class CrsfBackendAdapterNode(Node):
             max_yaw_rate_rps=float(g("max_yaw_rate_rps").value),
         )
 
+        self.vz_feedback = bool(g("vz_feedback").value)
+        self.vxy_feedback = bool(g("vxy_feedback").value)
+        self.odom_timeout_sec = float(g("odom_timeout_sec").value)
+        self.last_odom: Optional[Odometry] = None
+        self.last_odom_time = None
+
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.enabled = False
         self.last_cmd = Twist()
@@ -58,6 +74,8 @@ class CrsfBackendAdapterNode(Node):
 
         self.create_subscription(Twist, str(g("backend_cmd_topic").value), self._on_cmd, 10)
         self.create_subscription(Bool, str(g("backend_enable_topic").value), self._on_enable, 10)
+        if self.vz_feedback or self.vxy_feedback:
+            self.create_subscription(Odometry, str(g("odom_topic").value), self._on_odom, 20)
         period = 1.0 / max(float(g("send_rate_hz").value), 1.0)
         self.timer = self.create_timer(period, self._tick)
         self.get_logger().info(f"CRSF adapter -> udp://{self.udp_host}:{self.udp_port}")
@@ -68,6 +86,31 @@ class CrsfBackendAdapterNode(Node):
 
     def _on_enable(self, msg: Bool) -> None:
         self.enabled = bool(msg.data)
+
+    def _on_odom(self, msg: Odometry) -> None:
+        self.last_odom = msg
+        self.last_odom_time = self.get_clock().now()
+
+    def _measured(self) -> tuple[Optional[tuple[float, float]], Optional[float]]:
+        """Fresh measured (body vxy, vz) for the axes with feedback enabled."""
+        if self.last_odom is None or self.last_odom_time is None:
+            return None, None
+        age = (self.get_clock().now() - self.last_odom_time).nanoseconds / 1e9
+        if age > self.odom_timeout_sec:
+            self.get_logger().warn(
+                f"odom stale ({age:.2f}s) -> open-loop stick mapping", throttle_duration_sec=2.0
+            )
+            return None, None
+        t = self.last_odom.twist.twist.linear
+        vz = float(t.z) if self.vz_feedback else None
+        vxy = None
+        if self.vxy_feedback:
+            q = self.last_odom.pose.pose.orientation
+            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            c, s_ = math.cos(yaw), math.sin(yaw)
+            # World ENU -> body (x right, y forward/nose), as in mission_executor.
+            vxy = (c * float(t.x) + s_ * float(t.y), -s_ * float(t.x) + c * float(t.y))
+        return vxy, vz
 
     def _tick(self) -> None:
         if not self.enabled:
@@ -81,12 +124,15 @@ class CrsfBackendAdapterNode(Node):
                 )
             else:
                 c = self.last_cmd
+                measured_vxy, measured_vz = self._measured()
                 sticks = velocity_to_rc(
                     self.params,
                     vx=float(c.linear.x),
                     vy=float(c.linear.y),
                     vz=float(c.linear.z),
                     wz=float(c.angular.z),
+                    measured_vxy=measured_vxy,
+                    measured_vz=measured_vz,
                 )
         self._send(sticks)
 

@@ -12,6 +12,7 @@
 <exec_depend>launch_ros</exec_depend>
 <exec_depend>sim_bridge</exec_depend>
 <exec_depend>air_unit</exec_depend>
+<exec_depend>uav_control</exec_depend>
 <exec_depend>planner</exec_depend>
 <exec_depend>ground_station</exec_depend>
 

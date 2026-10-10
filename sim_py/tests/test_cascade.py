@@ -59,6 +59,10 @@ G = 9.81
 ARM, MASS, YAW_C, TMAX = 0.2, 1.0, 0.02, 6.0
 KV_DRAG = 0.1  # the plant's translational drag, N per m/s, world frame
 
+# numpy 2.0 renamed trapz to trapezoid and later releases removed trapz;
+# pyproject still allows numpy>=1.22, which only has trapz.
+_trapezoid = getattr(np, "trapezoid", None) or np.trapz
+
 
 def airframe() -> MultirotorAirframe:
     return MultirotorAirframe(
@@ -391,7 +395,7 @@ def test_the_thrust_direction_agrees_with_the_acceleration_it_produces() -> None
     # thrust that produces the demanded acceleration *net* of gravity), so all
     # three axes have the same force balance: demand minus drag.
     for axis in range(3):
-        expected = demand[axis] * duration - (KV_DRAG / MASS) * np.trapz(
+        expected = demand[axis] * duration - (KV_DRAG / MASS) * _trapezoid(
             trace.velocity[window, axis], trace.t[window]
         )
         assert delta_v[axis] == pytest.approx(expected, abs=1e-6)
@@ -606,7 +610,13 @@ def test_a_cascade_rate_far_below_the_motors_is_where_it_stops_flying() -> None:
     assert inverted.tilt_deg.max() > 90.0  # past horizontal and over
     assert inverted.position_error[-1] > 10.0
     assert inverted.clamped.sum() > 1000  # the motors pinned trying to stop it
-    assert inverted.position[-1][2] == pytest.approx(0.0, abs=0.01)  # on the ground
+    # On the ground: an inverted aircraft with pinned motors scrapes and hops
+    # along the floor, so the height at any one sample - the last included -
+    # is chaotic and depends on floating-point details. Where it spends the
+    # second half of the run is not.
+    floor_time = inverted.position[len(inverted.position) // 2:, 2]
+    assert np.median(floor_time) == pytest.approx(0.0, abs=0.01)
+    assert floor_time.max() < 0.5  # it never gets back up (it started at 2 m)
 
 
 # ---------------------------------------------------------------------------
