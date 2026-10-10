@@ -6,3 +6,16 @@ hw_state_estimator_node:
     publish_rate_hz: 30.0
     baro_filter_hz: 1.0     # baro altitude + climb-rate filter bandwidth (higher: less lag, more noise)
     min_gps_status: 0
+    # ekf: aerial_kit's INS EKF (position, velocity, accel and baro bias; GPS
+    # outliers gated). complementary: the baro filter + GPS differencing below.
+    estimator: ekf
+    # What the FC puts in Imu.linear_acceleration:
+    #   none                 - not usable (Betaflight over CRSF sends attitude only)
+    #   body_specific_force  - REP-145: body axes, gravity included
+    #   world_linear         - gravity removed, ENU world axes
+    imu_accel_mode: none
+    accel_noise: -1.0       # m/s^2/sqrt(Hz); < 0 picks per mode
+    gps_sigma_xy: 1.5       # metres, 1-sigma
+    gps_sigma_z: 3.0
+    baro_sigma: 0.3
+    use_gps_altitude: true

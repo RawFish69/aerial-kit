@@ -7,15 +7,26 @@ from rclpy.node import Node
 from sensor_msgs.msg import Imu, NavSatFix
 from std_msgs.msg import Bool, Float64
 
-from hw_bridge.fusion import BaroVerticalFilter, GpsVelocity
+from hw_bridge.fusion import BaroVerticalFilter, EkfFusion, GpsVelocity
 from hw_bridge.geo import GeoOrigin, lla_to_enu
 
 
 class HwStateEstimatorNode(Node):
-    """Fuse IMU attitude + barometer altitude + GPS horizontal into /uav/backend/odom (ENU)."""
+    """Fuse IMU, barometer and GPS into /uav/backend/odom (ENU).
 
-    def __init__(self) -> None:
-        super().__init__("hw_state_estimator_node")
+    ``estimator: ekf`` (default) runs aerial_kit's INS EKF - position, velocity,
+    accelerometer and baro bias, GPS outliers gated. ``imu_accel_mode`` says
+    what the FC puts in ``Imu.linear_acceleration``: ``none`` (default; e.g.
+    Betaflight over CRSF sends attitude only), ``body_specific_force`` (REP-145)
+    or ``world_linear`` (gravity removed, world axes, as ``fake_fc_sim``).
+    Orientation is taken as z-up body to ENU world (REP-103) either way.
+
+    ``estimator: complementary`` keeps the previous baro filter and per-fix GPS
+    differencing.
+    """
+
+    def __init__(self, **node_kwargs) -> None:
+        super().__init__("hw_state_estimator_node", **node_kwargs)
         self.declare_parameter("imu_topic", "/uav/hw/imu")
         self.declare_parameter("baro_topic", "/uav/hw/baro")
         self.declare_parameter("gps_topic", "/uav/hw/gps")
@@ -25,10 +36,36 @@ class HwStateEstimatorNode(Node):
         # Bandwidth of the baro altitude / climb-rate filter (see fusion.py).
         self.declare_parameter("baro_filter_hz", 1.0)
         self.declare_parameter("min_gps_status", 0)  # NavSatStatus.STATUS_FIX = 0
+        self.declare_parameter("estimator", "ekf")  # ekf | complementary
+        self.declare_parameter("imu_accel_mode", "none")  # none | body_specific_force | world_linear
+        self.declare_parameter("accel_noise", -1.0)  # m/s^2/sqrt(Hz); < 0 picks per mode
+        self.declare_parameter("gps_sigma_xy", 1.5)
+        self.declare_parameter("gps_sigma_z", 3.0)
+        self.declare_parameter("baro_sigma", 0.3)
+        self.declare_parameter("use_gps_altitude", True)
 
         g = self.get_parameter
         self.min_gps_status = int(g("min_gps_status").value)
         self.alt_filter = BaroVerticalFilter(hz=float(g("baro_filter_hz").value))
+        self.estimator = str(g("estimator").value).strip().lower()
+        if self.estimator not in ("ekf", "complementary"):
+            raise ValueError(f"estimator must be 'ekf' or 'complementary', got {self.estimator!r}")
+        self.use_gps_altitude = bool(g("use_gps_altitude").value)
+        self.fusion = None
+        if self.estimator == "ekf":
+            from aerial_kit.estimation import InsConfig
+
+            accel_noise = float(g("accel_noise").value)
+            self.fusion = EkfFusion(
+                InsConfig(
+                    accel_mode=str(g("imu_accel_mode").value).strip(),
+                    accel_noise=accel_noise if accel_noise > 0.0 else None,
+                    gps_sigma_xy=float(g("gps_sigma_xy").value),
+                    gps_sigma_z=float(g("gps_sigma_z").value),
+                    baro_sigma=float(g("baro_sigma").value),
+                )
+            )
+        self._last_fix_t: Optional[float] = None
 
         self.origin: Optional[GeoOrigin] = None
         self.home_baro: Optional[float] = None
@@ -54,14 +91,33 @@ class HwStateEstimatorNode(Node):
         self.timer = self.create_timer(self._period, self._tick)
         self.get_logger().info("hw_state_estimator started")
 
+    def _now(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
+
     def _on_imu(self, msg: Imu) -> None:
         self.orientation = msg.orientation
+        if self.fusion is not None:
+            q = msg.orientation
+            a = msg.linear_acceleration
+            self.fusion.on_imu(self._now(), [a.x, a.y, a.z], [q.w, q.x, q.y, q.z])
 
     def _on_baro(self, msg: Float64) -> None:
         self.last_baro = float(msg.data)
+        if self.fusion is not None:
+            self.fusion.on_baro(self._now(), self.last_baro)
 
     def _on_gps(self, msg: NavSatFix) -> None:
         self.last_fix = msg
+        if self.fusion is None or self.origin is None or msg.status.status < self.min_gps_status:
+            return
+        stamp = msg.header.stamp
+        t_fix = float(stamp.sec) + 1e-9 * float(stamp.nanosec)
+        if self._last_fix_t is not None and t_fix <= self._last_fix_t:
+            return  # the same fix again
+        self._last_fix_t = t_fix
+        east, north = lla_to_enu(self.origin, msg.latitude, msg.longitude)
+        altitude = float(msg.altitude) if self.use_gps_altitude else None
+        self.fusion.on_gps(self._now(), east, north, altitude)
 
     def _on_enable(self, msg: Bool) -> None:
         self.enabled = bool(msg.data)
@@ -76,6 +132,13 @@ class HwStateEstimatorNode(Node):
             self.home_baro = self.last_baro if self.last_baro is not None else 0.0
             self.alt_filter.reset()
             self.gps_velocity.reset()
+            if self.fusion is not None:
+                self._last_fix_t = None
+                self.fusion.capture_home(
+                    self._now(),
+                    float(self.last_fix.altitude) if self.use_gps_altitude else None,
+                    self.last_baro,
+                )
             self.get_logger().info(
                 f"Home captured: ({self.origin.lat:.7f}, {self.origin.lon:.7f}) baro={self.home_baro}"
             )
@@ -84,6 +147,8 @@ class HwStateEstimatorNode(Node):
 
     def _tick(self) -> None:
         self._maybe_capture_home()
+        if self.fusion is not None:
+            return self._publish_ekf()
 
         # Altitude (relative to home baro)
         z = 0.0
@@ -120,6 +185,24 @@ class HwStateEstimatorNode(Node):
         odom.twist.twist.linear.x = float(self.vx)
         odom.twist.twist.linear.y = float(self.vy)
         odom.twist.twist.linear.z = float(self.vz)
+        self.pub.publish(odom)
+
+
+    def _publish_ekf(self) -> None:
+        position, velocity = self.fusion.state_at(self._now())
+        odom = Odometry()
+        odom.header.stamp = self.get_clock().now().to_msg()
+        odom.header.frame_id = "map"
+        odom.child_frame_id = "base_link"
+        odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z = (float(c) for c in position)
+        odom.pose.pose.orientation = self.orientation
+        odom.twist.twist.linear.x, odom.twist.twist.linear.y, odom.twist.twist.linear.z = (float(c) for c in velocity)
+        if self.fusion.home:
+            sp = self.fusion.ekf.position_sigma()
+            sv = self.fusion.ekf.velocity_sigma()
+            for i in range(3):
+                odom.pose.covariance[i * 7] = float(sp[i] ** 2)
+                odom.twist.covariance[i * 7] = float(sv[i] ** 2)
         self.pub.publish(odom)
 
 

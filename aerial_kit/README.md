@@ -27,6 +27,8 @@ For firmware, hardware integration, and the full ROS 2 / simulation stack, visit
   and `FixedWingL1TECSController` (L1 lateral guidance + TECS-lite longitudinal control +
   coordinated-turn attitude PID)
 - `aerial_kit.guidance` - `l1_bank_command`, `tecs_command` as standalone functions
+- `aerial_kit.estimation` - `InsEkf`: loosely coupled INS Kalman filter (GPS, baro, optional
+  accelerometer; bias states, outlier gating)
 
 ## Quick start
 

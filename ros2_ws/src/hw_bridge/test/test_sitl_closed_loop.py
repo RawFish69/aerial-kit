@@ -120,10 +120,17 @@ def _wait_with_mode(
 
 
 @pytest.mark.slow
-def test_closed_loop_hover_land_nav_rtl():
+@pytest.mark.parametrize("estimator_kind", ["ekf", "complementary"])
+def test_closed_loop_hover_land_nav_rtl(estimator_kind):
     rclpy.init()
     fake = FakeFcSimNode()
-    estimator = HwStateEstimatorNode()
+    from rclpy.parameter import Parameter
+
+    # fake_fc_sim publishes gravity-free, world-frame acceleration.
+    estimator = HwStateEstimatorNode(parameter_overrides=[
+        Parameter("estimator", value=estimator_kind),
+        Parameter("imu_accel_mode", value="world_linear"),
+    ])
     crsf = CrsfBackendAdapterNode()
     telemetry = TelemetryAdapterNode()
     command_mgr = CommandManagerNode()
@@ -134,10 +141,12 @@ def test_closed_loop_hover_land_nav_rtl():
     crsf.udp_host = "127.0.0.1"
     crsf.udp_port = 9000
     # fake_fc_sim's baro and GPS are noise-free, so this SITL can afford what
-    # real sensors cannot: a 2 Hz climb-rate filter (the 1 Hz hardware default
-    # leaves a +/-0.4 m hover limit cycle) and horizontal velocity feedback
-    # (off by default on hardware until GPS velocity is checked on the vehicle).
-    estimator.alt_filter = BaroVerticalFilter(hz=2.0)
+    # real sensors cannot: horizontal velocity feedback (off by default on
+    # hardware until GPS velocity is checked on the vehicle) and, for the
+    # complementary estimator, a 2 Hz climb-rate filter (its 1 Hz hardware
+    # default leaves a +/-0.4 m hover limit cycle).
+    if estimator_kind == "complementary":
+        estimator.alt_filter = BaroVerticalFilter(hz=2.0)
     crsf.vxy_feedback = True
 
     nodes = [fake, estimator, crsf, telemetry, command_mgr, mission, driver]
@@ -262,4 +271,7 @@ def test_closed_loop_hover_land_nav_rtl():
                 node.destroy_node()
             except Exception:
                 pass
+        # The fake FC's UDP socket outlives destroy_node; close it so the next
+        # run (the other estimator) can bind the same port.
+        fake.sock.close()
         rclpy.shutdown()

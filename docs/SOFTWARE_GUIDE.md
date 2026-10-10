@@ -300,9 +300,12 @@ setup is in [mavlink_bridge/README.md](../ros2_ws/src/mavlink_bridge/README.md).
 
 `hw_bridge` notes. These changed recently; check your configs:
 
-- `hw_state_estimator_node` estimates altitude **and climb rate** from the barometer
-  (`baro_filter_hz`, default 1 Hz; this replaces `baro_alpha`). It used to publish a climb rate of
-  exactly zero. It differences GPS velocity per fix, not per tick.
+- `hw_state_estimator_node` runs an **INS EKF** by default (`estimator: ekf`, from
+  `aerial_kit.estimation`). It estimates position, velocity, accelerometer bias and baro offset,
+  rejects GPS outliers with a chi-square gate, and publishes covariances. Set
+  `imu_accel_mode` to match your FC: the default `none` is correct for Betaflight over CRSF
+  (attitude only); use `body_specific_force` for a REP-145 IMU. `estimator: complementary`
+  keeps the older baro filter (`baro_filter_hz`) and per-fix GPS differencing.
 - `crsf_backend_adapter_node` maps the velocity **error** (demand minus measured) to sticks,
   because in Angle mode the sticks command acceleration. `vz_feedback` is on by default.
   `vxy_feedback` (GPS-derived) is opt-in until you have checked its velocity is smooth on
