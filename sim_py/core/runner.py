@@ -323,8 +323,28 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
     steps = int(max_t / max(dt, 1e-9))
     logger.info(f"Sim steps: ~{steps} iterations")
 
+    # What the controller sees. "truth" hands it the backend's state; "ekf"
+    # hands it the INS filter's estimate from simulated GPS, baro and IMU, so a
+    # controller is judged on the state it would actually have in flight.
+    # Collisions, the recorded trajectory and the distance to goal stay true.
+    est_cfg = dict(cfg_norm.simulation_cfg.get("estimator", {}) or {})
+    est_mode = str(est_cfg.get("mode", "truth")).lower()
+    estimator = None
+    if est_mode == "ekf":
+        from aerial_kit.estimation import SimulatedIns
+
+        if "seed" not in est_cfg and cfg_norm.seed is not None:
+            est_cfg["seed"] = int(cfg_norm.seed)
+        estimator = SimulatedIns.from_config(est_cfg)
+        logger.info("Estimator: INS EKF on simulated GPS, baro and IMU")
+    elif est_mode != "truth":
+        raise ValueError(f"simulation.estimator.mode must be 'truth' or 'ekf', got {est_mode!r}")
+
     state0 = backend.state()
     traj_positions = [state0.position.copy()]
+    est_positions: list[np.ndarray] = []
+    if estimator is not None:
+        est_positions.append(estimator.reset(state0).position.copy())
     traj_attitudes: list[np.ndarray] = []
     if state0.attitude_quat is None:
         traj_attitudes.append(np.full(4, np.nan, dtype=float))
@@ -351,7 +371,8 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
     gravity_mps2 = 9.81
 
     while t < max_t and wp_idx < len(waypoints):
-        state = backend.state()
+        true_state = backend.state()
+        state = true_state if estimator is None else estimator.update(true_state)
         pos = state.position
         vel = state.velocity
 
@@ -375,11 +396,13 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
         target_idx = min(wp_idx + lookahead_waypoints, len(waypoints) - 1)
         target_wp = waypoints[target_idx]
 
-        if is_point_in_collision(pos, obstacles, inflation=0.0):
+        true_pos = true_state.position
+        if is_point_in_collision(true_pos, obstacles, inflation=0.0):
             collisions_detected += 1
             if collisions_detected == 1:
                 logger.warning(
-                    f"t={t:.2f}s: COLLISION DETECTED at [{pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f}]"
+                    f"t={t:.2f}s: COLLISION DETECTED at "
+                    f"[{true_pos[0]:.2f}, {true_pos[1]:.2f}, {true_pos[2]:.2f}]"
                 )
 
         control_target = controller.compute(
@@ -484,6 +507,10 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
         new_state = backend.state()
         t = float(new_state.t)
         traj_positions.append(new_state.position.copy())
+        if estimator is not None:
+            # The estimate at the same instant as the true sample beside it;
+            # the controller sees this one at the top of the next step.
+            est_positions.append(estimator.update(new_state).position.copy())
         if new_state.attitude_quat is None:
             traj_attitudes.append(np.full(4, np.nan, dtype=float))
         else:
@@ -529,4 +556,5 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
         collisions_detected=int(collisions_detected),
         attitude_quats=attitude_quats,
         backend_name=backend_name,
+        estimated_trajectory=np.vstack(est_positions) if estimator is not None else None,
     )

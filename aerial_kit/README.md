@@ -31,7 +31,8 @@ For firmware, hardware integration, and the full ROS 2 / simulation stack, visit
   speed/acceleration/jerk limits and optimised segment times, queryable for position through
   snap and as a `FlatReference`
 - `aerial_kit.estimation` - `InsEkf`: loosely coupled INS Kalman filter (GPS, baro, optional
-  accelerometer; bias states, outlier gating)
+  accelerometer; bias states, outlier gating); `SimulatedIns`: simulated GPS, baro and IMU
+  feeding it, so a simulated controller can fly on the estimate (`simulation.estimator.mode: ekf`)
 
 ## Quick start
 
