@@ -29,14 +29,16 @@ test, so the two implementations share no code even though they must agree.
 What is modelled, and what is not
 ---------------------------------
 Modelled: first-order motor lag, per-motor saturation with the request kept so
-an infeasible demand stays visible, translational drag, full quaternion
-kinematics with a general body-rate transformation, additive gyro and
-accelerometer noise from a seeded generator, and a sample delay of an integer
-number of steps.
+an infeasible demand stays visible, translational drag on the velocity relative
+to the air, wind (a steady part plus first-order Gauss-Markov gusts from their
+own seeded generator), full quaternion kinematics with a general body-rate
+transformation, additive gyro and accelerometer noise from a seeded generator,
+and a sample delay of an integer number of steps.
 
 Not modelled: blade flapping, inflow, ground effect, propeller thrust curves
-that vary with airspeed, ESC timing, or any structural dynamics. There is no
-wind. The inertia is diagonal and constant. This is a *validation* plant for the
+that vary with airspeed, ESC timing, or any structural dynamics. Wind acts only
+through the drag term: no moment, and no change in rotor thrust. The inertia is
+diagonal and constant. This is a *validation* plant for the
 actuator path, not a flight-dynamics package.
 
 The two sign conventions that matter
@@ -107,8 +109,18 @@ class ActuatorPlantParams:
     # plausible small outrunner plus prop; it is a round number chosen so the
     # lag is observable at 500 Hz, not a measured value.
     motor_tau_s: float = 0.03
-    # Translational drag, world frame, newtons per m/s.
+    # Translational drag, world frame, newtons per m/s of airspeed.
     kv_drag: float = 0.1
+    # Wind, NED m/s: the air moves at `wind_ned_mps` plus a gust. Each gust
+    # axis is a first-order Gauss-Markov process with standard deviation
+    # `gust_sigma_mps` and correlation time `gust_tau_s`, drawn once per step
+    # from a generator of its own, so turning gusts on does not change the
+    # sensor noise sequence. Zero by default, for the same reason the sensor
+    # noise is. Wind enters through `kv_drag` only: with no drag it does
+    # nothing.
+    wind_ned_mps: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    gust_sigma_mps: float = 0.0
+    gust_tau_s: float = 2.0
     gravity_mps2: float = 9.81
     # Sensor noise, one sigma. Zero by default: a plant that is noisy when you
     # did not ask is a plant whose failures are unreproducible.
@@ -177,7 +189,10 @@ class ActuatorPlant:
     last_dt_s: float = field(init=False, default=0.0)
     steps: int = field(init=False, default=0)
     clamped_last_step: int = field(init=False, default=0)
+    # The gust part of the wind, NED m/s, held constant across one step.
+    gust: np.ndarray = field(init=False)
     _rng: np.random.Generator = field(init=False, repr=False)
+    _gust_rng: np.random.Generator = field(init=False, repr=False)
     _delay: deque = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -210,6 +225,12 @@ class ActuatorPlant:
             raise ValueError("sample_delay_steps must be >= 0")
         if np.any(np.asarray(p.inertia_kgm2, dtype=float) <= 0.0):
             raise ValueError("every inertia component must be > 0")
+        if np.asarray(p.wind_ned_mps, dtype=float).shape != (3,):
+            raise ValueError("wind_ned_mps must have 3 components")
+        if p.gust_sigma_mps < 0.0:
+            raise ValueError("gust_sigma_mps must be >= 0")
+        if p.gust_tau_s <= 0.0:
+            raise ValueError("gust_tau_s must be > 0")
 
         self.position = np.zeros(3, dtype=float)
         self.velocity = np.zeros(3, dtype=float)
@@ -220,6 +241,14 @@ class ActuatorPlant:
         self.motor_actual = np.full(arms, p.motor_min, dtype=float)
         self.motor_command = np.full(arms, p.motor_min, dtype=float)
         self._rng = np.random.default_rng(p.seed)
+        self._gust_rng = np.random.default_rng([p.seed, 1])
+        # Start the gust from its stationary distribution rather than from
+        # calm, so the first seconds are not a different experiment.
+        self.gust = (
+            self._gust_rng.normal(0.0, p.gust_sigma_mps, size=3)
+            if p.gust_sigma_mps
+            else np.zeros(3, dtype=float)
+        )
         self._delay: deque = deque(maxlen=max(1, p.sample_delay_steps + 1))
 
     # ---- inputs ---------------------------------------------------------
@@ -320,9 +349,23 @@ class ActuatorPlant:
                 self.velocity[2] = 0.0
 
         self._assert_finite("after", dt)
+        self._advance_gust(dt)
         self.steps += 1
         self.time_s += dt
         self.last_dt_s = dt
+
+    def wind(self) -> np.ndarray:
+        """The air's velocity now, NED m/s: the steady wind plus the gust."""
+        return np.asarray(self.params.wind_ned_mps, dtype=float) + self.gust
+
+    def _advance_gust(self, dt: float) -> None:
+        """Exact discretisation of the Gauss-Markov gust over one step."""
+        p = self.params
+        if not p.gust_sigma_mps:
+            return
+        decay = np.exp(-dt / p.gust_tau_s)
+        self.gust[...] = decay * self.gust + p.gust_sigma_mps * np.sqrt(1.0 - decay * decay) * \
+            self._gust_rng.normal(0.0, 1.0, size=3)
 
     def _assert_finite(self, when: str, dt: float) -> None:
         """Refuse to integrate a state that is not finite.
@@ -365,7 +408,7 @@ class ActuatorPlant:
         """Time derivatives of the whole integrated state."""
         p = self.params
         rotor = self._rotor_wrench(motor)
-        drag = -p.kv_drag * np.asarray(velocity, dtype=float)
+        drag = -p.kv_drag * (np.asarray(velocity, dtype=float) - self.wind())
         non_contact = self._rotmat(quat) @ rotor.force_body + drag
         accel_world = (non_contact + self._ground_force(position, non_contact)) \
             / p.mass_kg + np.array([0.0, 0.0, p.gravity_mps2])
@@ -473,7 +516,7 @@ class ActuatorPlant:
 
         rot = self._rotmat(quat)
         rotor = self._rotor_wrench(self.motor_actual)
-        drag = -p.kv_drag * self.velocity
+        drag = -p.kv_drag * (self.velocity - self.wind())
         # Specific force: what a real unit measures is (a_world - g), which for
         # a body whose only non-gravitational forces are thrust, drag and the
         # ground is exactly those forces over mass. Then the firmware's

@@ -16,7 +16,8 @@ So it flies only controllers that close an attitude loop and return a wrench:
 refused with that list, rather than flown into the ground.
 
 Settings live under ``simulation.actuator`` (mass, geometry, motor limits and
-lag, ``plant_dt``). The runner fills the controller's ``mass_kg`` from the same
+lag, ``plant_dt``, and wind: ``wind_mps`` as an ENU vector in the runner's
+frame, ``gust_sigma_mps`` and ``gust_tau_s``). The runner fills the controller's ``mass_kg`` from the same
 section when the controller's own config does not give one, so the controller
 and the plant cannot silently disagree about the mass.
 """
@@ -67,7 +68,18 @@ class ActuatorBackend(DynamicsBackend):
         self.plant_dt = float(s.get("plant_dt", 0.002))
         if self.plant_dt <= 0.0:
             raise ValueError("simulation.actuator.plant_dt must be > 0")
-        params = ActuatorPlantParams(**{k: v for k, v in s.items() if k in _PLANT_KEYS})
+        plant_settings = {k: v for k, v in s.items() if k in _PLANT_KEYS}
+        if "wind_mps" in s:
+            # The runner's frame is ENU; the plant's is NED.
+            if "wind_ned_mps" in s:
+                raise ValueError("give the wind as simulation.actuator.wind_mps (ENU) or wind_ned_mps, not both")
+            wind = np.asarray(s["wind_mps"], dtype=float)
+            if wind.shape != (3,):
+                raise ValueError("simulation.actuator.wind_mps must have 3 components (east, north, up)")
+            plant_settings["wind_ned_mps"] = tuple(NED_TO_ENU @ wind)
+        elif "wind_ned_mps" in plant_settings:
+            plant_settings["wind_ned_mps"] = tuple(float(w) for w in plant_settings["wind_ned_mps"])
+        params = ActuatorPlantParams(**plant_settings)
         self.plant = ActuatorPlant(params=params, motor_positions=quad_x_positions(arm), spin=QUAD_X_SPIN.copy())
         self.airframe = MultirotorAirframe(
             arms=4, layout="x", arm_length_m=arm, mass_kg=params.mass_kg,

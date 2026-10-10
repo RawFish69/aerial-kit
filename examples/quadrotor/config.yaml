@@ -14,6 +14,12 @@ simulation:
     arm_length_m: 0.2
     max_thrust_per_motor_n: 6.0
     motor_tau_s: 0.03
+    # Wind (ENU m/s) and gusts; they act through kv_drag.
+    # wind_mps: [0.0, -5.0, 0.0]
+    # gust_sigma_mps: 1.0
+  # Fly on the INS EKF's estimate from simulated GPS/baro/IMU instead of the truth.
+  # estimator:
+  #   mode: ekf
   multirotor:
     mass: 1.2
     kv_drag: 0.12

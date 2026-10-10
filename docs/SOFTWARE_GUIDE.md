@@ -227,6 +227,55 @@ On the test airframe (1 kg quad, 30 ms motor lag), for a 4.2 m step, the time to
 (53 degrees). Both recover from 150 degrees of roll; the geometric one loses 2.5 m of
 altitude, the cascade 7 m.
 
+#### Wind
+
+The actuator plant has wind: a steady part plus first-order Gauss-Markov gusts, acting
+through translational drag (`F = -kv_drag (v - wind)`, so no drag means no wind). Set it
+under `simulation.actuator`, in the runner's ENU frame:
+
+```yaml
+simulation:
+  actuator:
+    kv_drag: 0.3
+    wind_mps: [0.0, -5.0, 0.0]   # east, north, up
+    gust_sigma_mps: 1.0          # per axis, one sigma
+    gust_tau_s: 2.0              # gust correlation time
+```
+
+Gusts come from their own seeded generator, so turning them on leaves the sensor noise
+sequence unchanged. In code, `ActuatorPlantParams` takes `wind_ned_mps` in the plant's
+NED frame.
+
+### Flying on an estimated state
+
+By default the controller is handed the backend's true state. With
+`simulation.estimator.mode: ekf` it is handed the INS EKF's estimate instead
+(`aerial_kit.estimation.SimulatedIns`). The estimate comes from simulated GPS, baro and an
+accelerometer with noise and bias, and works on every backend:
+
+```yaml
+simulation:
+  estimator:
+    mode: ekf                # truth (default) | ekf
+    gps_rate_hz: 5.0
+    gps_sigma_xy_m: 1.0
+    gps_sigma_z_m: 2.0
+    baro_rate_hz: 20.0
+    baro_sigma_m: 0.3
+    baro_offset_m: 0.0
+    accel_sigma_mps2: 0.1
+    accel_bias_mps2: [0.0, 0.0, 0.0]
+    # ekf: {gps_sigma_xy: 2.0, ...}   # InsConfig overrides; defaults match the sensors
+```
+
+Attitude and body rates are passed through from the truth, as a flight controller's AHRS
+would supply them. The accelerometer is the average specific force over each step,
+built from the change in true velocity. Waypoint progress follows the estimate, while
+collisions, the recorded trajectory and the distance to goal use the truth.
+`SimulationResult.estimated_trajectory` holds the estimate beside each true sample, and
+`estimation_error_rms()` summarises it. With the default sensors, the quadrotor example
+estimates position to about 0.5 m RMS.
+
 ---
 
 ## ROS 2 workspace
