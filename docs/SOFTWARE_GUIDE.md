@@ -139,6 +139,8 @@ simulator config.
 | `constrained_mpc` | `ConstrainedMPCController` -> `ConstrainedMPC` | QP MPC: acceleration and speed limits inside the optimisation, horizon reference, smoothing term; solved by ADMM (`BoxQP`) with warm start |
 | `warm_mppi` | `WarmMPPIController` -> `MPPI` | vectorised MPPI with a persistent nominal plan; sphere obstacles, floor and speed costs |
 | `l1_tecs` | `FixedWingL1TECSController` | fixed wing: L1 lateral guidance + TECS, produces a wrench |
+| (actuator level) | `GeometricController` | SE(3) tracking (Lee et al.): position to moment on the rotation group, velocity/acceleration/jerk feedforward, recovers from large attitudes |
+| (actuator level) | `NMPCController` | iLQR nonlinear MPC on the full model (thrust + body rates, rate-loop lag modelled), soft tilt limit, attitude-tracking rate loop |
 
 ### `constrained_mpc`
 
@@ -190,6 +192,27 @@ controller:
 Both wrappers solve once per plan step and hold the command between solves, because the
 simulator calls `compute` every integration step. A change of target triggers an immediate
 re-solve.
+
+### Attitude-level controllers
+
+`GeometricController` and `NMPCController` return a body wrench (thrust and moment), not an
+acceleration. Fly them on the motor-level plant with `aerial_kit.dynamics.actuator_loop.fly`,
+as `CascadeController` is flown. Both take `mass_kg` explicitly (it sets the hover thrust),
+and both accept an optional `reference: t -> FlatReference` for trajectory tracking:
+
+```python
+from aerial_kit.controllers import GeometricController, GeometricGains, NMPCController, NMPCGains
+from aerial_kit.dynamics.actuator_loop import fly
+
+geo = GeometricController(GeometricGains(mass_kg=1.0))
+mpc = NMPCController(NMPCGains(mass_kg=1.0, max_tilt_deg=45.0))
+trace = fly(mpc, airframe, plant, target_position, steps=3000, dt=0.002)
+```
+
+On the test airframe (1 kg quad, 30 ms motor lag), for a 4.2 m step, the time to within
+10 cm is 2.4 s for the geometric controller (39 degrees peak tilt) and 1.6 s for the NMPC
+(53 degrees). Both recover from 150 degrees of roll; the geometric one loses 2.5 m of
+altitude, the cascade 7 m.
 
 ---
 
