@@ -24,6 +24,17 @@ How it flies a mission:
   planned acceleration - which is how a first version of this, sending
   ``v + a * plan_dt`` (0.1 s) to sim_fast's 0.67 s loop, crept up to waypoints
   it never quite settled on.
+* With ``reference: min_snap`` the leg is instead flown along a minimum-snap
+  trajectory (:class:`~aerial_kit.trajectory.MinSnapTrajectory`) through its
+  waypoints, timed to ``min_snap_accel_mps2`` / ``min_snap_jerk_mps3`` and the
+  cruise speed. The controller is handed the trajectory's positions and
+  velocities over the horizon, so it sees the corners as smooth curves with
+  speeds it can fly, instead of a polyline at constant speed. The trajectory's
+  clock is *governed*: it runs at real time while the aircraft is within
+  ``min_snap_slow_error_m`` of it and slows to a stop by
+  ``min_snap_stop_error_m``, so a gust or a slow velocity loop does not leave
+  the aircraft chasing a reference that has run away. Progress, blockage and
+  arrival are still judged on the leg's polyline, as in ``path`` mode.
 * A stop is reached when the aircraft is inside its acceptance radius *and*
   slower than ``settle_speed_mps``. It then holds for ``hold_time_sec`` and
   moves to the next leg, or reports the mission complete.
@@ -42,14 +53,16 @@ import numpy as np
 try:  # installed with pip, or importable from the source tree
     from aerial_kit.controllers import MPPI, ConstrainedMPC, PathReference, SphereObstacle
     from aerial_kit.controllers.mppi import BoxObstacle, CylinderObstacle
-    from aerial_kit.controllers.reference import constant_reference
+    from aerial_kit.controllers.reference import HorizonReference, constant_reference
+    from aerial_kit.trajectory import Limits, MinSnapTrajectory
 except ImportError:  # pragma: no cover - exercised only in a colcon install without aerial_kit
     from uav_algorithms.repo_paths import ensure_repo_root_on_path
 
     ensure_repo_root_on_path()
     from aerial_kit.controllers import MPPI, ConstrainedMPC, PathReference, SphereObstacle
     from aerial_kit.controllers.mppi import BoxObstacle, CylinderObstacle
-    from aerial_kit.controllers.reference import constant_reference
+    from aerial_kit.controllers.reference import HorizonReference, constant_reference
+    from aerial_kit.trajectory import Limits, MinSnapTrajectory
 
 
 STATE_IDLE = 0
@@ -58,6 +71,7 @@ STATE_PAUSED = 2
 STATE_COMPLETE = 3
 
 CONTROLLERS = ("mpc", "mppi")
+REFERENCES = ("path", "min_snap")
 
 
 @dataclass
@@ -83,6 +97,13 @@ class TrackerConfig:
     approach_decel_mps2: float = 1.0
     settle_speed_mps: float = 0.3
     velocity_loop_tau_s: float = 0.25  # time constant of the backend's velocity loop
+    # What the controller tracks within a leg: the polyline at cruise speed
+    # ("path"), or a minimum-snap trajectory through the leg ("min_snap").
+    reference: str = "path"
+    min_snap_accel_mps2: float = 1.2
+    min_snap_jerk_mps3: float = 3.0
+    min_snap_slow_error_m: float = 0.75  # trajectory clock at full rate inside this
+    min_snap_stop_error_m: float = 2.0  # ... and stopped beyond this
     # MPC weights
     q_pos: float = 8.0
     q_vel: float = 1.0
@@ -115,6 +136,13 @@ class TrackerConfig:
         if self.cruise_speed_mps <= 0.0:
             raise ValueError("cruise speed must be positive")
         self.horizon = max(int(self.horizon), 2)
+        self.reference = str(self.reference).strip().lower()
+        if self.reference not in REFERENCES:
+            raise ValueError(f"reference must be one of {REFERENCES}, got {self.reference!r}")
+        if self.min_snap_accel_mps2 <= 0.0 or self.min_snap_jerk_mps3 <= 0.0:
+            raise ValueError("min_snap_accel_mps2 and min_snap_jerk_mps3 must be positive")
+        if not 0.0 < self.min_snap_slow_error_m < self.min_snap_stop_error_m:
+            raise ValueError("need 0 < min_snap_slow_error_m < min_snap_stop_error_m")
         if self.velocity_loop_tau_s <= 0.0:
             raise ValueError("velocity_loop_tau_s must be positive")
 
@@ -244,6 +272,11 @@ class TrackingCore:
         self._holding = False
         self.complete = False
         self._progress_mark: Optional[tuple[float, float]] = None  # (t, s)
+        # min_snap reference: the leg's trajectory, its governed clock, and
+        # the wall time the clock was last advanced.
+        self.trajectory: Optional[MinSnapTrajectory] = None
+        self._traj_t = 0.0
+        self._traj_wall: Optional[float] = None
 
     # -- obstacles ----------------------------------------------------------
 
@@ -290,8 +323,18 @@ class TrackingCore:
     def active_index(self) -> int:
         return self._active
 
-    def load_mission(self, waypoints: Sequence[TrackedWaypoint], start_position: Optional[np.ndarray]) -> None:
-        """Start a new mission. ``start_position`` anchors the first leg."""
+    def load_mission(
+        self,
+        waypoints: Sequence[TrackedWaypoint],
+        start_position: Optional[np.ndarray],
+        start_velocity: Optional[np.ndarray] = None,
+    ) -> None:
+        """Start a new mission. ``start_position`` anchors the first leg.
+
+        ``start_velocity`` matters only to the ``min_snap`` reference: a
+        mission loaded in flight (a replan) then starts its trajectory at the
+        aircraft's velocity rather than demanding an instant stop.
+        """
         self.waypoints = [
             TrackedWaypoint(
                 position=np.asarray(w.position, dtype=float).reshape(3),
@@ -314,16 +357,21 @@ class TrackingCore:
         self.complete = not self.waypoints
         self.controller.reset()
         if self.waypoints:
-            self._start_leg(start_position)
+            self._start_leg(start_position, start_velocity)
 
     def clear(self) -> None:
         self.load_mission([], None)
 
     def pause(self) -> None:
-        """Forget the controller's warm start (the plan is stale after a pause)."""
-        self.controller.reset()
+        """Forget the controller's warm start (the plan is stale after a pause).
 
-    def _start_leg(self, start_position: Optional[np.ndarray]) -> None:
+        The trajectory clock restarts from where it stopped: the paused time
+        is not flown through on resume.
+        """
+        self.controller.reset()
+        self._traj_wall = None
+
+    def _start_leg(self, start_position: Optional[np.ndarray], start_velocity: Optional[np.ndarray] = None) -> None:
         first, stop = self._legs[self._leg]
         pts = [w.position for w in self.waypoints[first:stop + 1]]
         anchor = None
@@ -342,6 +390,41 @@ class TrackingCore:
         self._hold_started = None
         self._holding = False
         self._progress_mark = None
+        self.trajectory = None
+        self._traj_t = 0.0
+        self._traj_wall = None
+        if self.cfg.reference == "min_snap":
+            self.trajectory = self._leg_trajectory(np.array(pts), start_velocity if anchor is not None else None)
+
+    def _leg_trajectory(self, points: np.ndarray, start_velocity: Optional[np.ndarray]) -> Optional[MinSnapTrajectory]:
+        """Minimum-snap trajectory through a leg; ``None`` when it has no length."""
+        keep = [0] + [i for i in range(1, len(points)) if np.linalg.norm(points[i] - points[i - 1]) > 1e-6]
+        if len(keep) < 2:
+            return None
+        start = np.zeros((3, 3))
+        if start_velocity is not None:
+            start[0] = clamp_velocity(np.asarray(start_velocity, dtype=float).reshape(3),
+                                      self.cfg.max_xy_speed_mps, self.cfg.max_z_speed_mps)
+        v_max = min(self._cruise_speed(), self.cfg.max_xy_speed_mps)
+        limits = Limits(v_max=v_max, a_max=self.cfg.min_snap_accel_mps2, j_max=self.cfg.min_snap_jerk_mps3)
+        return MinSnapTrajectory(points[keep], limits=limits, start_derivatives=start)
+
+    def _trajectory_reference(self, t: float, p: np.ndarray) -> HorizonReference:
+        """The next horizon of the leg's trajectory, on its governed clock."""
+        tr = self.trajectory
+        if self._traj_wall is not None:
+            # Capped, so a stalled tick (or a missed pause()) cannot jump the
+            # reference down the trajectory.
+            dt = min(max(0.0, float(t) - self._traj_wall), 0.5)
+            err = float(np.linalg.norm(tr.evaluate(self._traj_t) - p))
+            lo, hi = self.cfg.min_snap_slow_error_m, self.cfg.min_snap_stop_error_m
+            rate = min(max((hi - err) / (hi - lo), 0.0), 1.0)
+            self._traj_t = min(self._traj_t + rate * dt, tr.duration)
+        self._traj_wall = float(t)
+        ts = self._traj_t + self.cfg.plan_dt * np.arange(1, self.cfg.horizon + 1)
+        positions = tr.evaluate(ts)
+        velocities = tr.evaluate(ts, 1)
+        return HorizonReference(positions, velocities, self._s, self._path.length - self._s)
 
     # -- control ------------------------------------------------------------
 
@@ -396,9 +479,12 @@ class TrackingCore:
             status = f"holding wp {stop + 1}/{total} ({held:.1f}/{stop_wp.hold_time_sec:.1f}s)"
             self._progress_mark = None
         else:
-            reference = self._path.sample(
-                self._s, cruise_mps=self._cruise_speed(), dt=self.cfg.plan_dt, horizon=self.cfg.horizon
-            )
+            if self.trajectory is not None:
+                reference = self._trajectory_reference(t, p)
+            else:
+                reference = self._path.sample(
+                    self._s, cruise_mps=self._cruise_speed(), dt=self.cfg.plan_dt, horizon=self.cfg.horizon
+                )
             status = f"tracking wp {self._active + 1}/{total} dist_to_stop={dist_stop:.2f}m"
 
         blocked_ahead, where = self.path_blocked_ahead() if not self._holding else (False, None)

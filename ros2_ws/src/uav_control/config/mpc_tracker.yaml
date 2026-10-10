@@ -14,6 +14,13 @@ mpc_tracker_node:
     approach_decel_mps2: 1.0   # how the reference slows into a stop waypoint
     settle_speed_mps: 0.3      # a stop counts as reached below this speed
     velocity_loop_tau_s: 0.25  # backend velocity-loop time constant: setpoint = v + a * tau
+    # Reference within a leg: path (polyline at cruise speed) | min_snap
+    # (minimum-snap trajectory through the leg, on a clock that waits for the aircraft)
+    reference: path
+    min_snap_accel_mps2: 1.2
+    min_snap_jerk_mps3: 3.0
+    min_snap_slow_error_m: 0.75  # trajectory clock runs at full rate within this tracking error
+    min_snap_stop_error_m: 2.0   # ... and stops beyond this
     # Cost weights (both controllers)
     q_pos: 8.0
     q_vel: 1.0

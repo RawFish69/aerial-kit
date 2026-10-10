@@ -356,3 +356,99 @@ def test_terrain_markers_become_obstacles():
     assert ball == SphereObstacle((0.0, 0.0, 3.0), 1.0)
     # A later DELETEALL clears what came before it.
     assert obstacles_from_markers(markers[1:2] + markers[:1]) == []
+
+
+# -- minimum-snap reference ----------------------------------------------------
+
+
+@pytest.mark.parametrize("controller", ["mpc", "mppi"])
+def test_min_snap_reference_flies_the_mission(controller):
+    core = TrackingCore(TrackerConfig(controller=controller, reference="min_snap"))
+    log = run_mission(core, SQUARE, p0=(0.0, 0.0, 2.0))
+    assert log["out"][-1].complete
+    assert np.linalg.norm(log["p"][-1] - SQUARE[-1].position) <= 0.4
+    assert core.trajectory is not None
+
+
+def test_min_snap_reference_is_smoother_than_the_polyline():
+    """Same mission, same MPC: the polyline at cruise speed asks for a corner
+    the aircraft takes at full acceleration; the trajectory does not."""
+
+    def accel(reference):
+        log = run_mission(TrackingCore(TrackerConfig(controller="mpc", reference=reference)), SQUARE, p0=(0.0, 0.0, 2.0))
+        a = np.diff(log["v"], axis=0) * 20.0
+        return np.linalg.norm(a, axis=1).max(), np.sqrt(np.mean(np.linalg.norm(np.diff(a, axis=0) * 20.0, axis=1) ** 2))
+
+    a_path, j_path = accel("path")
+    a_snap, j_snap = accel("min_snap")
+    assert a_snap < 0.5 * a_path
+    assert j_snap < 0.3 * j_path
+    assert a_snap <= 1.2 * 1.1  # min_snap_accel_mps2, with tracking slack
+
+
+def test_min_snap_mpc_stays_on_the_trajectory():
+    core = TrackingCore(TrackerConfig(controller="mpc", reference="min_snap"))
+    plant = VelocityPlant((0.0, 0.0, 2.0))
+    core.load_mission(SQUARE, plant.p.copy())
+    errors = []
+    for k in range(int(30 * 20)):
+        out = core.step(k / 20.0, plant.p.copy(), plant.v.copy())
+        if out.complete:
+            break
+        errors.append(np.linalg.norm(core.trajectory.evaluate(core._traj_t) - plant.p))
+        plant.step(out.velocity_world, 1.0 / 20.0)
+    assert out.complete
+    assert max(errors) < core.cfg.min_snap_slow_error_m  # the clock never had to slow
+
+
+def test_the_trajectory_clock_waits_for_an_aircraft_that_falls_behind():
+    cfg = TrackerConfig(controller="mpc", reference="min_snap")
+    core = TrackingCore(cfg)
+    core.load_mission([wp(20, 0, 2)], np.array([0.0, 0.0, 2.0]))
+    stuck = np.array([0.0, 0.0, 2.0])  # an aircraft that does not move
+    for k in range(200):
+        core.step(k / 20.0, stuck, np.zeros(3))
+    lead = np.linalg.norm(core.trajectory.evaluate(core._traj_t) - stuck)
+    assert cfg.min_snap_slow_error_m < lead <= cfg.min_snap_stop_error_m + 0.05
+    assert core._traj_t < 0.5 * core.trajectory.duration
+
+
+def test_a_pause_does_not_fly_the_trajectory_on():
+    core = TrackingCore(TrackerConfig(controller="mpc", reference="min_snap"))
+    core.load_mission([wp(20, 0, 2)], np.array([0.0, 0.0, 2.0]))
+    p = np.array([0.0, 0.0, 2.0])
+    core.step(0.0, p, np.zeros(3))
+    core.step(0.05, p, np.zeros(3))
+    before = core._traj_t
+    core.pause()
+    core.step(60.0, p, np.zeros(3))  # resumed a minute later
+    assert core._traj_t == before
+
+
+def test_a_mission_loaded_in_flight_starts_at_the_aircrafts_velocity():
+    core = TrackingCore(TrackerConfig(controller="mpc", reference="min_snap"))
+    v0 = np.array([1.5, 0.5, 0.0])
+    core.load_mission([wp(10, 6, 2)], np.array([0.0, 0.0, 2.0]), start_velocity=v0)
+    np.testing.assert_allclose(core.trajectory.evaluate(0.0, 1), v0, atol=1e-9)
+    # Not without an anchor: then there is no start state to match.
+    core.load_mission([wp(10, 6, 2)], None, start_velocity=v0)
+    assert core.trajectory is None  # a single point has no trajectory; the polyline holds it
+
+
+def test_min_snap_respects_the_waypoint_speed_and_holds():
+    mission = [wp(6, 0, 2, hold_time_sec=1.0, acceptance_radius_m=0.3, desired_speed_mps=1.0), wp(6, 6, 2, acceptance_radius_m=0.3)]
+    core = TrackingCore(TrackerConfig(controller="mpc", reference="min_snap"))
+    log = run_mission(core, mission, p0=(0.0, 0.0, 2.0))
+    assert log["out"][-1].complete
+    assert any(s.startswith("holding wp 1/2") for s in log["status"])
+    first_leg = np.array([s.startswith("tracking wp 1/2") for s in log["status"]])
+    assert np.linalg.norm(log["v"][first_leg], axis=1).max() < 1.0 * 1.15
+
+
+def test_bad_min_snap_config_is_rejected():
+    with pytest.raises(ValueError, match="reference"):
+        TrackerConfig(reference="spline")
+    with pytest.raises(ValueError):
+        TrackerConfig(reference="min_snap", min_snap_accel_mps2=0.0)
+    with pytest.raises(ValueError):
+        TrackerConfig(reference="min_snap", min_snap_slow_error_m=2.0, min_snap_stop_error_m=1.0)

@@ -77,6 +77,11 @@ _TRACKER_PARAMS = {
     'blocked_clearance_m': 0.0,
     'stall_time_s': 6.0,
     'stall_progress_m': 0.5,
+    'reference': 'path',
+    'min_snap_accel_mps2': 1.2,
+    'min_snap_jerk_mps3': 3.0,
+    'min_snap_slow_error_m': 0.75,
+    'min_snap_stop_error_m': 2.0,
 }
 
 
@@ -287,7 +292,10 @@ class MpcTrackerNode(Node):
             for w in traj.waypoints
         ]
         start = None if self.position is None else np.array(self.position)
-        self.core.load_mission(waypoints, start)
+        # A replan arrives in flight; a min_snap reference then starts at the
+        # current velocity instead of from a standstill.
+        velocity = None if self.velocity is None else np.array(self.velocity)
+        self.core.load_mission(waypoints, start, start_velocity=velocity)
 
     def _stop(self, state: int, complete: bool, text: str) -> None:
         if self._was_active:
