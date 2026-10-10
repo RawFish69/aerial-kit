@@ -38,6 +38,45 @@ def build_terrain_obstacles(terrain_profile: str = 'plains'):
     return terrain_cfg, obstacles
 
 
+def terrain_obstacles_from_markers(markers) -> list:
+    """Published terrain markers -> the planner's obstacle objects.
+
+    The markers on ``/terrain/obstacles`` are what RViz draws and what the
+    predictive tracker avoids; a planner that generates its own random forest
+    instead plans around trees that are not there and through ones that are.
+    ``CYLINDER`` markers (pose at mid-height, scale = diameter, diameter,
+    height) become ``CylinderObstacle``s, whose ``center`` is the *base*;
+    ``CUBE`` markers become ``BoxObstacle``s, whose ``center`` is the middle;
+    a ``SPHERE`` is taken as the cube around it. ``DELETEALL`` starts afresh,
+    ``DELETE`` is skipped. Duck-typed on the message fields, so testable
+    without ROS.
+    """
+    ensure_repo_root_on_path()
+    from aerial_kit.sim.terrain import BoxObstacle, CylinderObstacle
+
+    cube, sphere, cylinder = 1, 2, 3  # visualization_msgs/Marker types
+    delete, delete_all = 2, 3  # Marker actions
+    out: list = []
+    for m in markers:
+        action = int(getattr(m, 'action', 0))
+        if action == delete_all:
+            out = []
+            continue
+        if action == delete:
+            continue
+        x, y, z = float(m.pose.position.x), float(m.pose.position.y), float(m.pose.position.z)
+        sx, sy, sz = float(m.scale.x), float(m.scale.y), float(m.scale.z)
+        kind = int(m.type)
+        if kind == cylinder:
+            out.append(CylinderObstacle(center=[x, y, z - 0.5 * sz], height=sz, radius=0.5 * max(sx, sy)))
+        elif kind == cube:
+            out.append(BoxObstacle(center=[x, y, z], size=[sx, sy, sz]))
+        elif kind == sphere:
+            d = max(sx, sy, sz)
+            out.append(BoxObstacle(center=[x, y, z], size=[d, d, d]))
+    return out
+
+
 def validate_trajectory_segments(
     points_xyz: Iterable[Iterable[float]],
     obstacles,
@@ -104,12 +143,20 @@ def plan_trajectory_points_with_obstacles(
     collision_inflation_m: float = 0.5,
     terrain_clearance_m: float | None = None,
     planner_options: dict[str, Any] | None = None,
+    obstacles: list | None = None,
 ) -> tuple[list[np.ndarray], Any]:
-    """Plan a path and return both points and the exact obstacle list used."""
+    """Plan a path and return both points and the exact obstacle list used.
+
+    ``obstacles`` plans around a given set (e.g. the published terrain, via
+    :func:`terrain_obstacles_from_markers`) instead of generating one; the
+    terrain config still supplies the world's extent.
+    """
     ensure_repo_root_on_path()
     from sim_py.planner import default_plan  # type: ignore
 
-    terrain_cfg, obstacles = build_terrain_obstacles(terrain_profile)
+    terrain_cfg, generated = build_terrain_obstacles(terrain_profile)
+    if obstacles is None:
+        obstacles = generated
 
     planner_key = _normalize_planner_key(planner_type)
 

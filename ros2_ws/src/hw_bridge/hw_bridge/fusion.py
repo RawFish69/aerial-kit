@@ -132,3 +132,58 @@ class GpsVelocity:
                 self.vx = self.vy = 0.0
         self._last = (float(east), float(north), float(t))
         return self.vx, self.vy
+
+
+class EkfFusion:
+    """The estimator node's EKF path, without rclpy: home, frames, and timing.
+
+    Wraps :class:`aerial_kit.estimation.InsEkf` with what the node knows and the
+    filter does not: positions are relative to the home captured at arming
+    (GPS through ``geo.lla_to_enu``, GPS and baro altitude relative to their
+    values at home), and nothing is estimated before there is a home.
+    """
+
+    def __init__(self, config) -> None:
+        from aerial_kit.estimation import InsEkf
+
+        self._make = lambda: InsEkf(config)
+        self.ekf = self._make()
+        self.home = False
+        self.home_gps_alt: Optional[float] = None
+        self.home_baro: Optional[float] = None
+
+    def capture_home(self, t: float, gps_alt: Optional[float], baro: Optional[float]) -> None:
+        self.ekf = self._make()
+        # Home is the origin and the baro is zeroed there, so both are known;
+        # without GPS altitude their split is not observable later, and a
+        # loose prior on either would decide it.
+        self.ekf.reset(position=[0.0, 0.0, 0.0], t=t, position_sigma=0.1, baro_bias_sigma=0.1)
+        self.home_gps_alt = gps_alt
+        self.home_baro = baro
+        self.home = True
+
+    def on_imu(self, t: float, accel, attitude_quat) -> None:
+        if self.home:
+            self.ekf.predict(t, accel, attitude_quat)
+
+    def on_gps(self, t: float, east: float, north: float, altitude: Optional[float]) -> bool:
+        if not self.home:
+            return False
+        self.ekf.predict(t)
+        if altitude is None or self.home_gps_alt is None:
+            return self.ekf.update_gps([east, north, 0.0], use_altitude=False).accepted
+        up = float(altitude) - self.home_gps_alt
+        return self.ekf.update_gps([east, north, up]).accepted
+
+    def on_baro(self, t: float, baro: float) -> bool:
+        if not self.home or self.home_baro is None:
+            return False
+        self.ekf.predict(t)
+        return self.ekf.update_baro(float(baro) - self.home_baro).accepted
+
+    def state_at(self, t: float):
+        """``(position, velocity)`` propagated to ``t``; zeros before home."""
+        if not self.home:
+            return [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
+        self.ekf.predict(t)
+        return self.ekf.position.tolist(), self.ekf.velocity.tolist()

@@ -105,3 +105,55 @@ def test_gps_velocity_resets_after_a_dropout():
 def test_gps_velocity_rejects_bad_smoothing():
     with pytest.raises(ValueError):
         GpsVelocity(smoothing=1.0)
+
+
+# ---------------------------------------------------------------------------
+# EkfFusion: the estimator node's EKF path without rclpy
+# ---------------------------------------------------------------------------
+
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # repo root, for aerial_kit
+
+from hw_bridge.fusion import EkfFusion  # noqa: E402
+
+
+def _fusion(mode="none"):
+    from aerial_kit.estimation import InsConfig
+
+    return EkfFusion(InsConfig(accel_mode=mode))
+
+
+def test_ekf_fusion_estimates_nothing_before_home():
+    f = _fusion()
+    assert f.on_gps(1.0, 5.0, 5.0, 105.0) is False
+    assert f.on_baro(1.0, 103.0) is False
+    assert f.state_at(1.0) == ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+
+
+def test_ekf_fusion_tracks_a_constant_climb_relative_to_home():
+    f = _fusion("world_linear")
+    f.capture_home(0.0, gps_alt=100.0, baro=200.0)
+    for k in range(1, 501):  # 10 s at 50 Hz, climbing at 1 m/s and drifting east at 2 m/s
+        t = k * 0.02
+        f.on_imu(t, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0])
+        if k % 2 == 0:
+            f.on_baro(t, 200.0 + 1.0 * t)
+        if k % 10 == 0:
+            assert f.on_gps(t, 2.0 * t, 0.0, 100.0 + 1.0 * t)
+    pos, vel = f.state_at(10.0)
+    assert pos == pytest.approx([20.0, 0.0, 10.0], abs=0.3)
+    assert vel == pytest.approx([2.0, 0.0, 1.0], abs=0.1)
+
+
+def test_ekf_fusion_without_gps_altitude_still_holds_altitude_from_baro():
+    f = _fusion()
+    f.capture_home(0.0, gps_alt=None, baro=50.0)
+    for k in range(1, 201):
+        t = k * 0.05
+        f.on_baro(t, 53.0)
+        if k % 4 == 0:
+            f.on_gps(t, 0.0, 0.0, None)
+    pos, _ = f.state_at(10.0)
+    assert pos[2] == pytest.approx(3.0, abs=0.3)

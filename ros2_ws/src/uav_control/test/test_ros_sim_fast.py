@@ -96,14 +96,15 @@ def _hold_mode(driver, mode, predicate, timeout):
     return False
 
 
-@pytest.mark.parametrize("controller", ["mpc", "mppi"])
-def test_tracker_flies_a_mission_in_sim_fast(controller):
+@pytest.mark.parametrize("controller,reference", [("mpc", "path"), ("mppi", "path"), ("mpc", "min_snap")])
+def test_tracker_flies_a_mission_in_sim_fast(controller, reference):
     rclpy.init()
     # sim_fast's backend integrates the twist as a world-frame velocity and has
     # no yaw, so the tracker is told to command in the world frame. Its velocity
     # loop is a = 1.5 * (v_sp - v): a time constant of 1 / 1.5 s.
     tracker_overrides = [
         Parameter("controller", value=controller),
+        Parameter("reference", value=reference),
         Parameter("velocity_loop_tau_s", value=1.0 / 1.5),
         Parameter("command_frame", value="world"),
         Parameter("heading_control_enabled", value=False),
@@ -146,7 +147,7 @@ def test_tracker_flies_a_mission_in_sim_fast(controller):
             90.0,
         )
         last = driver.status.status_text if driver.status else "no status"
-        assert done, f"mission did not complete ({controller}): {last}; at {driver.track[-1]}"
+        assert done, f"mission did not complete ({controller}, {reference}): {last}; at {driver.track[-1]}"
 
         x, y, z = driver.track[-1]
         assert math.dist((x, y, z), points[-1]) < 0.6

@@ -7,6 +7,13 @@ import argparse
 from aerial_kit.registry import CONTROLLERS, register_builtin_components
 
 
+def _backend_choices() -> list[str]:
+    from sim_py.core.registry import BACKENDS, register_builtin_components as register_sim_components
+
+    register_sim_components()
+    return sorted(BACKENDS)
+
+
 def _controller_choices() -> list[str]:
     # From the registry, so a newly registered controller is selectable here
     # without editing a second list (this one had fallen behind: mppi,
@@ -48,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--backend",
         type=str,
-        choices=["pointmass", "multirotor", "rotorpy", "fixedwing"],
+        choices=_backend_choices(),
         default=None,
         help="Dynamics backend to use (default: pointmass or simulation.backend).",
     )

@@ -3,9 +3,11 @@
 from .basic import LQRController, MPCController, PIDController
 from .cascade import CascadeController, CascadeGains
 from .fixed_wing import AttitudeGains, FixedWingL1TECSController, body_axis_pitch_bank
+from .geometric import FlatReference, GeometricController, GeometricGains
 from .minimum_snap import minimum_snap_trajectory
 from .mpc import ConstrainedMPC, MPCSolution
-from .mppi import MPPI, MPPISolution, SphereObstacle
+from .nmpc import NMPCController, NMPCGains, NMPCSolution, QuadrotorNMPC
+from .mppi import MPPI, BoxObstacle, CylinderObstacle, MPPISolution, SphereObstacle
 from .predictive import ConstrainedMPCController, WarmMPPIController
 from .qp import BoxQP
 from .reference import HorizonReference, PathReference, constant_reference
@@ -34,10 +36,19 @@ __all__ = [
     "minimum_snap_trajectory",
     "ConstrainedMPC",
     "MPCSolution",
+    "FlatReference",
+    "GeometricController",
+    "GeometricGains",
+    "NMPCController",
+    "NMPCGains",
+    "NMPCSolution",
+    "QuadrotorNMPC",
     "ConstrainedMPCController",
     "MPPI",
     "MPPISolution",
     "SphereObstacle",
+    "CylinderObstacle",
+    "BoxObstacle",
     "WarmMPPIController",
     "BoxQP",
     "HorizonReference",

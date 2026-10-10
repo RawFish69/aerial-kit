@@ -86,9 +86,9 @@ Options of `aerial_kit.sim.cli`:
 | Flag | Values |
 |---|---|
 | `--config` / `--example` | a YAML file, or `quadrotor` / `fixed-wing` |
-| `--controller` | `pid`, `lqr`, `mpc`, `mppi`, `constrained_mpc`, `warm_mppi`, `l1_tecs` |
+| `--controller` | `pid`, `lqr`, `mpc`, `mppi`, `constrained_mpc`, `warm_mppi`, `l1_tecs`; with `--backend actuator`: `geometric`, `nmpc`, `cascade` |
 | `--planner` | `straight`, `astar`, `rrt`, `rrtstar`, `dubins` |
-| `--backend` | `pointmass`, `multirotor`, `rotorpy`, `mujoco`, `fixedwing` |
+| `--backend` | `pointmass`, `multirotor`, `rotorpy`, `mujoco`, `fixedwing`, `actuator` (motor-level; wrench controllers) |
 | `--airframe` | `quad`, `hex`, `octo`, `twin_wing` |
 | `--terrain` | `forest`, `mountains`, `plains` |
 | `--sim-time`, `--dt` | override the config |
@@ -139,6 +139,8 @@ simulator config.
 | `constrained_mpc` | `ConstrainedMPCController` -> `ConstrainedMPC` | QP MPC: acceleration and speed limits inside the optimisation, horizon reference, smoothing term; solved by ADMM (`BoxQP`) with warm start |
 | `warm_mppi` | `WarmMPPIController` -> `MPPI` | vectorised MPPI with a persistent nominal plan; sphere obstacles, floor and speed costs |
 | `l1_tecs` | `FixedWingL1TECSController` | fixed wing: L1 lateral guidance + TECS, produces a wrench |
+| `geometric` (actuator) | `GeometricController` | SE(3) tracking (Lee et al.): position to moment on the rotation group, velocity/acceleration/jerk feedforward, recovers from large attitudes |
+| `nmpc` (actuator) | `NMPCController` | iLQR nonlinear MPC on the full model (thrust + body rates, rate-loop lag modelled), soft tilt limit, attitude-tracking rate loop |
 
 ### `constrained_mpc`
 
@@ -190,6 +192,40 @@ controller:
 Both wrappers solve once per plan step and hold the command between solves, because the
 simulator calls `compute` every integration step. A change of target triggers an immediate
 re-solve.
+
+### Attitude-level controllers
+
+`GeometricController`, `NMPCController` and `CascadeController` return a body wrench (thrust
+and moment), not an acceleration, so they fly the motor-level plant: from the CLI with
+`--backend actuator`, or in code with `aerial_kit.dynamics.actuator_loop.fly`.
+
+```bash
+python -m aerial_kit.sim.cli --controller geometric --backend actuator --terrain forest --planner rrtstar
+```
+
+On the `actuator` backend the planned path becomes a minimum-snap trajectory
+(`aerial_kit.trajectory.MinSnapTrajectory`: piecewise 7th order, rest at both ends,
+continuous through snap, segment times optimised, limited by `path.trajectory_v_max`,
+`trajectory_a_max` and `trajectory_j_max`), which `geometric` and `nmpc` track with
+feedforward. `path.trajectory: waypoints` chases the planned waypoints instead. The plant's
+settings are under `simulation.actuator` (`mass_kg`, `arm_length_m`,
+`max_thrust_per_motor_n`, `motor_tau_s`, `plant_dt`), and its mass is passed to the
+controller unless the controller's own section sets one. Both take `mass_kg` explicitly (it sets the hover thrust),
+and both accept an optional `reference: t -> FlatReference` for trajectory tracking:
+
+```python
+from aerial_kit.controllers import GeometricController, GeometricGains, NMPCController, NMPCGains
+from aerial_kit.dynamics.actuator_loop import fly
+
+geo = GeometricController(GeometricGains(mass_kg=1.0))
+mpc = NMPCController(NMPCGains(mass_kg=1.0, max_tilt_deg=45.0))
+trace = fly(mpc, airframe, plant, target_position, steps=3000, dt=0.002)
+```
+
+On the test airframe (1 kg quad, 30 ms motor lag), for a 4.2 m step, the time to within
+10 cm is 2.4 s for the geometric controller (39 degrees peak tilt) and 1.6 s for the NMPC
+(53 degrees). Both recover from 150 degrees of roll; the geometric one loses 2.5 m of
+altitude, the cascade 7 m.
 
 ---
 
@@ -250,7 +286,7 @@ bringups pick it with `mission_tracker:=executor|mpc|mppi`.
 | Law | P on position to the active waypoint, speed and slew limits | `ConstrainedMPC` or `MPPI` over a horizon |
 | Waypoints | stops at each one | flies through intermediate ones; stops at holds and at the end |
 | Limits | clamps after the fact | accel and speed limits inside the plan |
-| Obstacles | from the planner's path only | MPPI: `obstacle_spheres`, `min_altitude_m` |
+| Obstacles | from the planner's path only | live `/terrain/obstacles`: MPPI avoids them; a blocked path triggers a replan from the planner service |
 | Onboard planning | yes (`PLANNING_ONBOARD`) | no; it flies the trajectory it is given |
 
 The tracker turns a planned acceleration into the velocity setpoint the backend's own
@@ -277,9 +313,12 @@ setup is in [mavlink_bridge/README.md](../ros2_ws/src/mavlink_bridge/README.md).
 
 `hw_bridge` notes. These changed recently; check your configs:
 
-- `hw_state_estimator_node` estimates altitude **and climb rate** from the barometer
-  (`baro_filter_hz`, default 1 Hz; this replaces `baro_alpha`). It used to publish a climb rate of
-  exactly zero. It differences GPS velocity per fix, not per tick.
+- `hw_state_estimator_node` runs an **INS EKF** by default (`estimator: ekf`, from
+  `aerial_kit.estimation`). It estimates position, velocity, accelerometer bias and baro offset,
+  rejects GPS outliers with a chi-square gate, and publishes covariances. Set
+  `imu_accel_mode` to match your FC: the default `none` is correct for Betaflight over CRSF
+  (attitude only); use `body_specific_force` for a REP-145 IMU. `estimator: complementary`
+  keeps the older baro filter (`baro_filter_hz`) and per-fix GPS differencing.
 - `crsf_backend_adapter_node` maps the velocity **error** (demand minus measured) to sticks,
   because in Angle mode the sticks command acceleration. `vz_feedback` is on by default.
   `vxy_feedback` (GPS-derived) is opt-in until you have checked its velocity is smooth on

@@ -272,6 +272,44 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
         },
     )
 
+    consumes_wrench = bool(getattr(backend, "consumes_wrench", False))
+    if consumes_wrench:
+        # The plant knows its mass; a wrench controller builds its hover
+        # thrust from its own. Give it the plant's unless it was told one, so
+        # the two cannot disagree without anybody having written it down.
+        plant_mass = float(backend.mass_kg())
+        for section in ("geometric", "nmpc", "cascade"):
+            sub = dict(ctrl_cfg.get(section, {}) or {})
+            if "mass_kg" not in sub:
+                sub["mass_kg"] = plant_mass
+            ctrl_cfg[section] = sub
+
+    # Controllers that track a trajectory (they have a `reference` slot) get a
+    # minimum-snap trajectory through the planned path, unless path.trajectory
+    # says "waypoints". It is the default on the actuator backend, where the
+    # aircraft has to tilt to accelerate and a point-to-point chase is slow and
+    # jerky; elsewhere it is opt-in.
+    trajectory_mode = str(path_cfg.get("trajectory", "min_snap" if consumes_wrench else "waypoints")).lower()
+    if trajectory_mode == "min_snap" and getattr(controller, "reference", "absent") is None:
+        from aerial_kit.trajectory import Limits, MinSnapTrajectory, thin_waypoints
+
+        points = np.vstack([path_start] + [np.asarray(w.position, dtype=float) for w in waypoints])
+        points = thin_waypoints(points, min_spacing=float(path_cfg.get("trajectory_min_spacing_m", 3.0)))
+        traj = MinSnapTrajectory(
+            points,
+            limits=Limits(
+                v_max=float(path_cfg.get("trajectory_v_max", 3.0)),
+                a_max=float(path_cfg.get("trajectory_a_max", 3.0)),
+                j_max=float(path_cfg.get("trajectory_j_max", 10.0)),
+            ),
+        )
+        controller.reference = traj.as_reference(yaw=None)
+        logger.info(
+            f"Minimum-snap trajectory through {len(points)} points: {traj.duration:.1f} s"
+        )
+    elif trajectory_mode not in ("min_snap", "waypoints"):
+        raise ValueError(f"path.trajectory must be 'min_snap' or 'waypoints', got {trajectory_mode!r}")
+
     dt = float(cfg_norm.dt)
     max_t = float(cfg_norm.sim_time)
     logger.info(f"Controller: {controller_name.upper()}")
@@ -371,6 +409,19 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
             step_metadata["actuator_cmd"] = actuator_cmd
             step_metadata["control_mode"] = ControlMode.ACTUATOR
             backend.step(ControlTarget(accel_cmd=np.zeros(3, dtype=float), metadata=step_metadata), dt)
+        elif consumes_wrench:
+            # ACTUATOR MODE, multirotor: the controller's wrench goes through
+            # the airframe's mixer to the motors of an ActuatorPlant.
+            step_metadata = dict(control_target.metadata)
+            step_metadata["control_mode"] = ControlMode.ACTUATOR
+            backend.step(
+                ControlTarget(
+                    accel_cmd=np.asarray(control_target.accel_cmd, dtype=float),
+                    wrench=control_target.wrench,
+                    metadata=step_metadata,
+                ),
+                dt,
+            )
         else:
             # IDEAL ACCELERATION MODE. The controller's accel_cmd is handed to
             # the backend as the aircraft's acceleration, so there is no motor
