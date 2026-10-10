@@ -8,6 +8,12 @@ simulation:
   duration: 20.0
   dt: 0.02
   seed: 7
+  # Motor-level plant for --backend actuator (geometric / nmpc / cascade).
+  actuator:
+    mass_kg: 1.2
+    arm_length_m: 0.2
+    max_thrust_per_motor_n: 6.0
+    motor_tau_s: 0.03
   multirotor:
     mass: 1.2
     kv_drag: 0.12
@@ -45,6 +51,11 @@ path:
   end_relative_z: 0.55
   collision_inflation: 1.0
   terrain_clearance: 2.0
+  # Minimum-snap trajectory limits, for controllers that track one (geometric,
+  # nmpc) - by default on the actuator backend (--backend actuator).
+  trajectory_v_max: 6.0
+  trajectory_a_max: 4.0
+  trajectory_j_max: 12.0
 
 visual:
   path_color: deepskyblue

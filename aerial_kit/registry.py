@@ -98,6 +98,9 @@ def register_builtin_components() -> None:
     from .airframes.multirotor import MultirotorAirframe
     from .controllers.basic import LQRController, MPCController, MPPIController, PIDController
     from .controllers.fixed_wing import FixedWingL1TECSController
+    from .controllers.cascade import CascadeController
+    from .controllers.geometric import GeometricController
+    from .controllers.nmpc import NMPCController
     from .controllers.predictive import ConstrainedMPCController, WarmMPPIController
 
     register_controller("pid", PIDController)
@@ -106,6 +109,12 @@ def register_builtin_components() -> None:
     register_controller("mppi", MPPIController)
     register_controller("constrained_mpc", ConstrainedMPCController)
     register_controller("warm_mppi", WarmMPPIController)
+    # Attitude-level: these return a wrench and need an attitude; gains (and
+    # mass_kg, which the actuator backend fills in) come from
+    # controller.<name> in the config.
+    register_controller("geometric", GeometricController)
+    register_controller("nmpc", NMPCController)
+    register_controller("cascade", lambda: CascadeController(inner=PIDController()))
     register_controller("l1_tecs", FixedWingL1TECSController)
 
     register_airframe("quad", lambda: MultirotorAirframe(arms=4, layout="x"))

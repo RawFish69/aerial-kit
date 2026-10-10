@@ -46,6 +46,7 @@ def register_builtin_components() -> None:
     if _SIM_PY_BUILTINS_REGISTERED:
         return
 
+    from sim_py.backends.actuator_backend import ActuatorBackend
     from sim_py.backends.fixedwing_backend import FixedWingBackend
     from sim_py.backends.mujoco_backend import MujocoBackend
     from sim_py.backends.multirotor_backend import MultirotorBackend
@@ -65,6 +66,7 @@ def register_builtin_components() -> None:
     register_backend("multirotor", MultirotorBackend)
     register_backend("rotorpy", RotorPyBackend)
     register_backend("fixedwing", FixedWingBackend)
+    register_backend("actuator", ActuatorBackend)
 
     _SIM_PY_BUILTINS_REGISTERED = True
 

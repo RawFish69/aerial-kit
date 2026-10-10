@@ -86,9 +86,9 @@ Options of `aerial_kit.sim.cli`:
 | Flag | Values |
 |---|---|
 | `--config` / `--example` | a YAML file, or `quadrotor` / `fixed-wing` |
-| `--controller` | `pid`, `lqr`, `mpc`, `mppi`, `constrained_mpc`, `warm_mppi`, `l1_tecs` |
+| `--controller` | `pid`, `lqr`, `mpc`, `mppi`, `constrained_mpc`, `warm_mppi`, `l1_tecs`; with `--backend actuator`: `geometric`, `nmpc`, `cascade` |
 | `--planner` | `straight`, `astar`, `rrt`, `rrtstar`, `dubins` |
-| `--backend` | `pointmass`, `multirotor`, `rotorpy`, `mujoco`, `fixedwing` |
+| `--backend` | `pointmass`, `multirotor`, `rotorpy`, `mujoco`, `fixedwing`, `actuator` (motor-level; wrench controllers) |
 | `--airframe` | `quad`, `hex`, `octo`, `twin_wing` |
 | `--terrain` | `forest`, `mountains`, `plains` |
 | `--sim-time`, `--dt` | override the config |
@@ -139,8 +139,8 @@ simulator config.
 | `constrained_mpc` | `ConstrainedMPCController` -> `ConstrainedMPC` | QP MPC: acceleration and speed limits inside the optimisation, horizon reference, smoothing term; solved by ADMM (`BoxQP`) with warm start |
 | `warm_mppi` | `WarmMPPIController` -> `MPPI` | vectorised MPPI with a persistent nominal plan; sphere obstacles, floor and speed costs |
 | `l1_tecs` | `FixedWingL1TECSController` | fixed wing: L1 lateral guidance + TECS, produces a wrench |
-| (actuator level) | `GeometricController` | SE(3) tracking (Lee et al.): position to moment on the rotation group, velocity/acceleration/jerk feedforward, recovers from large attitudes |
-| (actuator level) | `NMPCController` | iLQR nonlinear MPC on the full model (thrust + body rates, rate-loop lag modelled), soft tilt limit, attitude-tracking rate loop |
+| `geometric` (actuator) | `GeometricController` | SE(3) tracking (Lee et al.): position to moment on the rotation group, velocity/acceleration/jerk feedforward, recovers from large attitudes |
+| `nmpc` (actuator) | `NMPCController` | iLQR nonlinear MPC on the full model (thrust + body rates, rate-loop lag modelled), soft tilt limit, attitude-tracking rate loop |
 
 ### `constrained_mpc`
 
@@ -195,9 +195,22 @@ re-solve.
 
 ### Attitude-level controllers
 
-`GeometricController` and `NMPCController` return a body wrench (thrust and moment), not an
-acceleration. Fly them on the motor-level plant with `aerial_kit.dynamics.actuator_loop.fly`,
-as `CascadeController` is flown. Both take `mass_kg` explicitly (it sets the hover thrust),
+`GeometricController`, `NMPCController` and `CascadeController` return a body wrench (thrust
+and moment), not an acceleration, so they fly the motor-level plant: from the CLI with
+`--backend actuator`, or in code with `aerial_kit.dynamics.actuator_loop.fly`.
+
+```bash
+python -m aerial_kit.sim.cli --controller geometric --backend actuator --terrain forest --planner rrtstar
+```
+
+On the `actuator` backend the planned path becomes a minimum-snap trajectory
+(`aerial_kit.trajectory.MinSnapTrajectory`: piecewise 7th order, rest at both ends,
+continuous through snap, segment times optimised, limited by `path.trajectory_v_max`,
+`trajectory_a_max` and `trajectory_j_max`), which `geometric` and `nmpc` track with
+feedforward. `path.trajectory: waypoints` chases the planned waypoints instead. The plant's
+settings are under `simulation.actuator` (`mass_kg`, `arm_length_m`,
+`max_thrust_per_motor_n`, `motor_tau_s`, `plant_dt`), and its mass is passed to the
+controller unless the controller's own section sets one. Both take `mass_kg` explicitly (it sets the hover thrust),
 and both accept an optional `reference: t -> FlatReference` for trajectory tracking:
 
 ```python
