@@ -273,7 +273,7 @@ bringups pick it with `mission_tracker:=executor|mpc|mppi`.
 | Law | P on position to the active waypoint, speed and slew limits | `ConstrainedMPC` or `MPPI` over a horizon |
 | Waypoints | stops at each one | flies through intermediate ones; stops at holds and at the end |
 | Limits | clamps after the fact | accel and speed limits inside the plan |
-| Obstacles | from the planner's path only | MPPI: `obstacle_spheres`, `min_altitude_m` |
+| Obstacles | from the planner's path only | live `/terrain/obstacles`: MPPI avoids them; a blocked path triggers a replan from the planner service |
 | Onboard planning | yes (`PLANNING_ONBOARD`) | no; it flies the trajectory it is given |
 
 The tracker turns a planned acceleration into the velocity setpoint the backend's own

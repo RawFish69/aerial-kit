@@ -450,6 +450,17 @@ this launch runs either follower with `command_frame: world` and heading
 control off. With the Gazebo defaults (body frame, forward-only), the executor
 never left the origin here.
 
+### Planner obstacles
+
+`planner_server_node` takes `obstacle_source`:
+
+- `auto` (default): plan around what `terrain_generator` publishes on `/terrain/obstacles`
+  once anything has arrived; generate from the terrain config until then.
+- `topic`: published obstacles only; fail if none have arrived.
+- `generated`: the original behaviour, a forest built per request from the terrain
+  config. With an unseeded `terrain_generator` this is a *different* forest from the one
+  RViz shows.
+
 ## Topic / Node Diagram
 
 ```mermaid

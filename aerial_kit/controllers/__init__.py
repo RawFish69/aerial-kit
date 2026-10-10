@@ -7,7 +7,7 @@ from .geometric import FlatReference, GeometricController, GeometricGains
 from .minimum_snap import minimum_snap_trajectory
 from .mpc import ConstrainedMPC, MPCSolution
 from .nmpc import NMPCController, NMPCGains, NMPCSolution, QuadrotorNMPC
-from .mppi import MPPI, MPPISolution, SphereObstacle
+from .mppi import MPPI, BoxObstacle, CylinderObstacle, MPPISolution, SphereObstacle
 from .predictive import ConstrainedMPCController, WarmMPPIController
 from .qp import BoxQP
 from .reference import HorizonReference, PathReference, constant_reference
@@ -47,6 +47,8 @@ __all__ = [
     "MPPI",
     "MPPISolution",
     "SphereObstacle",
+    "CylinderObstacle",
+    "BoxObstacle",
     "WarmMPPIController",
     "BoxQP",
     "HorizonReference",

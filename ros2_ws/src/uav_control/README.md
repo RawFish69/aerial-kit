@@ -42,6 +42,26 @@ It publishes to the executor's command topic, so **run one or the other**, not b
   `nose_axis` / `command_frame: body` conventions as the executor.
 - Onboard planning (`PLANNING_ONBOARD`) is still the executor's job.
 
+## Obstacles and replanning
+
+The node subscribes to `obstacle_topic` (default `/terrain/obstacles`, the terrain
+generator's `MarkerArray`). Trees are vertical cylinders, rocks are boxes, and a `DELETEALL`
+clears the set.
+
+- **MPPI** flies around obstacles itself. They're part of its cost as signed distances,
+  and it only sees the ones within reach of its horizon. It reports itself blocked only
+  when it makes no progress (`stall_progress_m` in `stall_time_s`), as in front of a wall.
+- **MPC** can't avoid anything. If the path within `blocked_lookahead_m` runs into an
+  obstacle, it stops short and reports `blocked: path blocked at (x, y, z)`.
+- **When blocked**, the node calls `planner_service` (default `/uav/planner/plan_path`) for
+  a new route from its current position to the mission goal. While the request is in
+  flight it holds position with status `replanning`. Requests are rate-limited by
+  `replan_min_interval_s`; `replan_on_block: false` turns this off.
+
+The planner server plans around the same published obstacles (`obstacle_source: auto`).
+Before that change it generated its own random forest, so its paths ran through trees that
+the tracker, and RViz, could see.
+
 ## Run
 
 ```bash

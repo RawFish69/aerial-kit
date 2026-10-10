@@ -10,6 +10,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from uav_algorithms import (
     plan_trajectory_points_with_obstacles,
+    terrain_obstacles_from_markers,
     validate_trajectory_segments,
 )
 
@@ -83,6 +84,20 @@ class PlannerServerNode(Node):
             depth=1,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
+        # Where the obstacles come from: "generated" builds a forest from the
+        # terrain config on every request (the original behaviour); "topic"
+        # plans around what terrain_generator publishes; "auto" uses the topic
+        # once anything has arrived on it and generates until then.
+        self.declare_parameter('obstacle_source', 'auto')
+        self.declare_parameter('obstacle_topic', '/terrain/obstacles')
+        self.obstacle_source = str(self.get_parameter('obstacle_source').value).strip().lower()
+        if self.obstacle_source not in ('auto', 'generated', 'topic'):
+            raise ValueError(f"obstacle_source must be auto, generated or topic, got {self.obstacle_source!r}")
+        self._published_obstacles = None
+        if self.obstacle_source != 'generated':
+            self.create_subscription(
+                MarkerArray, str(self.get_parameter('obstacle_topic').value), self._on_obstacles, 5
+            )
         self.srv = self.create_service(PlanPath, service_name, self._handle_plan_path)
         self.pub_path_markers = self.create_publisher(MarkerArray, path_marker_topic, _durable_qos)
         self.create_subscription(MissionStatus, mission_status_topic, self._on_mission_status, 20)
@@ -91,6 +106,24 @@ class PlannerServerNode(Node):
             period = 1.0 / republish_hz
             self.create_timer(period, self._republish_path_markers)
         self.get_logger().info(f'Planner service ready: {self.get_namespace()}/{service_name}')
+
+    def _on_obstacles(self, msg: MarkerArray) -> None:
+        first = self._published_obstacles is None
+        self._published_obstacles = terrain_obstacles_from_markers(msg.markers)
+        if first:
+            self.get_logger().info(
+                f'planning around {len(self._published_obstacles)} published obstacles from now on'
+            )
+
+    def _obstacles_for_request(self):
+        """The published obstacles, or None to have the planner generate them."""
+        if self.obstacle_source == 'generated':
+            return None
+        if self._published_obstacles is None:
+            if self.obstacle_source == 'topic':
+                raise RuntimeError('obstacle_source is "topic" but nothing has arrived on the obstacle topic yet')
+            return None
+        return self._published_obstacles
 
     def _handle_plan_path(self, request: PlanPath.Request, response: PlanPath.Response) -> PlanPath.Response:
         planner_type = request.planner_type or self.default_planner_type
@@ -104,7 +137,13 @@ class PlannerServerNode(Node):
         planner_options = self._planner_options_for(planner_type)
 
         try:
+            given = self._obstacles_for_request()
+            self.get_logger().info(
+                'obstacles: generated from the terrain config' if given is None
+                else f'obstacles: {len(given)} published'
+            )
             points, planning_obstacles = plan_trajectory_points_with_obstacles(
+                obstacles=given,
                 start_xyz=start,
                 goal_xyz=goal,
                 planner_type=planner_type,

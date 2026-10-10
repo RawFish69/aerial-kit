@@ -268,3 +268,91 @@ def test_parse_sphere_obstacles():
     assert [s.radius for s in spheres] == [0.5, 1.0]
     with pytest.raises(ValueError):
         parse_sphere_obstacles([1, 2, 3])
+
+
+# ---------------------------------------------------------------------------
+# Obstacles: avoidance, blockage, marker parsing
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace as NS  # noqa: E402
+
+from aerial_kit.controllers.mppi import BoxObstacle, CylinderObstacle, SphereObstacle  # noqa: E402
+from uav_control.tracking_core import obstacles_from_markers  # noqa: E402
+
+TREE = CylinderObstacle((6.0, 0.0), 0.6, 0.0, 12.0)
+
+
+def min_clearance(log, obstacles):
+    P = np.asarray(log["p"])
+    return min(float(np.min(o.sdf(P))) for o in obstacles)
+
+
+def test_mppi_flies_around_a_tree_on_the_path():
+    core = TrackingCore(TrackerConfig(controller="mppi", obstacle_margin_m=0.6))
+    core.set_obstacles([TREE])
+    log = run_mission(core, [wp(12, 0, 2)], p0=(0, 0, 2), duration=40)
+    assert log["out"][-1].complete
+    assert min_clearance(log, [TREE]) > 0.4
+    assert not any(o.blocked for o in log["out"])
+    assert any(o.path_blocked_ahead for o in log["out"])  # it knew, and went round
+
+
+def test_mpc_stops_short_of_a_blocked_path_and_says_why():
+    core = TrackingCore(TrackerConfig(controller="mpc"))
+    core.set_obstacles([TREE])
+    log = run_mission(core, [wp(12, 0, 2)], p0=(0, 0, 2), duration=10)
+    last = log["out"][-1]
+    assert last.blocked and not last.complete
+    assert last.status_text.startswith("blocked: path blocked at")
+    assert not np.any(last.velocity_world)
+    assert min_clearance(log, [TREE]) > 1.0
+
+
+def test_mppi_threads_a_small_forest():
+    rng = np.random.default_rng(1)
+    trees = [CylinderObstacle((float(x), float(y)), 0.4, 0.0, 10.0) for x, y in rng.uniform([3, -4], [27, 4], (25, 2))]
+    start, goal = np.array([[0.0, 0.0, 2.0]]), np.array([[30.0, 0.0, 2.0]])
+    trees = [t for t in trees if t.sdf(start)[0] > 2.0 and t.sdf(goal)[0] > 2.0]
+    core = TrackingCore(TrackerConfig(controller="mppi", obstacle_margin_m=0.5, mppi_samples=512))
+    core.set_obstacles(trees)
+    log = run_mission(core, [wp(30, 0, 2)], p0=(0, 0, 2), duration=80)
+    assert log["out"][-1].complete
+    assert min_clearance(log, trees) > 0.0
+
+
+def test_mppi_that_cannot_get_past_reports_itself_blocked():
+    wall = BoxObstacle((6.0, 0.0, 5.0), (0.5, 30.0, 10.0))  # 60 m wide, 10 m tall
+    core = TrackingCore(TrackerConfig(controller="mppi", stall_time_s=3.0))
+    core.set_obstacles([wall])
+    log = run_mission(core, [wp(12, 0, 2)], p0=(0, 0, 2), duration=20)
+    assert any(o.blocked and o.blocked_reason.startswith("no progress") for o in log["out"])
+    assert min_clearance(log, [wall]) > 0.0
+
+
+def test_only_obstacles_within_reach_reach_the_controller():
+    core = TrackingCore(TrackerConfig(controller="mppi"))
+    near = SphereObstacle((3.0, 0.0, 2.0), 0.5)
+    far = SphereObstacle((300.0, 0.0, 2.0), 0.5)
+    core.set_obstacles([near, far])
+    assert core.nearby_obstacles(np.array([0.0, 0.0, 2.0])) == [near]
+
+
+def _marker(kind, pos, scale, action=0):
+    return NS(type=kind, action=action, pose=NS(position=NS(x=pos[0], y=pos[1], z=pos[2])),
+              scale=NS(x=scale[0], y=scale[1], z=scale[2]))
+
+
+def test_terrain_markers_become_obstacles():
+    markers = [
+        _marker(0, (0, 0, 0), (0, 0, 0), action=3),  # DELETEALL first, as the generator sends
+        _marker(3, (5.0, 1.0, 4.0), (1.0, 1.0, 8.0)),  # tree: 0.5 m radius, 0..8 m
+        _marker(1, (2.0, 2.0, 1.0), (2.0, 4.0, 2.0)),  # rock
+        _marker(2, (0.0, 0.0, 3.0), (2.0, 2.0, 2.0)),  # sphere
+        _marker(3, (9.0, 9.0, 1.0), (1.0, 1.0, 2.0), action=2),  # DELETE: ignored
+    ]
+    tree, rock, ball = obstacles_from_markers(markers)
+    assert tree == CylinderObstacle((5.0, 1.0), 0.5, 0.0, 8.0)
+    assert rock == BoxObstacle((2.0, 2.0, 1.0), (1.0, 2.0, 1.0))
+    assert ball == SphereObstacle((0.0, 0.0, 3.0), 1.0)
+    # A later DELETEALL clears what came before it.
+    assert obstacles_from_markers(markers[1:2] + markers[:1]) == []

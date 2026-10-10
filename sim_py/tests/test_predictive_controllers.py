@@ -458,3 +458,40 @@ def test_quadrotor_example_reaches_goal_with_predictive_controllers(name):
     result = run_simulation(replace(config, controller_name=name))
     assert result.distance_to_goal <= 3.0
     assert result.collisions_detected == 0
+
+
+# ---------------------------------------------------------------------------
+# Obstacle signed distances (MPPI's obstacle cost)
+# ---------------------------------------------------------------------------
+
+
+def test_cylinder_signed_distance():
+    from aerial_kit.controllers import CylinderObstacle
+
+    tree = CylinderObstacle((1.0, 2.0), 0.5, 0.0, 10.0)
+    pts = np.array([
+        [1.0, 2.0, 5.0],   # on the axis: 0.5 inside
+        [3.0, 2.0, 5.0],   # 1.5 out sideways
+        [1.0, 2.0, 12.0],  # 2 above the top
+        [1.0, 4.5, 13.0],  # beyond the top edge: hypot(2, 3)
+    ])
+    np.testing.assert_allclose(tree.sdf(pts), [-0.5, 1.5, 2.0, np.hypot(2.0, 3.0)])
+
+
+def test_box_signed_distance():
+    from aerial_kit.controllers import BoxObstacle
+
+    rock = BoxObstacle((0.0, 0.0, 0.0), (1.0, 2.0, 3.0))
+    pts = np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 3.0, 0.0], [0.5, 0.0, 0.0]])
+    np.testing.assert_allclose(rock.sdf(pts), [-1.0, 1.0, np.sqrt(2.0), -0.5])
+
+
+def test_sphere_cost_is_unchanged_by_the_sdf_refactor():
+    """Spheres used `depth = radius + margin - distance`; the SDF form must agree."""
+    s = SphereObstacle((1.0, 0.0, 0.0), 0.5)
+    p = np.array([[1.2, 0.0, 0.0], [3.0, 0.0, 0.0]])
+    margin = 0.5
+    np.testing.assert_allclose(
+        np.maximum(margin - s.sdf(p), 0.0),
+        np.maximum(0.5 + margin - np.linalg.norm(p - np.array(s.center), axis=1), 0.0),
+    )

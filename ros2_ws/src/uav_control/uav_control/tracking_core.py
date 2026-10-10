@@ -41,12 +41,14 @@ import numpy as np
 
 try:  # installed with pip, or importable from the source tree
     from aerial_kit.controllers import MPPI, ConstrainedMPC, PathReference, SphereObstacle
+    from aerial_kit.controllers.mppi import BoxObstacle, CylinderObstacle
     from aerial_kit.controllers.reference import constant_reference
 except ImportError:  # pragma: no cover - exercised only in a colcon install without aerial_kit
     from uav_algorithms.repo_paths import ensure_repo_root_on_path
 
     ensure_repo_root_on_path()
     from aerial_kit.controllers import MPPI, ConstrainedMPC, PathReference, SphereObstacle
+    from aerial_kit.controllers.mppi import BoxObstacle, CylinderObstacle
     from aerial_kit.controllers.reference import constant_reference
 
 
@@ -93,6 +95,15 @@ class TrackerConfig:
     mppi_noise_std: float = 1.0
     mppi_seed: Optional[int] = 0
     obstacle_margin_m: float = 0.5
+    # Obstacles and blockage. The path ahead is checked out to
+    # blocked_lookahead_m; a point closer than blocked_clearance_m to an
+    # obstacle's surface blocks it. MPPI flies around what it can and is only
+    # called blocked when it stops making progress (stall_*); the MPC cannot
+    # avoid anything, so for it a blocked path means stop and ask for a replan.
+    blocked_lookahead_m: float = 8.0
+    blocked_clearance_m: float = 0.0
+    stall_time_s: float = 6.0
+    stall_progress_m: float = 0.5
     min_altitude_m: Optional[float] = None
 
     def __post_init__(self) -> None:
@@ -123,9 +134,12 @@ class TrackerOutput:
     # it to grow before turning would never turn - and never move.
     planned_displacement_xy: np.ndarray = field(default_factory=lambda: np.zeros(2))
     controller_info: dict = field(default_factory=dict)
+    blocked: bool = False  # the follower cannot get on: a replan is needed
+    path_blocked_ahead: bool = False  # the path itself runs through an obstacle
+    blocked_reason: str = ""
 
 
-def build_controller(cfg: TrackerConfig, obstacles: Sequence[SphereObstacle] = ()):
+def build_controller(cfg: TrackerConfig, obstacles: Sequence = ()):
     """The planner the tracker drives, built from its config."""
     if cfg.controller == "mpc":
         return ConstrainedMPC(
@@ -211,10 +225,14 @@ def world_to_body(v: np.ndarray, yaw: float, nose_axis: str = "+y", lateral: boo
 class TrackingCore:
     """Waypoint mission tracker around a predictive controller."""
 
-    def __init__(self, cfg: TrackerConfig, obstacles: Sequence[SphereObstacle] = ()) -> None:
+    def __init__(self, cfg: TrackerConfig, obstacles: Sequence = ()) -> None:
         self.cfg = cfg
-        self.obstacles = list(obstacles)
-        self.controller = build_controller(cfg, self.obstacles)
+        # Fixed obstacles from configuration, plus a set replaced at run time
+        # (the node's /terrain/obstacles subscription). The MPPI is handed
+        # only the ones within reach of its horizon, per solve.
+        self.static_obstacles = list(obstacles)
+        self.dynamic_obstacles: list = []
+        self.controller = build_controller(cfg)
         self.waypoints: list[TrackedWaypoint] = []
         self._legs: list[tuple[int, int]] = []  # (first waypoint index, stop index)
         self._leg = 0
@@ -225,6 +243,42 @@ class TrackingCore:
         self._hold_started: Optional[float] = None
         self._holding = False
         self.complete = False
+        self._progress_mark: Optional[tuple[float, float]] = None  # (t, s)
+
+    # -- obstacles ----------------------------------------------------------
+
+    @property
+    def obstacles(self) -> list:
+        return self.static_obstacles + self.dynamic_obstacles
+
+    def set_obstacles(self, obstacles: Sequence) -> None:
+        """Replace the run-time obstacle set (anything with an ``sdf``)."""
+        self.dynamic_obstacles = list(obstacles)
+
+    def nearby_obstacles(self, position: np.ndarray) -> list:
+        """Obstacles the plan could reach: within the horizon's travel, plus margin."""
+        reach = (
+            math.hypot(self.cfg.max_xy_speed_mps, self.cfg.max_z_speed_mps) * self.cfg.horizon * self.cfg.plan_dt
+            + self.cfg.obstacle_margin_m
+            + 1.0
+        )
+        p = np.asarray(position, dtype=float).reshape(1, 3)
+        return [o for o in self.obstacles if float(o.sdf(p)[0]) < reach]
+
+    def path_blocked_ahead(self) -> tuple[bool, Optional[np.ndarray]]:
+        """Whether the current leg, from here to ``blocked_lookahead_m`` on, runs into an obstacle."""
+        if self._path is None or not self.obstacles:
+            return False, None
+        s_end = min(self._s + self.cfg.blocked_lookahead_m, self._path.length)
+        if s_end <= self._s:
+            return False, None
+        s_samples = np.linspace(self._s, s_end, max(int((s_end - self._s) / 0.25) + 1, 2))
+        points, _ = self._path._interp(s_samples)
+        for o in self.obstacles:
+            hit = o.sdf(points) < self.cfg.blocked_clearance_m
+            if np.any(hit):
+                return True, points[int(np.argmax(hit))]
+        return False, None
 
     # -- mission ------------------------------------------------------------
 
@@ -287,6 +341,7 @@ class TrackingCore:
         self._active = first
         self._hold_started = None
         self._holding = False
+        self._progress_mark = None
 
     # -- control ------------------------------------------------------------
 
@@ -339,13 +394,40 @@ class TrackingCore:
                 return self.step(t, p, v)
             reference = constant_reference(stop_wp.position, self.cfg.horizon)
             status = f"holding wp {stop + 1}/{total} ({held:.1f}/{stop_wp.hold_time_sec:.1f}s)"
+            self._progress_mark = None
         else:
             reference = self._path.sample(
                 self._s, cruise_mps=self._cruise_speed(), dt=self.cfg.plan_dt, horizon=self.cfg.horizon
             )
             status = f"tracking wp {self._active + 1}/{total} dist_to_stop={dist_stop:.2f}m"
 
-        solution = self.controller.solve(p, v, reference)
+        blocked_ahead, where = self.path_blocked_ahead() if not self._holding else (False, None)
+        blocked, reason = False, ""
+        if blocked_ahead and self.cfg.controller == "mpc":
+            blocked = True
+            reason = f"path blocked at ({where[0]:.1f}, {where[1]:.1f}, {where[2]:.1f})"
+        elif not self._holding:
+            # MPPI goes around what it can; it is blocked when it stops getting on.
+            if self._progress_mark is None or self._s >= self._progress_mark[1] + self.cfg.stall_progress_m:
+                self._progress_mark = (float(t), self._s)
+            elif float(t) - self._progress_mark[0] > self.cfg.stall_time_s:
+                blocked = True
+                reason = f"no progress for {float(t) - self._progress_mark[0]:.1f}s"
+
+        if blocked and self.cfg.controller == "mpc":
+            # Stop short rather than fly the plan into the obstacle.
+            self.controller.reset()
+            return TrackerOutput(
+                velocity_world=np.zeros(3), state=STATE_PAUSED, complete=False,
+                active_index=self._active, total_waypoints=total,
+                status_text=f"blocked: {reason}", blocked=True,
+                path_blocked_ahead=blocked_ahead, blocked_reason=reason,
+            )
+
+        if self.cfg.controller == "mppi":
+            solution = self.controller.solve(p, v, reference, obstacles=self.nearby_obstacles(p))
+        else:
+            solution = self.controller.solve(p, v, reference)
         # Invert the backend's velocity loop (see the module docstring).
         v_cmd = clamp_velocity(
             v + solution.accel * self.cfg.velocity_loop_tau_s,
@@ -367,10 +449,43 @@ class TrackingCore:
             predicted_positions=solution.predicted_positions.copy(),
             planned_displacement_xy=(solution.predicted_positions[-1, :2] - p[:2]).copy(),
             controller_info=info,
+            blocked=blocked,
+            path_blocked_ahead=blocked_ahead,
+            blocked_reason=reason,
         )
 
     def _idle(self, text: str) -> TrackerOutput:
         return TrackerOutput(np.zeros(3), STATE_IDLE, False, 0, len(self.waypoints), text)
+
+
+def obstacles_from_markers(markers) -> list:
+    """visualization_msgs Marker list -> obstacles.
+
+    Reads what ``terrain_generator`` publishes: ``CYLINDER`` (scale = diameter,
+    diameter, height; pose at mid-height) as trees, ``CUBE`` as axis-aligned
+    boxes, ``SPHERE`` as spheres. Duck-typed on the message fields so it is
+    testable without ROS. A ``DELETEALL`` marker starts a fresh set.
+    """
+    CUBE, SPHERE, CYLINDER = 1, 2, 3  # visualization_msgs/Marker type values
+    DELETE, DELETEALL = 2, 3  # Marker action values
+    out: list = []
+    for m in markers:
+        action = int(getattr(m, "action", 0))
+        if action == DELETEALL:
+            out = []
+            continue
+        if action == DELETE:
+            continue
+        x, y, z = float(m.pose.position.x), float(m.pose.position.y), float(m.pose.position.z)
+        sx, sy, sz = float(m.scale.x), float(m.scale.y), float(m.scale.z)
+        kind = int(m.type)
+        if kind == CYLINDER:
+            out.append(CylinderObstacle((x, y), 0.5 * max(sx, sy), z - 0.5 * sz, z + 0.5 * sz))
+        elif kind == CUBE:
+            out.append(BoxObstacle((x, y, z), (0.5 * sx, 0.5 * sy, 0.5 * sz)))
+        elif kind == SPHERE:
+            out.append(SphereObstacle((x, y, z), 0.5 * max(sx, sy, sz)))
+    return out
 
 
 def parse_sphere_obstacles(flat: Sequence[float]) -> list[SphereObstacle]:
@@ -397,6 +512,7 @@ __all__ = [
     "build_controller",
     "clamp_velocity",
     "heading_for_velocity",
+    "obstacles_from_markers",
     "parse_sphere_obstacles",
     "world_to_body",
     "wrap_angle",

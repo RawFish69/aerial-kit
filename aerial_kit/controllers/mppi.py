@@ -13,8 +13,9 @@ controller is in a loop:
   rollouts are a pair of cumulative sums over a ``(K, N, 3)`` array.
 * Its strength over a QP-based MPC is that the cost can be anything you can
   evaluate on a batch of trajectories: non-convex obstacle terms, a floor,
-  a speed limit as a soft penalty. :class:`MPPI` takes spherical obstacles and a
-  minimum altitude, which a linear MPC cannot express.
+  a speed limit as a soft penalty. :class:`MPPI` takes obstacles - spheres,
+  vertical cylinders (trees) and axis-aligned boxes, all as signed-distance
+  functions - and a minimum altitude, which a linear MPC cannot express.
 
 The update follows Williams et al. (2017): rollouts ``U_k = clip(U_nom + eps_k)``,
 weights ``w_k ~ exp(-(S_k - min S) / lambda)``, ``U_nom <- sum w_k U_k``.
@@ -49,6 +50,39 @@ class SphereObstacle:
 
     center: tuple[float, float, float]
     radius: float
+
+    def sdf(self, points: np.ndarray) -> np.ndarray:
+        """Signed distance from ``points`` (..., 3): negative inside."""
+        return np.linalg.norm(points - np.asarray(self.center, dtype=float), axis=-1) - float(self.radius)
+
+
+@dataclass(frozen=True)
+class CylinderObstacle:
+    """A vertical cylinder - a tree trunk - from ``z_min`` to ``z_max``."""
+
+    center_xy: tuple[float, float]
+    radius: float
+    z_min: float
+    z_max: float
+
+    def sdf(self, points: np.ndarray) -> np.ndarray:
+        d_h = np.linalg.norm(points[..., :2] - np.asarray(self.center_xy, dtype=float), axis=-1) - float(self.radius)
+        d_v = np.maximum(float(self.z_min) - points[..., 2], points[..., 2] - float(self.z_max))
+        outside = np.sqrt(np.maximum(d_h, 0.0) ** 2 + np.maximum(d_v, 0.0) ** 2)
+        return outside + np.minimum(np.maximum(d_h, d_v), 0.0)
+
+
+@dataclass(frozen=True)
+class BoxObstacle:
+    """An axis-aligned box: ``center`` and ``half_size`` (half the edge lengths)."""
+
+    center: tuple[float, float, float]
+    half_size: tuple[float, float, float]
+
+    def sdf(self, points: np.ndarray) -> np.ndarray:
+        q = np.abs(points - np.asarray(self.center, dtype=float)) - np.asarray(self.half_size, dtype=float)
+        outside = np.linalg.norm(np.maximum(q, 0.0), axis=-1)
+        return outside + np.minimum(np.max(q, axis=-1), 0.0)
 
 
 @dataclass
@@ -100,7 +134,7 @@ class MPPI:
         max_accel_z: float = 4.0,
         max_speed: float | None = None,
         speed_penalty: float = 50.0,
-        obstacles: Iterable[SphereObstacle] = (),
+        obstacles: Iterable = (),
         obstacle_margin: float = 0.5,
         obstacle_penalty: float = 1e4,
         min_altitude: float | None = None,
@@ -151,7 +185,7 @@ class MPPI:
         velocities: np.ndarray,
         accels: np.ndarray,
         reference: HorizonReference,
-        obstacles: Sequence[SphereObstacle] | None = None,
+        obstacles: Sequence | None = None,
     ) -> np.ndarray:
         """Cost of each rollout. Arrays are ``(K, N, 3)``; returns ``(K,)``."""
         ref_p = reference.positions[None]
@@ -172,10 +206,9 @@ class MPPI:
 
         obs = self.obstacles if obstacles is None else list(obstacles)
         for o in obs:
-            c = np.asarray(o.center, dtype=float)
-            d = np.linalg.norm(positions - c, axis=-1)
-            r = float(o.radius) + self.obstacle_margin
-            depth = np.maximum(r - d, 0.0)
+            # Every obstacle shape is a signed distance; "inside" is within the
+            # controller's margin of the surface.
+            depth = np.maximum(self.obstacle_margin - o.sdf(positions), 0.0)
             # A hard per-step penalty for being inside, plus a smooth term so
             # rollouts that are less deep inside are still ranked above others.
             cost += self.obstacle_penalty * np.sum((depth > 0.0) + depth ** 2, axis=1)
@@ -187,7 +220,7 @@ class MPPI:
         velocity: np.ndarray,
         reference: HorizonReference | np.ndarray,
         *,
-        obstacles: Sequence[SphereObstacle] | None = None,
+        obstacles: Sequence | None = None,
     ) -> MPPISolution:
         """Run one MPPI update from ``(position, velocity)`` and shift the plan."""
         p0 = np.asarray(position, dtype=float).reshape(3)
@@ -232,4 +265,6 @@ class MPPI:
         )
 
 
-__all__ = ["MPPI", "MPPISolution", "SphereObstacle", "rollout"]
+Obstacle = SphereObstacle | CylinderObstacle | BoxObstacle
+
+__all__ = ["BoxObstacle", "CylinderObstacle", "MPPI", "MPPISolution", "Obstacle", "SphereObstacle", "rollout"]

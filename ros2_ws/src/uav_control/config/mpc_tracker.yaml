@@ -28,6 +28,18 @@ mpc_tracker_node:
     obstacle_margin_m: 0.5
     obstacle_spheres: [0.0]    # flat [x, y, z, r, ...]; [0.0] = none
     min_altitude_m: -1.0       # < 0 disables the floor cost
+    # Obstacles and replanning
+    obstacle_topic: /terrain/obstacles   # MarkerArray of CYLINDER/CUBE/SPHERE; '' ignores
+    blocked_lookahead_m: 8.0   # check this much of the path ahead
+    blocked_clearance_m: 0.0   # a path point this close to a surface blocks it
+    stall_time_s: 6.0          # MPPI: blocked if no stall_progress_m of progress in this long
+    stall_progress_m: 0.5
+    replan_on_block: true      # ask the planner service for a new route when blocked
+    planner_service: /uav/planner/plan_path
+    replan_planner_type: astar
+    replan_terrain_profile: forest
+    replan_inflation_m: 1.0
+    replan_min_interval_s: 5.0
     # Output
     command_frame: body        # body | world
     nose_axis: "+y"            # +y for the Gazebo models in this repo, +x otherwise
