@@ -18,6 +18,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Telemetry.msg"
   "msg/MissionStatus.msg"
   "msg/AirspeedNav.msg"
+  "msg/ActuatorCommand.msg"
+  "msg/MultirotorManualCommand.msg"
   "srv/PlanPath.srv"
   DEPENDENCIES std_msgs geometry_msgs
 )
