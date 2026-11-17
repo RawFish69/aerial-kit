@@ -36,6 +36,7 @@ cmake_install.cmake
 
 # Logs
 *.log
+MUJOCO_LOG.TXT
 
 # OS
 .DS_Store

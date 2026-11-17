@@ -25,6 +25,7 @@ from aerial_kit.airframes.single_wing.mjcf import single_wing_mjcf
 from aerial_kit.dynamics.fixed_wing import level_attitude_quat, quat_to_rotmat
 from aerial_kit.dynamics.single_wing import SingleWingDynamics
 from aerial_kit.interfaces import DynamicsBackend
+from .mujoco_guard import SimulationDiverged, step_guarded  # noqa: F401  (re-exported)
 from aerial_kit.types import CommandKind, ControlTarget, SimState
 
 from .single_wing_backend import _params_from_config
@@ -164,7 +165,7 @@ class MujocoSingleWingBackend(DynamicsBackend):
         n = max(1, int(math.ceil(dt / self._timestep - 1e-12)))
         self._model.opt.timestep = dt / n
         for _ in range(n):
-            self._mujoco.mj_step(self._model, d)
+            step_guarded(self._mujoco, self._model, d)
         self._t += dt
 
     def controller_defaults(self, section: str) -> dict:

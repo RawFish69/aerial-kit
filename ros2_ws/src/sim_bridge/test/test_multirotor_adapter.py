@@ -251,3 +251,28 @@ def test_model_without_onboard_camera_stays_on_chase():
     viewer = FakeViewer()
     assert set_viewer_view(viewer, model, 'onboard') == 'chase'
     assert viewer.cam.type == mujoco.mjtCamera.mjCAMERA_TRACKING
+
+
+def test_diverged_plant_freezes_and_keeps_publishing(monkeypatch):
+    import rclpy
+
+    from sim_py.backends.mujoco_guard import SimulationDiverged
+
+    rclpy.init(args=['--ros-args', '-p', 'airframe:=fpv_quad_5in', '-p', 'start_z_m:=5.0'])
+    node = adapter.MultirotorBackendAdapterNode()
+    try:
+        published = []
+        monkeypatch.setattr(node, '_publish', lambda state: published.append(state.position.copy()))
+
+        def boom(*args, **kwargs):
+            raise SimulationDiverged('test')
+
+        monkeypatch.setattr(node.backend, 'step', boom)
+        node._tick()
+        node._tick()
+        assert node.diverged
+        assert len(published) == 2
+        np.testing.assert_allclose(published[-1], published[0])
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()

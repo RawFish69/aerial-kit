@@ -34,6 +34,7 @@ from aerial_kit.estimation import SimulatedIns
 from aerial_kit.types import ControlTarget, SimState
 from sim_py.backends.fixedwing_backend import FixedWingBackend
 from sim_py.backends.mujoco_fixedwing_backend import MujocoFixedWingBackend
+from sim_py.backends.mujoco_guard import SimulationDiverged
 from sim_py.backends.mujoco_single_wing_backend import MujocoSingleWingBackend
 from sim_py.backends.single_wing_backend import SingleWingBackend
 from aerial_kit.airframes.single_wing import load_single_wing_spec
@@ -652,13 +653,20 @@ class FixedWingBackendAdapterNode(Node):
                     np.radians(25.0), 0.0, self.cfg)
             wrench.moment_body[1] += self.trim_elevon_rad
             actuator = self.airframe.allocate(wrench, state)
-        self.backend.step(
-            ControlTarget(
-                accel_cmd=np.zeros(3),
-                metadata={'actuator_cmd': actuator},
-            ),
-            self.period,
-        )
+        if not getattr(self, 'diverged', False):
+            try:
+                self.backend.step(
+                    ControlTarget(
+                        accel_cmd=np.zeros(3),
+                        metadata={'actuator_cmd': actuator},
+                    ),
+                    self.period,
+                )
+            except SimulationDiverged as exc:
+                # Freeze at the last finite state instead of letting MuJoCo
+                # reset the aircraft to the origin; keep publishing it.
+                self.diverged = True
+                self.get_logger().error(f'plant diverged, simulation frozen: {exc}')
         truth_state = self.backend.state()
         if self.estimator is not None:
             self.estimated_state = self.estimator.update(truth_state)

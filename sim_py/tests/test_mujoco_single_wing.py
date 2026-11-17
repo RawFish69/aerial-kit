@@ -102,3 +102,30 @@ class TestMujocoSingleWing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@requires_mujoco
+class TestWingTumbleStability(unittest.TestCase):
+    """Post-crash tumbles must not diverge (implicitfast did above ~100 rad/s)."""
+
+    def test_both_wings_survive_a_fast_free_tumble(self) -> None:
+        import mujoco
+
+        from aerial_kit.airframes.single_wing.mjcf import single_wing_mjcf
+        from aerial_kit.airframes.twin_wing import load_twin_wing_spec
+        from aerial_kit.airframes.twin_wing.mjcf import twin_wing_mjcf
+
+        for name, xml in (("twin", twin_wing_mjcf(load_twin_wing_spec())),
+                          ("single", single_wing_mjcf(load_single_wing_spec()))):
+            with self.subTest(wing=name):
+                m = mujoco.MjModel.from_xml_string(xml)
+                m.opt.gravity[:] = 0.0
+                d = mujoco.MjData(m)
+                d.qpos[2] = 100.0
+                d.qpos[3:7] = level_attitude_quat(0.0)
+                d.qvel[3:6] = [130.0, 52.0, -26.0]
+                for _ in range(1000):
+                    mujoco.mj_step(m, d)
+                self.assertEqual(d.warning[mujoco.mjtWarning.mjWARN_BADQACC].number, 0)
+                rate = float(np.linalg.norm(d.qvel[3:6]))
+                self.assertTrue(math.isfinite(rate) and rate < 150.0)

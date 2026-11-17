@@ -49,6 +49,7 @@ from aerial_kit.controllers.multirotor_manual import (  # noqa: E402
     StickInput,
 )
 from aerial_kit.types import ControlTarget, SimState  # noqa: E402
+from sim_py.backends.mujoco_guard import SimulationDiverged  # noqa: E402
 from sim_py.backends.mujoco_multirotor_backend import MujocoMultirotorBackend  # noqa: E402
 
 from sim_bridge.fixedwing_backend_adapter_node import (  # noqa: E402
@@ -301,7 +302,14 @@ class MultirotorBackendAdapterNode(Node):
         else:
             target = ControlTarget(accel_cmd=np.zeros(3),
                                    metadata={'rotor_thrust_n': np.zeros(self.spec.n_rotors)})
-        self.backend.step(target, dt)
+        if not getattr(self, 'diverged', False):
+            try:
+                self.backend.step(target, dt)
+            except SimulationDiverged as exc:
+                # Freeze at the last finite state instead of letting MuJoCo
+                # reset the aircraft to the origin; keep publishing it.
+                self.diverged = True
+                self.get_logger().error(f'plant diverged, simulation frozen: {exc}')
         if self.viewer is not None:
             try:
                 if self.viewer.is_running():

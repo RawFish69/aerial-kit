@@ -151,9 +151,11 @@ def twin_wing_mjcf(spec: TwinWingSpec, timestep: float = 0.002,
     return f"""\
 <mujoco model="{spec.data.get('name', 'twin_wing')}">
   <!-- Generated from {spec.source} by aerial_kit.airframes.twin_wing.mjcf.
-       Edit the YAML, not this text. Body frame is FRD; world is ENU. -->
+       Edit the YAML, not this text. Body frame is FRD; world is ENU.
+       integrator="implicit": implicit in the stiff servo damping and in the
+       gyroscopic terms; implicitfast diverged on free tumbles > ~100 rad/s. -->
   <compiler angle="radian" autolimits="true"/>
-  <option gravity="0 0 -{_f(gravity_mps2)}" timestep="{_f(timestep)}" integrator="implicitfast"/>
+  <option gravity="0 0 -{_f(gravity_mps2)}" timestep="{_f(timestep)}" integrator="implicit"/>
   <visual>
     <global offwidth="1600" offheight="900" azimuth="150" elevation="-18"/>
     <quality shadowsize="4096"/>

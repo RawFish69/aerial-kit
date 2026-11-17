@@ -207,6 +207,14 @@ allocator. MuJoCo integrates the rotor actuators; nothing sets the pose.
   micro quad's comes from CAD plus an assumed battery.
 - **Drag** is linear; there are no aerodynamic moments.
 - **Gyroscopic coupling** is reduced by the display-rate shaft.
+- **Crashes:** there is no damage model. A 40 m/s ground strike bounces and
+  tumbles the airframe rather than breaking it. The multirotor models use
+  MuJoCo's RK4 integrator, because `implicitfast` diverged on post-crash
+  tumbles above ~100 rad/s. Every MuJoCo backend also has a divergence guard
+  (`sim_py/backends/mujoco_guard.py`): instead of MuJoCo's silent reset to
+  the origin, it restores the last finite state and raises
+  `SimulationDiverged`. The ROS adapters then log the error, freeze the
+  plant and keep publishing its last state.
 - **Climb and speed loops are proportional:** against drag they settle a
   few percent short of the commanded rate (e.g. 7.45 m/s for an 8 m/s climb
   on the FPV quad).

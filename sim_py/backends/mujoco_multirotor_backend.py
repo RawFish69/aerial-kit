@@ -49,6 +49,7 @@ from aerial_kit.airframes.multirotor_specs import MultirotorSpec, load_multiroto
 from aerial_kit.airframes.multirotor_specs.spec import ground_effect_factor
 from aerial_kit.airframes.multirotor_specs.mjcf import multirotor_mjcf
 from aerial_kit.interfaces import DynamicsBackend
+from .mujoco_guard import SimulationDiverged, step_guarded  # noqa: F401  (re-exported)
 from aerial_kit.types import CommandKind, ControlTarget, SimState
 
 
@@ -250,7 +251,7 @@ class MujocoMultirotorBackend(DynamicsBackend):
                 self._rpm_substep(dt / n)
             elif self._ground_effect:
                 self._apply_thrusts(self.last_command)
-            self._mujoco.mj_step(self._model, self._data)
+            step_guarded(self._mujoco, self._model, self._data)
         self._t += dt
 
     def _apply_drag(self) -> None:

@@ -501,3 +501,79 @@ class TestPropulsionModel(unittest.TestCase):
                 amps = b.rotor_state()["battery_a"]
                 minutes = 0.8 * float(b.spec.data["battery"]["capacity_mah"]) / 1000.0 / amps * 60.0
                 self.assertTrue(lo <= minutes <= hi, f"{name}: {minutes:.1f} min at {amps:.1f} A")
+
+
+@requires_mujoco
+class TestCrashRobustness(unittest.TestCase):
+    """2026-11-16: a 44 m/s ground strike in angle mode left the FPV quad
+    tumbling at ~140 rad/s; implicitfast at 2 ms then diverged and MuJoCo
+    silently reset the aircraft to the origin."""
+
+    def _fly(self, script, seconds):
+        import mujoco
+
+        from aerial_kit.controllers.cascade import CascadeGains
+        from aerial_kit.controllers.multirotor_manual import ManualLimits, MultirotorPilot
+        from sim_py.backends.mujoco_multirotor_backend import MujocoMultirotorBackend
+
+        b = MujocoMultirotorBackend()
+        b.reset(_state(10.0), {}, {"simulation": {"mujoco_multirotor": {"airframe": "fpv_quad_5in"}}})
+        pilot = MultirotorPilot(CascadeGains(**b.controller_defaults("cascade")), ManualLimits.from_spec(b.spec))
+        travelled = 0.0
+        last = b.state().position.copy()
+        for k in range(int(seconds / 0.01)):
+            mode, sticks = script(k * 0.01)
+            b.step(ControlTarget(accel_cmd=np.zeros(3),
+                                 wrench=pilot.stick_wrench(b.state(), mode, sticks, 0.01)), 0.01)
+            pos = b.state().position
+            # A reset would jump back to the origin: no step may move > 1 m.
+            self.assertLess(float(np.linalg.norm(pos - last)), 1.0)
+            last = pos.copy()
+        self.assertEqual(b.data.warning[mujoco.mjtWarning.mjWARN_BADQACC].number, 0)
+        self.assertTrue(np.all(np.isfinite(b.data.qpos)))
+        return b
+
+    def test_high_speed_ground_strike_does_not_diverge_or_teleport(self) -> None:
+        from aerial_kit.controllers.multirotor_manual import StickInput
+
+        b = self._fly(lambda t: ("angle", StickInput(pitch=1.0, throttle=0.5 if t < 4 else 0.0)), 15.0)
+        self.assertGreater(b.state().position[0], 100.0)    # it flew away; it was not reset home
+
+    def test_free_tumble_keeps_its_spin(self) -> None:
+        import mujoco
+
+        from aerial_kit.airframes.multirotor_specs.mjcf import multirotor_mjcf
+
+        model = mujoco.MjModel.from_xml_string(multirotor_mjcf(load_multirotor_spec("fpv_quad_5in")))
+        model.opt.gravity[:] = 0.0
+        data = mujoco.MjData(model)
+        data.qpos[2] = 100.0
+        data.qvel[3:6] = [5.0, 130.0, -3.0]
+        for _ in range(1000):
+            mujoco.mj_step(model, data)
+        self.assertEqual(data.warning[mujoco.mjtWarning.mjWARN_BADQACC].number, 0)
+        self.assertAlmostEqual(float(np.linalg.norm(data.qvel[3:6])), 130.2, delta=10.0)
+
+    def test_guard_restores_state_instead_of_resetting(self) -> None:
+        from sim_py.backends.mujoco_multirotor_backend import MujocoMultirotorBackend, SimulationDiverged
+
+        b = MujocoMultirotorBackend()
+        b.reset(SimState(position=np.array([3.0, 4.0, 20.0]), velocity=np.zeros(3), t=0.0,
+                         attitude_quat=np.array([1.0, 0.0, 0.0, 0.0]), body_rates=np.zeros(3)), {},
+                {"simulation": {"mujoco_multirotor": {}}})
+        b.data.qvel[3:6] = [1e7, -1e7, 1e7]
+        # MuJoCo writes MUJOCO_LOG.TXT into the working directory on this
+        # (deliberate) warning; keep it out of the repository.
+        import os
+        import tempfile
+
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                with self.assertRaises(SimulationDiverged):
+                    b.step(ControlTarget(accel_cmd=np.zeros(3),
+                                         metadata={"rotor_thrust_n": b.spec.hover_thrusts()}), 0.01)
+            finally:
+                os.chdir(cwd)
+        np.testing.assert_allclose(b.state().position, [3.0, 4.0, 20.0])

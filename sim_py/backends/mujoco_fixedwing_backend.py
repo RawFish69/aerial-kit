@@ -39,6 +39,7 @@ from aerial_kit.dynamics.fixed_wing import (
     quat_to_rotmat,
 )
 from aerial_kit.interfaces import DynamicsBackend
+from .mujoco_guard import SimulationDiverged, step_guarded  # noqa: F401  (re-exported)
 from aerial_kit.types import CommandKind, ControlTarget, SimState
 
 REQUIRED_JOINTS = (
@@ -304,7 +305,7 @@ class MujocoFixedWingBackend(DynamicsBackend):
         substeps = max(1, int(math.ceil(dt / self._nominal_timestep - 1e-12)))
         self._model.opt.timestep = dt / substeps
         for _ in range(substeps):
-            self._mujoco.mj_step(self._model, self._data)
+            step_guarded(self._mujoco, self._model, self._data)
         self._t += dt
 
     def state(self) -> SimState:

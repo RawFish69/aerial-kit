@@ -148,9 +148,11 @@ def multirotor_mjcf(spec: MultirotorSpec, timestep: float = 0.002,
     return f"""\
 <mujoco model="{spec.name}">
   <!-- Generated from {spec.source} by aerial_kit.airframes.multirotor_specs.mjcf.
-       Edit the YAML (or the CAD it references), not this text. Body frame FLU, world ENU. -->
+       Edit the YAML (or the CAD it references), not this text. Body frame FLU, world ENU.
+       RK4, not implicitfast: implicitfast treats gyroscopic terms explicitly and a
+       free tumble above ~100 rad/s (e.g. after a crash) diverges at a 2 ms step. -->
   <compiler angle="radian" autolimits="true"/>
-  <option gravity="0 0 -{_f(spec.gravity_mps2)}" timestep="{_f(timestep)}" integrator="implicitfast"/>
+  <option gravity="0 0 -{_f(spec.gravity_mps2)}" timestep="{_f(timestep)}" integrator="RK4"/>
   <visual>
     <global offwidth="1600" offheight="900" azimuth="160" elevation="-20"/>
     <quality shadowsize="4096"/>

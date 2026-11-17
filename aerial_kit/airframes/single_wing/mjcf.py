@@ -211,7 +211,7 @@ def single_wing_mjcf(spec: SingleWingSpec, timestep: float = 0.002, gravity_mps2
 <mujoco model="{spec.data.get('name', 'single_wing')}">
   <!-- Generated from {spec.source} by aerial_kit.airframes.single_wing.mjcf. Body FRD, world ENU. -->
   <compiler angle="radian" autolimits="true"/>
-  <option gravity="0 0 -{_f(gravity_mps2)}" timestep="{_f(timestep)}" integrator="implicitfast"/>
+  <option gravity="0 0 -{_f(gravity_mps2)}" timestep="{_f(timestep)}" integrator="implicit"/>
   <visual>
     <global offwidth="1600" offheight="900" azimuth="150" elevation="-18"/>
     <quality shadowsize="4096"/>
