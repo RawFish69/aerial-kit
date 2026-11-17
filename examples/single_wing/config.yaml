@@ -1,0 +1,56 @@
+# Single-motor flying-wing example. Model parameters live only in
+# aerial_kit/airframes/single_wing/single_wing.yaml; numbers here configure
+# this mission and controller, not the aircraft.
+
+terrain: plains
+
+vehicle:
+  airframe: single_wing
+
+initial_state:
+  # Hand-launch style airborne start at cruise: a flying wing cannot hover.
+  # (run.py also trims the attitude; the generic runner starts level.)
+  velocity_mps: [14.0, 0.0, 0.0]      # cruise, along path.start_heading_rad
+  heading_deg: 0.0
+  body_rates_rps: [0.0, 0.0, 0.0]
+
+simulation:
+  backend: singlewing
+  duration: 45.0
+  dt: 0.02
+  seed: 11
+  singlewing:
+    wind_mps: [0.0, 0.0, 0.0]
+    # airframe_spec: path/to/another_single_wing.yaml
+
+controller:
+  type: single_wing_l1_tecs
+  l1_tecs:
+    cruise_airspeed_mps: 14.0
+    l1_distance_m: 32.0
+    max_bank_rad: 0.7330
+    max_pitch_rad: 0.3491
+    tecs_kp_throttle: 0.20
+    tecs_kp_pitch: 0.08
+    climb_rate_kp: 0.25
+    kp_roll: 0.70
+    kd_roll: 0.18
+    kp_pitch: 0.90
+    kd_pitch: 0.22
+    kp_yaw_rate: 1.50
+
+path:
+  planner_type: dubins
+  start_position_m: [0.0, 0.0, 100.0]
+  goal_position_m: [220.0, 60.0, 100.0]
+  start_heading_rad: 0.0
+  goal_heading_rad: 0.9
+  dubins_step_size_m: 4.0
+  lookahead_waypoints: 8
+  waypoint_acceptance_m: 12.0
+
+visual:
+  path_color: darkorange
+  planned_linewidth: 2.0
+  marker_size: 45
+
