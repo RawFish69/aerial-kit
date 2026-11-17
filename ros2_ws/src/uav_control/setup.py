@@ -25,6 +25,9 @@ setup(
     entry_points={
         'console_scripts': [
             'mpc_tracker_node = uav_control.mpc_tracker_node:main',
+            'fixed_wing_guidance_node = uav_control.fixed_wing_guidance_node:main',
+            'fixed_wing_teleop_node = uav_control.fixed_wing_teleop_node:main',
+            'multirotor_teleop_node = uav_control.multirotor_teleop_node:main',
         ],
     },
 )

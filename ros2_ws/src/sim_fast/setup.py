@@ -25,7 +25,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-
+            'fixed_wing_demo_node = sim_fast.fixed_wing_demo_node:main',
         ],
     },
 )
