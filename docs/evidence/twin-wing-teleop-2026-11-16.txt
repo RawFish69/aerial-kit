@@ -1,0 +1,105 @@
+Twin-wing ROS keyboard teleop (MuJoCo, actuator level)
+Measured 2026-11-16. MuJoCo 4.0.1, ROS 2 Jazzy, Gazebo Sim 8.10.0, Xorg :1.
+
+See docs/TWIN_WING_TELEOP.md for usage, controls and safety behaviour.
+
+A. AUTOMATED CHECKS
+
+1. Tests
+  sim_py/.venv/bin/python -m pytest -q sim_py/tests
+    463 passed, 44 subtests passed      (455 before; +8 incl. 4 that fly
+                                         the articulated MuJoCo model from
+                                         the shared key mapping)
+  ./scripts/test_ros2.sh
+    157 passed                          (114 before; teleop controller,
+                                         key-repeat filter, ActuatorCommand
+                                         layout, node publish/shutdown,
+                                         adapter precedence/timeout/finite/
+                                         clamp on a real MuJoCo adapter,
+                                         viewer-close join, teleop launch)
+  python3 scripts/generate_twin_wing_assets.py --check
+    32 files match the YAML
+
+2. Autonomous regressions (scripts/fixed_wing_mission_monitor.py)
+  ros2 launch sim_fast fixed_wing_demo.launch.py start_delay_sec:=2.0
+    demo final 10.20 m; altitude 53.39-54.49 m; NaN 0
+  ros2 launch sim_fast fixed_wing_mujoco_demo.launch.py start_delay_sec:=2.0 \
+    wind_x_mps:=3.0 wind_y_mps:=1.0 estimator_mode:=ekf estimator_seed:=7
+    demo final 8.32 m; altitude 52.41-54.49 m (max |z-55| 2.59 m); NaN 0
+  ros2 launch sim_gazebo fixed_wing_gazebo_demo.launch.py headless:=true \
+    start_delay_sec:=2.0
+    demo final 10.30 m; altitude 53.39-54.49 m; NaN 0
+  The adapter logs "control source: fallback -> airspeed_nav" at arming and
+  falls back after the mission ends; manual never engages without teleop.
+  logs: teleop-regression-*-mission.{log,json}
+
+3. Live interactive session, keys injected through X XTEST
+  ros2 launch sim_fast fixed_wing_mujoco_teleop.launch.py start_z_m:=150.0
+  python3 scripts/teleop_session_probe.py  (real X key events into the Tk
+  client window; records cmd_actuators + telemetry per phase)
+
+  phase                cmd L/R thrust N   cmd elevon L/R rad   mean p,q,r rad/s       source
+  disarmed_start       0.88 / 0.88        +0.024 / +0.024      +0.01 +0.12 +0.25      fallback
+  arm (Enter)          0.88 / 0.88        +0.024 / +0.024                             fallback->manual
+  bank_right_D         0.88 / 0.88        -0.145 / +0.192      p +1.04                manual
+  bank_left_A          0.88 / 0.88        +0.192 / -0.145      p -1.26                manual
+  nose_up_S            0.88 / 0.88        +0.191 / +0.191      q +1.06                manual
+  nose_down_W          0.88 / 0.88        -0.141 / -0.141      q -0.68                manual
+  recentre X           0.88 / 0.88        +0.024 / +0.024      (trim)                 manual
+  throttle_up_Space    3.85 / 3.85        trim                 airspeed 13.0 -> 22.9  manual
+  throttle_down_Shift  0.00 / 0.00        trim                 airspeed falls         manual
+  yaw_Q                0.29 / 1.47        trim                 r -0.04 (nose left)    manual
+  yaw_E                1.48 / 0.28        trim                 r +0.23 (nose right)   manual
+  paused, D held       0.88 / 0.88        trim                 p +0.01                manual
+  Backspace            active 0                                                       manual->fallback
+  focus lost           trim, then "disarmed: window unfocused too long" after 3 s     manual->fallback
+  Esc                  "disarmed (Esc)", teleop "finished cleanly", launch shut down,
+                       adapter "finished cleanly"; no processes left
+  Altitude 121-141 m throughout; all 4458 telemetry samples finite.
+  log/json: teleop-live-session.{log,json}
+  images:   teleop-renders/teleop_live_*.png (viewer area only)
+
+  Earlier attempt (not kept): holding full bank 0.8 s and only re-centring
+  dived the aircraft into the ground from 46 m. This is expected for
+  open-loop actuator control (the wings do not self-level) and is why the
+  final script counters each input. It ended resting on the ground, finite.
+
+4. Failure paths
+  No display: teleop prints "cannot open the Tk key window ... nothing was
+  armed. Exiting.", the launch shuts the session down, no processes remain.
+  log: teleop-no-display.log (adapter was interrupted during its own import,
+  so its traceback there is shutdown noise, not a flight error).
+  Teleop killed (SIGTERM): disarms, exits cleanly, launch shuts down.
+
+5. Fixed during this work
+  - Adapter exit with the viewer open segfaulted (-11): close() only asks
+    the viewer thread to stop. Now the render thread is joined first;
+    shutdown reports "finished cleanly".
+  - Adapter printed ExternalShutdownException on launch shutdown; it now
+    exits normally.
+  - Independent review reran the live XTEST session and caught a narrower
+    shutdown race: the ROS context could become invalid between a timer tick
+    and its final Telemetry publish, producing an RCLError traceback. The
+    adapter now checks the context before the tick and treats a context loss
+    during publish as teardown. The repeated live session completed with both
+    nodes finishing cleanly and no leftover processes.
+  - The MuJoCo viewer takes keyboard focus from the teleop window when it
+    opens; the teleop now reclaims focus once after 3 s.
+
+B. NEEDS HUMAN VISUAL CONFIRMATION
+
+  The key path, signs and measured responses above are automated. These are
+  judgements a person should make by flying it:
+  - The elevons visibly swing about their hinge lines in the viewer for
+    W/S/A/D (screenshots show the deflected surfaces, not the motion).
+  - The props visibly speed up/slow down with Space/Shift and Q/E.
+  - Handling feels controllable at ±10 deg full stick.
+  - Focus reclaim works under your window manager (otherwise click the
+    teleop window).
+  - Real keyboard auto-repeat feels right (the filter is unit-tested and
+    exercised by held XTEST keys, not by a physical keyboard).
+
+C. LIMITS
+  Open-loop actuator control, no stabilisation; unfitted aero; digital
+  keys; no landing/takeoff model; truth state only in teleop mode. No
+  hardware or RC-link readiness is claimed.

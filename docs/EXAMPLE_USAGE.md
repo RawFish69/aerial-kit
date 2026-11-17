@@ -3,10 +3,6 @@
 Worked examples, from a single Python command to a full ROS 2 mission. Each section is
 self-contained. The [software guide](SOFTWARE_GUIDE.md) explains the pieces.
 
-> These examples replace an earlier version that launched the removed `sim_dyn` /
-> `controllers_*` ROS 2 packages. The same scenarios (forest, mountains, plains; PID, LQR,
-> MPC) now run in the standalone simulator and in the `sim_fast` / `sim_gazebo` stacks.
-
 ---
 
 ## 1. Forest terrain, RRT*, constrained MPC (Python only)

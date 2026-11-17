@@ -1,0 +1,626 @@
+{
+ "disarmed_start": {
+  "cmd_samples": 144,
+  "active_fraction": 0.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "fallback"
+  ],
+  "mean_pqr": [
+   0.0074,
+   0.1167,
+   0.2517
+  ],
+  "z_end": 136.01,
+  "airspeed_end": 16.4
+ },
+ "arm": {
+  "cmd_samples": 48,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "fallback",
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0208,
+   0.0739,
+   0.2296
+  ],
+  "z_end": 135.0,
+  "airspeed_end": 16.8
+ },
+ "trim_hold": {
+  "cmd_samples": 71,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0222,
+   0.0836,
+   0.2114
+  ],
+  "z_end": 132.96,
+  "airspeed_end": 17.55
+ },
+ "bank_right_D": {
+  "cmd_samples": 31,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   -0.1454,
+   0.1924
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   1.0381,
+   0.128,
+   0.3119
+  ],
+  "z_end": 131.98,
+  "airspeed_end": 17.88
+ },
+ "counter_A": {
+  "cmd_samples": 20,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.1893,
+   -0.1423
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.7099,
+   0.1868,
+   0.4496
+  ],
+  "z_end": 130.51,
+  "airspeed_end": 18.53
+ },
+ "recentre_X": {
+  "cmd_samples": 72,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.1006,
+   0.1686,
+   0.2319
+  ],
+  "z_end": 123.84,
+  "airspeed_end": 20.83
+ },
+ "bank_left_A": {
+  "cmd_samples": 28,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.1918,
+   -0.1448
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -1.2593,
+   0.1828,
+   0.0718
+  ],
+  "z_end": 122.09,
+  "airspeed_end": 21.14
+ },
+ "counter_D": {
+  "cmd_samples": 19,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   -0.1419,
+   0.1888
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   0.7222,
+   0.1842,
+   -0.1424
+  ],
+  "z_end": 121.43,
+  "airspeed_end": 21.07
+ },
+ "recentre_X2": {
+  "cmd_samples": 72,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   0.0865,
+   0.1564,
+   0.0735
+  ],
+  "z_end": 123.42,
+  "airspeed_end": 18.93
+ },
+ "nose_up_S": {
+  "cmd_samples": 25,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.191,
+   0.191
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0111,
+   1.0633,
+   0.0805
+  ],
+  "z_end": 126.57,
+  "airspeed_end": 16.59
+ },
+ "counter_W": {
+  "cmd_samples": 18,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   -0.1413,
+   -0.1413
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0126,
+   -0.5315,
+   0.1052
+  ],
+  "z_end": 130.14,
+  "airspeed_end": 14.26
+ },
+ "recentre_X3": {
+  "cmd_samples": 71,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.023,
+   -0.1304,
+   0.1872
+  ],
+  "z_end": 136.51,
+  "airspeed_end": 9.6
+ },
+ "nose_down_W": {
+  "cmd_samples": 18,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   -0.1413,
+   -0.1413
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.027,
+   -0.68,
+   0.2753
+  ],
+  "z_end": 136.91,
+  "airspeed_end": 9.41
+ },
+ "counter_S": {
+  "cmd_samples": 18,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.1883,
+   0.1883
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0262,
+   0.1036,
+   0.2828
+  ],
+  "z_end": 136.52,
+  "airspeed_end": 9.98
+ },
+ "recentre_X4": {
+  "cmd_samples": 72,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0166,
+   -0.1192,
+   0.2024
+  ],
+  "z_end": 133.45,
+  "airspeed_end": 13.04
+ },
+ "throttle_up_Space": {
+  "cmd_samples": 83,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   3.847,
+   3.847
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0084,
+   0.0968,
+   0.0942
+  ],
+  "z_end": 126.41,
+  "airspeed_end": 22.86
+ },
+ "throttle_down_Shift": {
+  "cmd_samples": 41,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.0,
+   0.0
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0069,
+   0.2042,
+   0.0629
+  ],
+  "z_end": 126.01,
+  "airspeed_end": 21.15
+ },
+ "trim_after_throttle": {
+  "cmd_samples": 48,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0075,
+   0.1564,
+   0.0681
+  ],
+  "z_end": 128.7,
+  "airspeed_end": 19.04
+ },
+ "yaw_Q": {
+  "cmd_samples": 51,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.2949,
+   1.4713
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.1894,
+   0.087,
+   -0.0439
+  ],
+  "z_end": 133.35,
+  "airspeed_end": 16.07
+ },
+ "yaw_E": {
+  "cmd_samples": 50,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   1.4831,
+   0.2831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   0.1827,
+   -0.0084,
+   0.2342
+  ],
+  "z_end": 138.0,
+  "airspeed_end": 13.0
+ },
+ "pause_P": {
+  "cmd_samples": 3,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   0.2221,
+   -0.0551,
+   0.4421
+  ],
+  "z_end": 138.18,
+  "airspeed_end": 12.87
+ },
+ "paused_D_held": {
+  "cmd_samples": 51,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   0.0074,
+   -0.1068,
+   0.0975
+  ],
+  "z_end": 140.99,
+  "airspeed_end": 10.93
+ },
+ "unpause_P": {
+  "cmd_samples": 48,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0226,
+   -0.1586,
+   0.1829
+  ],
+  "z_end": 141.31,
+  "airspeed_end": 11.05
+ },
+ "disarm_Backspace": {
+  "cmd_samples": 143,
+  "active_fraction": 0.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "fallback",
+   "manual"
+  ],
+  "mean_pqr": [
+   0.0851,
+   0.1152,
+   0.2891
+  ],
+  "z_end": 137.75,
+  "airspeed_end": 14.96
+ },
+ "rearm": {
+  "cmd_samples": 48,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "fallback",
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.0214,
+   0.0401,
+   0.2424
+  ],
+  "z_end": 136.23,
+  "airspeed_end": 15.89
+ },
+ "focus_loss": {
+  "cmd_samples": 192,
+  "active_fraction": 0.75,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "fallback",
+   "manual"
+  ],
+  "mean_pqr": [
+   0.0231,
+   0.0914,
+   0.1894
+  ],
+  "z_end": 129.63,
+  "airspeed_end": 17.69
+ },
+ "refocus_rearm": {
+  "cmd_samples": 86,
+  "active_fraction": 0.8372,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "fallback",
+   "manual"
+  ],
+  "mean_pqr": [
+   -0.013,
+   0.0955,
+   0.2189
+  ],
+  "z_end": 128.6,
+  "airspeed_end": 17.52
+ },
+ "exit_Esc": {
+  "cmd_samples": 3,
+  "active_fraction": 0.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "fallback",
+   "manual"
+  ],
+  "mean_pqr": [
+   0.0534,
+   0.0972,
+   0.2421
+  ],
+  "z_end": 128.47,
+  "airspeed_end": 17.43
+ },
+ "_all_telemetry_finite": true,
+ "_telemetry_samples": 4458
+}

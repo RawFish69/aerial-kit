@@ -1,0 +1,91 @@
+MuJoCo multirotors: FPV quad, micro LR quad, research hex and octo
+Measured 2026-11-16. MuJoCo 4.0.1, ROS 2 Jazzy, Xorg :1.
+Design and limitations: docs/MULTIROTOR_MUJOCO.md
+
+A. AUTOMATED
+
+1. Tests
+  sim_py/.venv/bin/python -m pytest -q sim_py/tests
+    500 passed, 80 subtests passed     (463 before; +22 multirotor in
+                                        test_mujoco_multirotor.py, plus the
+                                        separately added single-wing tests)
+  ./scripts/test_ros2.sh
+    184 passed                         (157 before; +13 adapter, +14 teleop)
+  python3 scripts/generate_twin_wing_assets.py --check   -> 32 files match
+
+2. Airframes (from the specs; MuJoCo composite equals the spec to 1e-8)
+  fpv_quad_5in   0.650 kg  4 rotors  TWR 8.8  hover 1.59 N/motor
+  micro_lr_quad  0.378 kg  4 rotors  TWR 3.0  hover 0.90-0.95 N/motor (CAD + assumed battery)
+  research_hex   3.200 kg  6 rotors  TWR 4.8  hover 5.23 N/motor
+  research_octo  5.500 kg  8 rotors  TWR 3.3  hover 6.74 N/motor
+
+3. Cross-check against the firmware's ActuatorPlant (FRD/NED, independent code)
+  FPV airframe, identical per-motor roll/pitch/yaw pulses, 1.5 s:
+    MuJoCo position [0.6845 -1.4893 4.7954]  plant [0.6830 -1.4869 4.7958]  (max 2.4 mm)
+    MuJoCo velocity [1.5138 -2.2372 -0.3596] plant [1.5136 -2.2369 -0.3595] (max 0.3 mm/s)
+
+4. Python runner, examples/quadrotor/mujoco.yaml (min-snap -> cascade -> allocator -> MuJoCo rotors)
+  fpv_quad_5in   goal error 2.47 m, collisions 0
+  micro_lr_quad  goal error 2.49 m, collisions 0
+  research_hex   goal error 2.50 m, collisions 0
+  research_octo  goal error 2.46 m, collisions 0
+  (waypoint acceptance 2.5 m)
+
+5. ROS autonomous demo: takeoff from the ground, plan through forest, fly, land, disarm
+  ros2 launch sim_fast bringup.launch.py start_demo:=true [sim_backend:=mujoco airframe:=...]
+                    closest to goal  max tilt  final z (resting)  all finite
+  pointmass (orig)  0.48 m           0.0 deg   0.00               yes
+  fpv_quad_5in      0.72 m           16.4 deg  0.02               yes
+  micro_lr_quad     0.63 m           14.3 deg  0.02               yes
+  research_hex      0.58 m           13.2 deg  0.28 (on gear)     yes
+  research_octo     0.46 m           12.0 deg  0.33 (on gear)     yes
+  logs: multirotor-pointmass-demo.*, multirotor-mujoco-<airframe>-demo.*
+  The first octo run was disturbed by ROS tests I ran concurrently on the
+  same domain (they publish /uav/backend/enable); it was stopped and re-run
+  in isolation. The json above is the isolated run.
+
+  Pre-existing bug fixed: fastsim_backend_adapter_node crashed at start
+  ("No module named 'aerial_kit'", repo root resolved via parents[5] =
+  /home/cy/Projects). It now searches upward for the repo root like the
+  other nodes. Without this the default point-mass bringup could not run.
+
+  Observed (existing stack behaviour, harmless): during touchdown the
+  command manager re-sends enable while confirming the landing, so the plant
+  logs a few idle <-> cmd_twist switches before the final disarm.
+
+6. Live keyboard sessions, real X key events (scripts/multirotor_teleop_probe.py)
+  ros2 launch sim_fast multirotor_mujoco_teleop.launch.py airframe:=fpv_quad_5in   (angle mode)
+    Enter: idle -> manual
+    Space 2 s: climbed at the rate limit to 9.7 m, then held 11.88 -> 12.2 m centred
+    W: 12.8 m/s forward;  D: banked 55.0 deg (the limit), flew right
+    E/Q: yaw rate -5.4 / +2.4 rad/s
+    M -> acro; 0.15 s roll taps inverted the quad and it crashed from 11 m
+      (acro does not self-level; keyboard acro is not practically flyable)
+    Pause with W held: sticks stayed centred; Backspace/focus loss/Esc as designed
+    Shutdown: both processes "finished cleanly", none left running
+  ros2 launch sim_fast multirotor_mujoco_teleop.launch.py airframe:=research_hex   (velocity mode)
+    Space: climb 1.9 m/s, then hold 4.5 m; W 3.4 m/s forward; D 3.4 m/s right
+    E: yaw -1.47 rad/s; M -> angle: bank 16-20 deg (limit 25)
+    Backspace: auto_land at 0.64 m/s; focus loss: disarm after 3 s -> auto_land
+    Shutdown clean.
+  An earlier FPV run (fixed since) showed raw-throttle angle mode reaching
+  90 m/s after 2 s of Space; angle mode now holds vertical speed.
+  logs/json: multirotor-teleop-<airframe>-session.*
+  screenshots: multirotor-renders/teleop_live_*.png (viewer area only)
+
+7. Twin-wing regressions after this work (shared viewer/teleop helpers touched)
+  analytic                  final 8.88 m, altitude 53.2-54.5, NaN 0
+  MuJoCo + EKF + wind 3/1   final 7.97 m, altitude 52.4-54.5, NaN 0
+  Gazebo headless           final 5.18 m, altitude 53.4-54.5, NaN 0
+
+B. NEEDS HUMAN CONFIRMATION
+  - That the props visibly spin the right way and the airframes "look right"
+    in motion (stills and numeric spin-sign tests only).
+  - Handling feel in angle/velocity mode from a real keyboard.
+  - Acro with a joystick (not available here).
+
+C. LIMITS
+  Lagged-command rotor thrust (no RPM^2/voltage/inflow/ground effect), linear
+  drag, research-default inertias (micro: CAD + assumed battery), display-rate
+  rotor shafts, simulator flight modes (not a Betaflight/PX4 port), no Gazebo
+  models generated for the new airframes. No hardware readiness claimed.

@@ -17,6 +17,20 @@ Run headlessly and save the result:
 python examples/fixed_wing/run.py --no-show --save fixed-wing-result.png
 ```
 
+Run the same mission with MuJoCo integrating the wing and elevon joints:
+
+```bash
+python -m pip install -e ".[sim,mujoco]"
+python examples/fixed_wing/run.py --config examples/fixed_wing/mujoco.yaml --no-show
+```
+
+MuJoCo owns the free-body, hinge and prop-shaft dynamics. Aerial Kit's
+fixed-wing model supplies lift, drag, thrust and moments, and the elevon
+commands move actual hinged surfaces rather than a purely visual estimate.
+Mass, geometry and motor layout come from
+`aerial_kit/airframes/twin_wing/twin_wing.yaml`; see
+`docs/TWIN_WING_AIRFRAME.md`.
+
 ## Teleop (real-time keyboard control)
 
 ```bash

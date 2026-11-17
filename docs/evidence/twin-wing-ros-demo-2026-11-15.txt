@@ -1,0 +1,96 @@
+Twin-wing ROS 2 headless demo
+Measured 2026-11-15 against ROS 2 Jazzy in ~/.local/share/ros/jazzy.
+
+1. Environment and build
+
+  source ~/.local/share/ros/jazzy/setup.bash
+  colcon build --symlink-install
+
+  12 packages built:
+    uav_msgs uav_algorithms terrain_generator planner air_unit sim_bridge
+    uav_control hw_bridge mavlink_bridge ground_station sim_gazebo sim_fast
+
+2. Tests
+
+  Python fixed-wing suite:
+    18 passed
+
+  ROS package tests (explicit pytest, because this workspace's setup.py test
+  entries do not discover pytest functions):
+    91 passed
+
+  Gazebo asset checks:
+    included in the ROS suite
+
+  This includes fixed-wing waypoint acceptance and AirspeedNav-to-Wrench
+  conversion tests.
+
+3. End-to-end launch
+
+  ros2 launch sim_fast fixed_wing_demo.launch.py start_delay_sec:=2.0
+
+  Nodes:
+    fixedwing_backend_adapter_node  - 6-DOF fixed-wing actuator plant
+    fixed_wing_guidance_node        - Aerial Kit L1 + TECS + attitude PID
+    fixed_wing_demo_node            - Command, enable and 3-waypoint mission
+
+  Result:
+    first waypoint   [97.5, 48.4, 54.3]
+    second waypoint  [208.3, 62.3, 54.4]
+    third waypoint   [257.3, -28.5, 54.5]
+    mission complete at [257.30, -28.46, 54.49]
+    final horizontal distance 10.51 m
+
+  The wing started at 55 m, 15 m/s. Its altitude stayed within 0.53 m through
+  all three waypoint transitions.
+
+4. Gazebo visual twin
+
+  ros2 launch sim_gazebo fixed_wing_gazebo_demo.launch.py \
+    headless:=true start_delay_sec:=2.0
+
+  Gazebo 8.10.0 started the `uav_fixed_wing` world and loaded
+  `model://twin_wing_visual`. The ROS -> Gazebo set-pose service bridge was
+  active at /world/uav_fixed_wing/set_pose, and the pose node reported:
+
+    Gazebo twin-wing pose stream established
+
+  The same L1/TECS flight loop completed:
+    first waypoint               [97.6, 48.5, 54.3]
+    second waypoint              [208.5, 62.3, 54.4]
+    third waypoint               [257.3, -28.5, 54.5]
+    mission complete             [257.25, -28.55, 54.47]
+    final horizontal distance    8.95 m
+
+  A live `gz model -m twin_wing -p` query during the run reported the model
+  away from its spawn point at [204.067, 16.045, 40.742], confirming that the
+  Gazebo entity was being driven rather than remaining at 55 m.
+
+  The SDF is an FRD-oriented kinematic visual asset. Aerial Kit's
+  FixedWingDynamics remains the authoritative 6-DOF plant; Gazebo supplies the
+  scene and the visual wing, elevon, fin and prop-disc geometry. This is not a
+  native Gazebo aerodynamic simulation.
+
+  The asset tests parse the world and model SDF and pin the pose-service launch
+  wiring. They do not replace the end-to-end launch above.
+
+5. What was found and fixed
+
+  The first run used the generic 3 N trim throttle while the simulated plant's
+  level-flight trim at 15 m/s is 0.883 N. The aircraft accelerated and climbed
+  roughly 15 m. The backend now uses `FixedWingDynamics.compute_trim()` and
+  adds the computed elevon trim to the commanded pitch moment. The same demo
+  then held near 55 m.
+
+  Horizontal waypoint acceptance is used intentionally: TECS owns altitude,
+  and a vertical transient must not keep a wing orbiting a point it has already
+  overflown. The desired altitude is still sent to TECS on every update.
+
+6. Not done
+
+  - The Gazebo asset is kinematic; it does not use Gazebo LiftDrag,
+    aerodynamic plugins or animated control surfaces.
+  - No hardware or flight test.
+  - No fixed-wing offboard test against ArduPilot SITL in this run; the
+    existing MAVLink bridge consumes AirspeedNav, but this headless backend is
+    the first Aerial Kit producer of that message.

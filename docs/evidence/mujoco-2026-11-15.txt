@@ -1,0 +1,104 @@
+MuJoCo twin-wing physics and ROS path
+Measured 2026-11-15. MuJoCo 4.0.1, ROS 2 Jazzy.
+
+1. Plant
+
+  sim_py/backends/mujoco_fixedwing_backend.py
+
+  - MuJoCo owns the free root body and the two elevon hinges.
+  - The wing, fuselage, fins, elevons and prop discs form one MJCF body tree.
+  - Aerial Kit's fixed-wing model supplies lift, drag, thrust and moments.
+  - Actual hinge positions feed the next aero step.
+  - Thrust has a configurable first-order lag.
+  - Two prop joints animate from the commanded thrust.
+  - World-frame wind remains available through the same FixedWingDynamics path.
+
+  This is not claiming native MuJoCo fluid lift. MuJoCo is the rigid-body and
+  articulated-surface integrator; Aerial Kit supplies the aerodynamic loads.
+
+2. Python simulation
+
+  python examples/fixed_wing/run.py \
+    --config examples/fixed_wing/mujoco.yaml --no-show
+
+  Result:
+    final position       [96.384, 92.273, 35.437] m
+    goal error           5.949 m
+    collisions           0
+    recorded samples     333
+
+  sim_py/.venv/bin/python -m pytest -q sim_py/tests
+    456 passed, 41 subtests passed
+
+3. ROS end-to-end
+
+  ros2 launch sim_fast fixed_wing_mujoco_demo.launch.py \
+    start_delay_sec:=2.0 wind_x_mps:=3.0 wind_y_mps:=1.0
+
+  The launched adapter reported:
+    fixed-wing backend: mujoco, z=55.0 m, airspeed=15.0 m/s
+
+  Waypoints:
+    first                [100.1, 48.1, 53.5]
+    second               [208.1, 61.7, 54.9]
+    third                [257.1, -28.6, 53.6]
+    mission complete     [257.13, -28.60, 53.59]
+    final distance       10.33 m
+
+  The same fixed_wing_guidance_node and fixed_wing_demo_node run above the
+  analytic and MuJoCo plants. The adapter backend parameter selects:
+    analytic  - fast fixed-step integration
+    mujoco    - MuJoCo rigid-body and hinge integration
+
+  MuJoCo viewer is optional:
+    ros2 launch sim_fast fixed_wing_mujoco_demo.launch.py viewer:=true
+
+4. ROS with simulated sensor estimation
+
+  ros2 launch sim_fast fixed_wing_mujoco_demo.launch.py \
+    start_delay_sec:=2.0 wind_x_mps:=3.0 wind_y_mps:=1.0 \
+    estimator_mode:=ekf estimator_seed:=7
+
+  The adapter inserts deterministic GPS, baro and accelerometer noise through
+  Aerial Kit's SimulatedIns/INS EKF, and guidance consumes the estimate rather
+  than the MuJoCo truth state.
+
+  Waypoints:
+    first                [102.2, 48.4, 53.7]
+    second               [209.5, 65.6, 54.1]
+    third                [257.2, -28.5, 54.5]
+    mission complete     [257.23, -28.45, 54.47]
+    final distance       9.35 m
+
+  This is deterministic for estimator_seed and uses the same launch and
+  /uav/* contract as the truth-backed run.
+
+  SimState and Telemetry now carry air-relative airspeed explicitly. Both the
+  fixed-wing controller and AirspeedNav inner loop use that measurement instead
+  of treating horizontal ground speed as airspeed; the estimator passes the
+  measured value through beside its estimated position and velocity.
+
+5. Tests
+
+  Focused backend and fixed-wing tests:
+    10 passed, 12 subtests passed
+    18 passed
+
+  ROS launch/asset tests:
+    4 passed
+
+  Full sim_py:
+    456 passed, 41 subtests passed
+
+  Full ROS:
+    114 passed
+
+  The refined geometry, articulated meshes and current mission measurements
+  are in twin-wing-airframe-2026-11-15.txt.
+
+6. Still open
+
+  - Aero coefficients remain research defaults, not a fitted airframe.
+  - MuJoCo fluid lift is not used directly; aerodynamic loads come from the
+    shared Aerial Kit model.
+  - No real-aircraft validation is claimed.

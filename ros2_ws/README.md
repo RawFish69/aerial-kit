@@ -50,6 +50,18 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+Run the workspace's real test set with:
+
+```bash
+../scripts/test_ros2.sh
+```
+
+Use `ROS_SETUP=/path/to/setup.bash` for another underlay. The script builds the
+workspace and runs pytest over the package test directories. Plain
+`colcon test` does not discover this workspace's pytest-style functions and
+reports packages with no unittest cases as failures; the script is the
+authoritative test entry point today.
+
 If colcon warns that some packages are already built in an underlay (e.g. `air_unit`, `sim_bridge`) and you intend to override them, add:
 
 ```bash
@@ -103,6 +115,128 @@ Notes:
 - `vehicle_profile:=lr_drone` now uses a Gazebo-native controlled model (`models/lr_drone_controlled/model.sdf`) for better reset stability than runtime URDF conversion.
 - The `lr_drone` controlled mode is expected to need tuning (motor constants/gains/limits), but the launch/bridge/plugin path is wired.
 - Offboard planner failures no longer silently fall through to an unsafe straight-line path: planner output is segment-validated before mission publication.
+
+## Headless Twin-Wing Demo
+
+This path is independent of Gazebo and runs Aerial Kit's real 6-DOF fixed-wing
+plant plus the L1/TECS controller:
+
+```bash
+cd ros2_ws
+source /home/cy/.local/share/ros/jazzy/setup.bash
+colcon build --symlink-install
+source install/setup.bash
+ros2 launch sim_fast fixed_wing_demo.launch.py
+```
+
+It starts at 55 m and 15 m/s, arms, publishes a three-waypoint mission, produces
+`AirspeedNav`, converts that into actuator commands, and flies the plant. The
+default run completes in under 30 seconds and logs the final horizontal
+distance. `start_delay_sec:=2.0` shortens the delay before the demo commands.
+
+The chain is:
+
+```text
+fixed_wing_demo_node
+  -> /uav/command + /uav/mission + /uav/backend/enable
+fixed_wing_guidance_node
+  -> /uav/backend/cmd_airspeed_nav
+fixedwing_backend_adapter_node
+  -> /uav/backend/telemetry_raw
+```
+
+## Gazebo Twin-Wing Visual Demo
+
+The same flight loop can drive the twin-wing SDF in Gazebo:
+
+```bash
+ros2 launch sim_gazebo fixed_wing_gazebo_demo.launch.py
+```
+
+For a machine without a display, use `headless:=true`. The launch starts the
+headless 6-DOF plant, guidance, mission source, Gazebo, the set-pose service
+bridge, and `gazebo_fixedwing_pose_node`. The pose node follows
+`/uav/backend/telemetry_raw` at 20 Hz and moves the static `twin_wing` model
+through `/world/uav_fixed_wing/set_pose`.
+
+This is a **kinematic visual twin**: Aerial Kit's fixed-wing dynamics remain the
+authoritative flight model, while Gazebo provides the scene and the same
+procedural airframe the MuJoCo model uses (swept wing, pod, fins, nacelles,
+two-blade props, elevons at neutral). It is not a native Gazebo aerodynamics
+result. The model is generated from
+`aerial_kit/airframes/twin_wing/twin_wing.yaml` by
+`scripts/generate_twin_wing_assets.py`; do not edit it by hand. The SDF and world are in
+`src/sim_gazebo/models/twin_wing_visual` and
+`src/sim_gazebo/worlds/fixed_wing_demo.sdf`.
+
+Both the headless and Gazebo runs are recorded in
+`../docs/evidence/twin-wing-ros-demo-2026-11-15.txt`.
+
+## MuJoCo Twin-Wing Physics Demo
+
+The same ROS guidance and mission nodes can run against a MuJoCo physics
+backend:
+
+```bash
+python3 -m pip install -r ../sim_py/requirements-mujoco.txt
+ros2 launch sim_fast fixed_wing_mujoco_demo.launch.py
+```
+
+Open the live MuJoCo viewer with:
+
+```bash
+ros2 launch sim_fast fixed_wing_mujoco_demo.launch.py viewer:=true
+```
+
+If no display or OpenGL is available the adapter logs a warning and keeps
+flying headless; launch parameters are validated before any window opens.
+
+MuJoCo owns the free-body, servo-driven elevon-hinge and prop-shaft dynamics
+(see `../docs/TWIN_WING_AIRFRAME.md`). Aerial Kit's fixed-wing
+model supplies lift, drag, thrust and moments, while the ROS adapter converts
+`AirspeedNav` into the same actuator commands used by the headless plant. Wind
+can be set with `wind_x_mps` and `wind_y_mps`. Set `estimator_mode:=ekf` to put
+deterministic simulated GPS, barometer and accelerometer noise through the INS
+EKF before guidance sees the state.
+
+The MuJoCo run completed the same three-waypoint mission with 3 m/s east wind
+and 1 m/s north wind at `[257.13, -28.60, 53.59]`, 10.33 m from the final
+waypoint. See `../docs/evidence/mujoco-2026-11-15.txt`.
+
+The measured EKF run with the same 3/1 m/s wind completed at
+`[257.23, -28.45, 54.47]`, 9.35 m from the final waypoint. Air-relative
+airspeed is carried separately from ground velocity, so wind and climbs no
+longer masquerade as airspeed changes.
+
+## MuJoCo Twin-Wing Keyboard Teleop
+
+Fly the MuJoCo twin wing by keyboard at actuator level (no mission or
+guidance node):
+
+```bash
+ros2 launch sim_fast fixed_wing_mujoco_teleop.launch.py
+```
+
+Click the small "Aerial Kit twin-wing teleop" window, press Enter to arm,
+then W/S pitch, A/D bank, Space/Shift throttle, Q/E differential thrust,
+X re-centre, P pause, Backspace disarm, Esc exit. Manual commands
+(`/uav/backend/cmd_actuators`, `uav_msgs/ActuatorCommand`) take precedence
+only while fresh (0.3 s) and finite; otherwise the plant falls back to
+AirspeedNav or its safe cruise circle. See `../docs/TWIN_WING_TELEOP.md`.
+
+## MuJoCo Multirotors (FPV quad, micro LR quad, research hex/octo)
+
+The fast-sim bringup can run a MuJoCo multirotor instead of the point mass,
+on the same `/uav/backend/cmd_twist` / `enable` / `odom` contract:
+
+```bash
+ros2 launch sim_fast bringup.launch.py start_demo:=true sim_backend:=mujoco airframe:=research_hex
+ros2 launch sim_fast multirotor_mujoco_teleop.launch.py airframe:=fpv_quad_5in   # keyboard
+```
+
+Airframes: `fpv_quad_5in`, `micro_lr_quad` (from `lr_drone_urdf`),
+`research_hex`, `research_octo`. Teleop modes: velocity / angle / acro (M
+cycles). See `../docs/MULTIROTOR_MUJOCO.md`.
 
 ## Custom Drone URDF Workflow (`sim_gazebo/models/lr_drone_urdf`)
 
