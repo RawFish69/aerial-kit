@@ -32,6 +32,7 @@ Repository = "https://github.com/RawFish69/aerial-kit"
 viz = ["matplotlib>=3.5"]
 sim = ["matplotlib>=3.5", "pyyaml>=6.0"]
 rotorpy = ["matplotlib>=3.5", "pyyaml>=6.0", "rotorpy>=2.0.0"]
+mujoco = ["mujoco>=3.0"]
 
 [project.scripts]
 aerial-kit-sim = "aerial_kit.sim.cli:main"
@@ -42,5 +43,5 @@ include = ["aerial_kit*", "sim_py*"]
 exclude = ["aerialkit*", "apps*", "sim_py.tests*", "firmware*", "ros2_ws*", "tools*", "docker*", "scripts*", "plans*", "assets*", "docs*"]
 
 [tool.setuptools.package-data]
-aerial_kit = ["py.typed", "sim/defaults/*.yaml"]
+aerial_kit = ["py.typed", "sim/defaults/*.yaml", "airframes/twin_wing/*.yaml"]
 sim_py = ["sim_config.yaml"]

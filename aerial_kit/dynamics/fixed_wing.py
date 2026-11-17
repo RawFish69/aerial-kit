@@ -166,7 +166,7 @@ class FixedWingDynamics:
         p = self.params
         throttle_l, throttle_r, elevon_l, elevon_r = np.asarray(actuator_cmd, dtype=float)
         delta_e = 0.5 * (elevon_l + elevon_r)
-        delta_a = 0.5 * (elevon_l - elevon_r)
+        delta_a = 0.5 * (elevon_r - elevon_l)
 
         airspeed, alpha, beta = self.airspeed_alpha_beta()
         qbar = 0.5 * p.air_density_kg_m3 * airspeed**2
@@ -207,6 +207,16 @@ class FixedWingDynamics:
         force_body = np.array([fx_aero + thrust_x, fy_aero, fz_aero], dtype=float)
         moment_body = np.array([roll_moment, pitch_moment, yaw_moment_aero + yaw_moment_thrust], dtype=float)
         return force_body, moment_body
+
+    def aero_forces_moments(
+        self, actuator_cmd: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Body-FRD aero and thrust loads for an actuator command.
+
+        This is the same model used by :meth:`step`; external integrators such
+        as MuJoCo use it without duplicating lift, drag or moment equations.
+        """
+        return self._aero_forces_moments(actuator_cmd)
 
     def step(self, actuator_cmd: np.ndarray, dt: float) -> None:
         """Advance state by ``dt`` using forward Euler.

@@ -1,0 +1,401 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+  <!--
+    GENERATED from aerial_kit/airframes/twin_wing/twin_wing.yaml by
+    scripts/generate_twin_wing_assets.py. Edit the YAML and regenerate;
+    the script's check mode (run by the ROS asset tests) fails on drift.
+
+    This asset is deliberately kinematic. The authoritative flight model is
+    aerial_kit.dynamics.fixed_wing (analytic or MuJoCo-integrated), and
+    gazebo_fixedwing_pose_node drives this model from that plant's Telemetry.
+    Gazebo supplies the scene, camera and visual review; it is not claimed to
+    be the aerodynamic solver here. Elevons are shown at neutral and props
+    are static: articulation is only simulated in MuJoCo.
+
+    Geometry uses body FRD coordinates (x forward, y right, z down), matching
+    the quaternion published by the Aerial Kit plant. Parts are the same
+    procedural meshes the MuJoCo model uses.
+  -->
+  <model name="twin_wing">
+    <static>true</static>
+    <link name="body">
+      <visual name="center_body">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/center_body.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.165 0.182 0.204 1.000</ambient>
+          <diffuse>0.300 0.330 0.370 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="hatch">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/hatch.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.066 0.110 0.165 1.000</ambient>
+          <diffuse>0.120 0.200 0.300 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="camera_window">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/camera_window.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.017 0.017 0.022 1.000</ambient>
+          <diffuse>0.030 0.030 0.040 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_wing_top">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_wing_top.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.429 0.435 0.424 1.000</ambient>
+          <diffuse>0.780 0.790 0.770 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_wing_bottom">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_wing_bottom.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.121 0.132 0.149 1.000</ambient>
+          <diffuse>0.220 0.240 0.270 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_wingtip_fin">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_wingtip_fin.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.105 0.198 0.308 1.000</ambient>
+          <diffuse>0.190 0.360 0.560 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_nav_light">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_nav_light.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.495 0.055 0.055 1.000</ambient>
+          <diffuse>0.900 0.100 0.100 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_hinge_rod">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_hinge_rod.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.385 0.391 0.402 1.000</ambient>
+          <diffuse>0.700 0.710 0.730 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_nacelle">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_nacelle.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.094 0.099 0.110 1.000</ambient>
+          <diffuse>0.170 0.180 0.200 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_elevon">
+        <pose>-0.19985 -0.43000 -0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_elevon.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.522 0.259 0.066 1.000</ambient>
+          <diffuse>0.950 0.470 0.120 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_elevon_horn">
+        <pose>-0.19985 -0.43000 -0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_elevon_horn.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.094 0.099 0.110 1.000</ambient>
+          <diffuse>0.170 0.180 0.200 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_prop_blades">
+        <pose>0.12549 -0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_prop_blades.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.044 0.044 0.050 1.000</ambient>
+          <diffuse>0.080 0.080 0.090 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_prop_tips">
+        <pose>0.12549 -0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_prop_tips.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.539 0.440 0.055 1.000</ambient>
+          <diffuse>0.980 0.800 0.100 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_prop_hub">
+        <pose>0.12549 -0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_prop_hub.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.044 0.044 0.050 1.000</ambient>
+          <diffuse>0.080 0.080 0.090 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_spinner">
+        <pose>0.12549 -0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_spinner.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.440 0.446 0.457 1.000</ambient>
+          <diffuse>0.800 0.810 0.830 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="left_motor_bell">
+        <pose>0.12549 -0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/left_motor_bell.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.363 0.374 0.391 1.000</ambient>
+          <diffuse>0.660 0.680 0.710 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_wing_top">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_wing_top.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.429 0.435 0.424 1.000</ambient>
+          <diffuse>0.780 0.790 0.770 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_wing_bottom">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_wing_bottom.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.121 0.132 0.149 1.000</ambient>
+          <diffuse>0.220 0.240 0.270 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_wingtip_fin">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_wingtip_fin.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.105 0.198 0.308 1.000</ambient>
+          <diffuse>0.190 0.360 0.560 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_nav_light">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_nav_light.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.055 0.440 0.138 1.000</ambient>
+          <diffuse>0.100 0.800 0.250 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_hinge_rod">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_hinge_rod.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.385 0.391 0.402 1.000</ambient>
+          <diffuse>0.700 0.710 0.730 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_nacelle">
+        <pose>0.00000 0.00000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_nacelle.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.094 0.099 0.110 1.000</ambient>
+          <diffuse>0.170 0.180 0.200 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_elevon">
+        <pose>-0.19985 0.43000 -0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_elevon.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.522 0.259 0.066 1.000</ambient>
+          <diffuse>0.950 0.470 0.120 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_elevon_horn">
+        <pose>-0.19985 0.43000 -0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_elevon_horn.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.094 0.099 0.110 1.000</ambient>
+          <diffuse>0.170 0.180 0.200 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_prop_blades">
+        <pose>0.12549 0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_prop_blades.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.044 0.044 0.050 1.000</ambient>
+          <diffuse>0.080 0.080 0.090 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_prop_tips">
+        <pose>0.12549 0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_prop_tips.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.539 0.440 0.055 1.000</ambient>
+          <diffuse>0.980 0.800 0.100 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_prop_hub">
+        <pose>0.12549 0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_prop_hub.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.044 0.044 0.050 1.000</ambient>
+          <diffuse>0.080 0.080 0.090 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_spinner">
+        <pose>0.12549 0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_spinner.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.440 0.446 0.457 1.000</ambient>
+          <diffuse>0.800 0.810 0.830 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+      <visual name="right_motor_bell">
+        <pose>0.12549 0.30000 0.00000 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://twin_wing_visual/meshes/right_motor_bell.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.363 0.374 0.391 1.000</ambient>
+          <diffuse>0.660 0.680 0.710 1.000</diffuse>
+          <specular>0.25 0.25 0.25 1</specular>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

@@ -3,13 +3,14 @@
 See plans/04-twin-wing-control/PLAN.md for the design. Yaw is differential
 thrust only -- authority is proportional to throttle and collapses at idle
 or in a glide, so a controller must coordinate turns with bank rather than
-relying on yaw. Aero coefficients for a specific airframe are unknown at
-this stage (no FixedWingBackend/aero model exists yet), so allocate() below
-is a deliberately simple, documented placeholder: moment_body is
-interpreted directly in actuator-native units (elevon radians for
-pitch/roll) rather than through a dynamic-pressure-scaled aero model. It
-will be superseded once a real aero model can convert aerodynamic moments
-into these commands.
+relying on yaw. ``allocate()`` applies the documented saturation priority to
+wing moments produced by the fixed-wing controller. The aircraft geometry and
+mass properties live in ``airframes/twin_wing/twin_wing.yaml``; aerodynamic
+coefficients remain research defaults until a real airframe is identified.
+
+Actuator order is physical ``[thrust_left, thrust_right, elevon_left,
+elevon_right]``. Positive elevon is trailing-edge up, so positive roll is
+``elevon_right - elevon_left``.
 """
 
 from __future__ import annotations
@@ -85,8 +86,10 @@ class TwinWingAirframe(Airframe):
         delta_pitch = float(np.clip(pitch_m, -self.max_elevon_rad, self.max_elevon_rad))
         roll_headroom = self.max_elevon_rad - abs(delta_pitch)
         delta_roll = float(np.clip(roll_m, -roll_headroom, roll_headroom))
-        elevon_l = delta_pitch + delta_roll
-        elevon_r = delta_pitch - delta_roll
+        # Positive roll is right-wing-down. With TE-up-positive surfaces,
+        # that needs the physical right elevon up and the left elevon down.
+        elevon_l = delta_pitch - delta_roll
+        elevon_r = delta_pitch + delta_roll
 
         t_c = float(np.clip(t_c, 0.0, self.max_thrust_n))
         q_c_demand = yaw_m / self.motor_separation_m

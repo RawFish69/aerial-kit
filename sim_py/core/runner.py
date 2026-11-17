@@ -273,6 +273,17 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
     )
 
     consumes_wrench = bool(getattr(backend, "consumes_wrench", False))
+    # A backend that knows its airframe (inertia, loop bandwidths, trim
+    # thrust) offers controller defaults; an explicit config value wins.
+    defaults_of = getattr(backend, "controller_defaults", None)
+    if callable(defaults_of) and not consumes_wrench:
+        for section in ("l1_tecs",):
+            offered = defaults_of(section)
+            if offered:
+                sub = dict(ctrl_cfg.get(section, {}) or {})
+                for key, value in offered.items():
+                    sub.setdefault(key, value)
+                ctrl_cfg[section] = sub
     if consumes_wrench:
         # The plant knows its mass; a wrench controller builds its hover
         # thrust from its own. Give it the plant's unless it was told one, so
@@ -280,6 +291,9 @@ def run_simulation(cfg_norm: NormalizedSimConfig) -> SimulationResult:
         plant_mass = float(backend.mass_kg())
         for section in ("geometric", "nmpc", "cascade"):
             sub = dict(ctrl_cfg.get(section, {}) or {})
+            if callable(defaults_of):
+                for key, value in defaults_of(section).items():
+                    sub.setdefault(key, value)
             if "mass_kg" not in sub:
                 sub["mass_kg"] = plant_mass
             ctrl_cfg[section] = sub
