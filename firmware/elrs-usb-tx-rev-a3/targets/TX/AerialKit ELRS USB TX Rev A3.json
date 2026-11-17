@@ -1,0 +1,35 @@
+{
+    "customised": true,
+
+    "serial_rx": 44,
+    "serial_tx": 43,
+
+    "radio_miso": 13,
+    "radio_mosi": 11,
+    "radio_sck": 12,
+    "radio_busy": 9,
+    "radio_dio1": 8,
+    "radio_rst": 14,
+    "radio_nss": 10,
+    "radio_dcdc": true,
+
+    "power_rxen": 7,
+    "power_txen": 6,
+    "power_lna_gain": 12,
+    "power_min": 0,
+    "power_high": 2,
+    "power_max": 4,
+    "power_default": 0,
+    "power_control": 0,
+    "power_values": [-18, -14, -10, -6, 5],
+
+    "led_rgb": 21,
+    "led_rgb_isgrb": true,
+    "ledidx_rgb_status": [0],
+    "ledidx_rgb_boot": [0],
+
+    "button": 0,
+
+    "i2c_sda": 34,
+    "i2c_scl": 48
+}

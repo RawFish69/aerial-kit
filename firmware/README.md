@@ -2,6 +2,10 @@
 
 The custom C flight controller for **Feather F405** and **ESP32DEV**. This directory contains the runtime source and board build files. Older radio/link projects are in [legacy/](legacy/README.md).
 
+Custom radio hardware has its own board-specific firmware projects. The
+first is [ELRS USB TX Rev A3](elrs-usb-tx-rev-a3/README.md), with an RF-off
+diagnostic and separate ExpressLRS TX and RX images.
+
 ## Feather F405
 
 Install GNU Make, Python 3 and ARM GNU Toolchain. Put `arm-none-eabi-*` on PATH, then:

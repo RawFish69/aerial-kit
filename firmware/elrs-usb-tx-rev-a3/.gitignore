@@ -1,0 +1,8 @@
+.vendor/
+.toolchain/
+.pio/
+build/
+dist/
+backups/
+*.pyc
+__pycache__/

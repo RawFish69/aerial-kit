@@ -1,0 +1,104 @@
+diff --git a/src/lib/LED/esp32rgb.cpp b/src/lib/LED/esp32rgb.cpp
+index 91e7fb8..40ecca7 100644
+--- a/src/lib/LED/esp32rgb.cpp
++++ b/src/lib/LED/esp32rgb.cpp
+@@ -29,6 +29,15 @@ constexpr auto I2S_BITS_PER_RGB_BIT = I2S_BITS_PER_SAMPLE_16BIT;
+ constexpr auto BYTES_PER_LED = 24 * (I2S_BITS_PER_RGB_BIT / 8);
+ constexpr auto MAX_LEDS = (DMA_BUF_LEN * DMA_BUF_COUNT - 4) / BYTES_PER_LED;
+ 
++#ifndef WS2812_BRIGHTNESS
++#define WS2812_BRIGHTNESS 255
++#endif
++
++static constexpr uint8_t scaleBrightness(uint8_t value)
++{
++    return static_cast<uint8_t>((static_cast<uint16_t>(value) * WS2812_BRIGHTNESS) / 255U);
++}
++
+ ESP32LedDriver::ESP32LedDriver(const int count, const int pin) : num_leds(count), gpio_pin(pin)
+ {
+     num_leds = std::min(count, MAX_LEDS);
+@@ -107,12 +116,15 @@ void ESP32LedDriverGRB::SetPixelColor(const int indexPixel, const RgbColor color
+     if (indexPixel < num_leds)
+     {
+         const auto loc = indexPixel * 24;
++        const auto r = scaleBrightness(color.R);
++        const auto g = scaleBrightness(color.G);
++        const auto b = scaleBrightness(color.B);
+         for(auto bit_pos = 0 ; bit_pos < 8 ; bit_pos++)
+         {
+             const auto bit = bit_order[bit_pos];
+-            out_buffer[loc + bit_pos + 0] = (color.G & bit) ? 0xFFE0 : 0xF000;
+-            out_buffer[loc + bit_pos + 8] = (color.R & bit) ? 0xFFE0 : 0xF000;
+-            out_buffer[loc + bit_pos + 16] = (color.B & bit) ? 0xFFE0 : 0xF000;
++            out_buffer[loc + bit_pos + 0] = (g & bit) ? 0xFFE0 : 0xF000;
++            out_buffer[loc + bit_pos + 8] = (r & bit) ? 0xFFE0 : 0xF000;
++            out_buffer[loc + bit_pos + 16] = (b & bit) ? 0xFFE0 : 0xF000;
+         }
+     }
+ }
+@@ -122,12 +134,15 @@ void ESP32LedDriverRGB::SetPixelColor(const int indexPixel, const RgbColor color
+     if (indexPixel < num_leds)
+     {
+         const auto loc = indexPixel * 24;
++        const auto r = scaleBrightness(color.R);
++        const auto g = scaleBrightness(color.G);
++        const auto b = scaleBrightness(color.B);
+         for(auto bit_pos = 0 ; bit_pos < 8 ; bit_pos++)
+         {
+             const auto bit = bit_order[bit_pos];
+-            out_buffer[loc + bit_pos + 0] = (color.R & bit) ? 0xFFE0 : 0xF000;
+-            out_buffer[loc + bit_pos + 8] = (color.G & bit) ? 0xFFE0 : 0xF000;
+-            out_buffer[loc + bit_pos + 16] = (color.B & bit) ? 0xFFE0 : 0xF000;
++            out_buffer[loc + bit_pos + 0] = (r & bit) ? 0xFFE0 : 0xF000;
++            out_buffer[loc + bit_pos + 8] = (g & bit) ? 0xFFE0 : 0xF000;
++            out_buffer[loc + bit_pos + 16] = (b & bit) ? 0xFFE0 : 0xF000;
+         }
+     }
+ }
+diff --git a/src/targets/esp32s3-rx.ini b/src/targets/esp32s3-rx.ini
+index 34b76be..1cfb6ae 100644
+--- a/src/targets/esp32s3-rx.ini
++++ b/src/targets/esp32s3-rx.ini
+@@ -11,6 +11,18 @@ build_flags =
+ 	${env_common_esp32s3rx.build_flags}
+ 	${radio_SX128X.build_flags}
+ 
++[env:AERIALKIT_ELRS_USB_TX_REV_A3_RX_via_UART]
++extends = env:Unified_ESP32S3_2400_RX_via_UART
++board_config = aerialkit.rx_2400.usb_tx_rev_a3
++platform_packages =
++	platformio/framework-arduinoespressif32@symlink://${sysenv.ELRS_USB_TX_CACHE}/framework-arduinoespressif32
++	espressif/toolchain-xtensa-esp32s3@symlink://${sysenv.ELRS_USB_TX_CACHE}/toolchain-xtensa-esp32s3
++	espressif/toolchain-riscv32-esp@symlink://${sysenv.ELRS_USB_TX_CACHE}/toolchain-riscv32-esp
++build_flags =
++	${env:Unified_ESP32S3_2400_RX_via_UART.build_flags}
++	-D Regulatory_Domain_ISM_2400
++	-D WS2812_BRIGHTNESS=26
++
+ [env:Unified_ESP32S3_2400_RX_via_BetaflightPassthrough]
+ extends = env:Unified_ESP32S3_2400_RX_via_UART
+ 
+diff --git a/src/targets/esp32s3-tx.ini b/src/targets/esp32s3-tx.ini
+index 1823a65..30d358c 100644
+--- a/src/targets/esp32s3-tx.ini
++++ b/src/targets/esp32s3-tx.ini
+@@ -12,6 +12,18 @@ build_flags =
+ 	${env_common_esp32s3tx.build_flags}
+ 	${radio_SX128X.build_flags}
+ 
++[env:AERIALKIT_ELRS_USB_TX_REV_A3_via_UART]
++extends = env:Unified_ESP32S3_2400_TX_via_ETX
++board_config = aerialkit.tx_2400.usb_tx_rev_a3
++platform_packages =
++	platformio/framework-arduinoespressif32@symlink://${sysenv.ELRS_USB_TX_CACHE}/framework-arduinoespressif32
++	espressif/toolchain-xtensa-esp32s3@symlink://${sysenv.ELRS_USB_TX_CACHE}/toolchain-xtensa-esp32s3
++	espressif/toolchain-riscv32-esp@symlink://${sysenv.ELRS_USB_TX_CACHE}/toolchain-riscv32-esp
++build_flags =
++	${env:Unified_ESP32S3_2400_TX_via_ETX.build_flags}
++	-D Regulatory_Domain_ISM_2400
++	-D WS2812_BRIGHTNESS=26
++
+ [env:Unified_ESP32S3_2400_TX_via_UART]
+ extends = env:Unified_ESP32S3_2400_TX_via_ETX
+ 

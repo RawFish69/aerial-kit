@@ -1,8 +1,22 @@
 # Hardware
 
-This directory is reserved for Aerial Kit hardware contributions. It will hold editable hardware sources and their supporting documents; `assets/` continues to hold images and simulation assets.
+This directory holds editable Aerial Kit hardware sources and their
+supporting documents; `assets/` continues to hold images and simulation
+assets.
 
-No board design or hardware overlay is released here yet. Feather F405 and ESP32DEV firmware profiles remain in [`firmware/src/boards/`](../firmware/src/boards/).
+Current overlay:
+
+- [ELRS USB TX Rev A3](overlays/elrs-usb-tx/rev-a3/) — ESP32-S3-MINI-1U,
+  SX1280 and RFX2401C 2.4 GHz transceiver. The matching diagnostic and
+  ExpressLRS builds are under
+  [`firmware/elrs-usb-tx-rev-a3/`](../firmware/elrs-usb-tx-rev-a3/).
+
+<p align="center">
+  <img src="overlays/elrs-usb-tx/rev-a3/previews/ak-tx-1200.png" alt="Fabricated Aerial Kit ELRS USB TX Rev A3 boards" width="82%">
+</p>
+
+Feather F405 and ESP32DEV firmware profiles remain in
+[`firmware/src/boards/`](../firmware/src/boards/).
 
 ## Overlays
 
