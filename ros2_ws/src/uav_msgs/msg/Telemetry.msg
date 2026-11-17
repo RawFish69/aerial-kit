@@ -7,3 +7,4 @@ uint8 planning_mode
 bool armed
 bool manual_override_active
 string status_text
+float32 airspeed_mps

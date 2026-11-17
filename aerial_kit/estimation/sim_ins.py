@@ -195,6 +195,7 @@ class SimulatedIns:
             t=float(truth.t),
             attitude_quat=truth.attitude_quat,
             body_rates=truth.body_rates,
+            airspeed_mps=truth.airspeed_mps,
         )
 
 

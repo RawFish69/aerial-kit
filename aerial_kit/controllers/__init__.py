@@ -2,7 +2,12 @@
 
 from .basic import LQRController, MPCController, PIDController
 from .cascade import CascadeController, CascadeGains
-from .fixed_wing import AttitudeGains, FixedWingL1TECSController, body_axis_pitch_bank
+from .fixed_wing import (
+    AttitudeGains,
+    FixedWingL1TECSController,
+    airspeed_nav_wrench,
+    body_axis_pitch_bank,
+)
 from .geometric import FlatReference, GeometricController, GeometricGains
 from .minimum_snap import minimum_snap_trajectory
 from .mpc import ConstrainedMPC, MPCSolution
@@ -26,6 +31,7 @@ __all__ = [
     "CascadeController",
     "CascadeGains",
     "FixedWingL1TECSController",
+    "airspeed_nav_wrench",
     "AttitudeGains",
     "body_axis_pitch_bank",
     "pid_position_control",

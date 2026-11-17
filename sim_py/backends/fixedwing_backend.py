@@ -73,12 +73,14 @@ class FixedWingBackend(DynamicsBackend):
     def state(self) -> SimState:
         if self._dyn is None:
             raise RuntimeError("FixedWingBackend.reset() must be called before state().")
+        airspeed, _, _ = self._dyn.airspeed_alpha_beta()
         return SimState(
             position=self._dyn.position.copy(),
             velocity=self._dyn.velocity.copy(),
             t=float(self._t),
             attitude_quat=self._dyn.attitude_quat.copy(),
             body_rates=self._dyn.body_rates.copy(),
+            airspeed_mps=airspeed,
         )
 
     def apply_constraints(

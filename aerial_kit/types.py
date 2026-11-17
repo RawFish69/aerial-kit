@@ -97,6 +97,7 @@ class SimState:
     t: float = 0.0
     attitude_quat: np.ndarray | None = None
     body_rates: np.ndarray | None = None
+    airspeed_mps: float | None = None
 
 
 @dataclass
