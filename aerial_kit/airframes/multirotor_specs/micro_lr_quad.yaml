@@ -1,0 +1,117 @@
+# 3-inch micro long-range quad built from the lr_drone CAD export.
+#
+# Mass, inertia, rotor hub positions and the frame/prop meshes are READ from
+# the CAD files below; they are the source of truth and are not restated here.
+# This file adds only what CAD does not know: thrust, motor lag, yaw torque,
+# the battery payload, control limits and materials.
+#
+# CAD axes are +y forward, +x right, z up (and the CAD origin is not the CG);
+# the loader rotates into body FLU and re-centres on the composite CG.
+
+schema_version: 1
+name: micro_lr_quad
+role: fpv
+style: cad_meshes
+
+cad:
+  urdf: ros2_ws/src/sim_gazebo/models/lr_drone_urdf/lr_drone_urdf.urdf
+  alignment: ros2_ws/src/sim_gazebo/models/lr_drone_urdf/lr_drone_alignment.yaml
+  mesh_dir: ros2_ws/src/sim_gazebo/models/lr_drone_urdf/meshes
+  mesh_scale: 0.001
+  frame_link: frame
+  frame_mesh: frame.stl
+  # Firmware / Betaflight quad-X order. Spin comes from the prop mesh names
+  # (Prop_CCW* / Prop_CW*), which is "props-in", matching the firmware.
+  rotor_order: [prop_cw_br_joint, prop_ccw_fr_joint, prop_ccw_2_bl_joint, prop_cw_2_fl_joint]
+  rotor_names:
+    prop_cw_br_joint: rear_right
+    prop_ccw_fr_joint: front_right
+    prop_ccw_2_bl_joint: rear_left
+    prop_cw_2_fl_joint: front_left
+  # lr_drone_alignment.yaml gives Prop_CW_2 a zero mesh offset, but that STL
+  # has the same geometry as Prop_CW: its hub (vertex centroid) is at
+  # x = +0.092 m in mesh coordinates. Use Prop_CW's offset so the prop sits on
+  # its motor. (The Gazebo lr_drone model reads the alignment file as-is.)
+  mesh_origin_overrides:
+    prop_cw_2_fl_joint: [-0.09258758687542626, -1.588095178977313e-06, -0.003159652129567827]
+
+# The CAD has no battery, which leaves its CG ~1.7 cm ahead of the rotor
+# centroid. A real build balances that with the pack. ASSUMED: a 4S 650 mAh
+# pack strapped on top towards the rear. Change it to match your build.
+payloads:
+  - name: battery
+    mass_kg: 0.095
+    size_m: [0.070, 0.034, 0.028]
+    position_m: [-0.035, 0.0, 0.0390]    # body FLU, CAD origin; sits on the frame top (z 0.0245)
+
+propulsion:
+  max_thrust_n: 2.8            # ~285 gf per motor (1404-class on 4S); TWR ~3
+  motor_tau_s: 0.015
+  yaw_torque_coeff_m: 0.008
+  min_thrust_frac: 0.0
+  # rpm: throttle -> motor speed (lag on speed), thrust ~ speed^2, available
+  # speed scales with pack voltage (battery below). lagged_thrust: thrust
+  # follows the command through a first-order lag (the ActuatorPlant model).
+  model: rpm
+  ground_effect: true          # Cheeseman-Bennett, by rotor hub height
+
+prop:
+  diameter_m: 0.076            # 3", measured from the CAD prop mesh
+  blades: 3
+  hub_radius_m: 0.004
+
+rotor:
+  # Rotor mass and inertia come from the CAD prop links.
+  physical_inertia_kg_m2: 4.0e-6
+  physical_max_speed_rad_s: 4000.0
+  visual_max_speed_rad_s: 120.0
+  preserve_angular_momentum: false
+  bearing_damping_nms: 1.0e-8
+
+aero:
+  linear_drag_n_per_mps: [0.03, 0.03, 0.05]
+
+control:
+  k_att: 7.0
+  k_rate: 20.0
+  max_tilt_deg: 45.0
+  velocity_kp: 2.0
+  max_accel_mps2: 6.0
+  max_speed_mps: 15.0
+  max_climb_mps: 5.0
+  max_yaw_rate_deg_s: 180.0
+  manual:
+    max_angle_deg: 40.0
+    acro_rate_deg_s: 500.0
+    yaw_rate_deg_s: 270.0
+    throttle_expo_hover: 0.5
+
+camera:
+  name: fpv
+  position_m: [0.050, 0.0, 0.012]      # body FLU, about the CG
+  uptilt_deg: 20.0
+  fovy_deg: 110.0
+
+battery:
+  # 4S 650 mAh Li-ion/LiPo (the assumed payload pack). Research defaults: linear OCV between cell_empty_v and
+  # cell_full_v, lumped internal resistance, momentum-theory rotor power.
+  # max_thrust_n above is the thrust at full-charge open-circuit voltage.
+  cells: 4
+  capacity_mah: 650
+  internal_resistance_ohm: 0.06
+  cell_full_v: 4.2
+  cell_empty_v: 3.5
+  figure_of_merit: 0.55
+  drive_efficiency: 0.78
+  avionics_w: 2.5
+
+materials:
+  frame: [0.12, 0.12, 0.13, 1.0]
+  prop_front: [0.98, 0.55, 0.08, 1.0]
+  prop_rear: [0.10, 0.10, 0.12, 1.0]
+  battery: [0.18, 0.30, 0.45, 1.0]
+  front_accent: [0.95, 0.38, 0.08, 1.0]
+
+collision:
+  # From lr_drone_alignment.yaml frame_collision (CAD axes); loader converts.
+  use_cad_frame_box: true

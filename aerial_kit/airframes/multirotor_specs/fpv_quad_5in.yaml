@@ -1,0 +1,114 @@
+# 5-inch FPV freestyle quad -- single source of truth.
+# Frame: body FLU (x forward, y left, z up), origin at the composite CG.
+# Research defaults for a typical 6S 5" build; nothing here is measured.
+
+schema_version: 1
+name: fpv_quad_5in
+role: fpv
+style: fpv_x
+
+mass_properties:
+  total_mass_kg: 0.65          # with a 6S 1100 mAh pack
+  inertia_kg_m2: [0.0024, 0.0028, 0.0046]
+  cg_m: [0.0, 0.0, 0.0]
+
+# Firmware / Betaflight quad-X order and "props-in" spin (seen from above).
+rotors:
+  - {name: rear_right,  position_m: [-0.088, -0.080, 0.012], spin: cw}
+  - {name: front_right, position_m: [ 0.088, -0.080, 0.012], spin: ccw}
+  - {name: rear_left,   position_m: [-0.088,  0.080, 0.012], spin: ccw}
+  - {name: front_left,  position_m: [ 0.088,  0.080, 0.012], spin: cw}
+
+propulsion:
+  max_thrust_n: 14.0           # ~1.4 kgf per motor (2207-class on 6S); TWR ~8.8
+  motor_tau_s: 0.02
+  yaw_torque_coeff_m: 0.012    # reaction torque per newton of thrust
+  min_thrust_frac: 0.0
+  # rpm: throttle -> motor speed (lag on speed), thrust ~ speed^2, available
+  # speed scales with pack voltage (battery below). lagged_thrust: thrust
+  # follows the command through a first-order lag (the ActuatorPlant model).
+  model: rpm
+  ground_effect: true          # Cheeseman-Bennett, by rotor hub height
+
+prop:
+  diameter_m: 0.130            # 5.1"
+  blades: 3
+  root_pitch_deg: 32.0
+  tip_pitch_deg: 14.0
+  max_chord_m: 0.016
+  tip_chord_m: 0.009
+  thickness_m: 0.0022
+  hub_radius_m: 0.007
+
+rotor:
+  mass_kg: 0.012               # prop + motor bell
+  physical_inertia_kg_m2: 8.0e-6
+  physical_max_speed_rad_s: 3300.0
+  visual_max_speed_rad_s: 120.0
+  # Multirotor rotors keep their real inertia; the display-rate shaft
+  # under-represents gyroscopic precession by visual/physical speed.
+  preserve_angular_momentum: false
+  bearing_damping_nms: 1.0e-7
+
+aero:
+  linear_drag_n_per_mps: [0.08, 0.08, 0.12]
+
+control:
+  k_att: 8.0
+  k_rate: 22.0
+  max_tilt_deg: 60.0
+  velocity_kp: 2.5
+  max_accel_mps2: 12.0
+  max_speed_mps: 20.0
+  max_climb_mps: 8.0
+  max_yaw_rate_deg_s: 270.0
+  manual:
+    max_angle_deg: 55.0        # angle (self-level) mode stick limit
+    acro_rate_deg_s: 600.0     # acro mode full-stick body rate
+    yaw_rate_deg_s: 360.0
+    throttle_expo_hover: 0.5   # stick centre = hover
+
+geometry:
+  plate: {length_m: 0.15, width_m: 0.046, thickness_m: 0.004}
+  arm: {width_m: 0.016, thickness_m: 0.005}
+  top_plate: {length_m: 0.11, width_m: 0.040, height_m: 0.034}
+  battery: {size_m: [0.075, 0.036, 0.032], position_m: [-0.004, 0.0, 0.048]}
+  motor: {stator_radius_m: 0.0135, height_m: 0.016}
+  camera_cage: {size_m: [0.026, 0.030, 0.024]}
+
+camera:
+  name: fpv
+  position_m: [0.062, 0.0, 0.020]
+  uptilt_deg: 30.0
+  fovy_deg: 110.0
+
+battery:
+  # 6S 1100 mAh LiPo. Research defaults: linear OCV between cell_empty_v and
+  # cell_full_v, lumped internal resistance, momentum-theory rotor power.
+  # max_thrust_n above is the thrust at full-charge open-circuit voltage.
+  cells: 6
+  capacity_mah: 1100
+  internal_resistance_ohm: 0.025
+  cell_full_v: 4.2
+  cell_empty_v: 3.5
+  figure_of_merit: 0.6
+  drive_efficiency: 0.8
+  avionics_w: 4.0
+
+materials:
+  carbon: [0.09, 0.09, 0.10, 1.0]
+  front_accent: [0.95, 0.38, 0.08, 1.0]
+  tpu: [0.20, 0.20, 0.22, 1.0]
+  battery: [0.18, 0.30, 0.45, 1.0]
+  strap: [0.85, 0.15, 0.15, 1.0]
+  motor_bell: [0.70, 0.12, 0.12, 1.0]
+  stator: [0.55, 0.55, 0.58, 1.0]
+  prop_front: [0.98, 0.55, 0.08, 1.0]
+  prop_rear: [0.10, 0.10, 0.12, 1.0]
+  lens: [0.02, 0.02, 0.03, 1.0]
+  antenna: [0.85, 0.85, 0.85, 1.0]
+
+collision:
+  frame_box_half_m: [0.075, 0.045, 0.006]
+  frame_box_center_m: [0.0, 0.0, -0.012]
+  motor_sphere_radius_m: 0.016
