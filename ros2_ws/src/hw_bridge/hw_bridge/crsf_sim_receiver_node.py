@@ -1,0 +1,202 @@
+"""Decode SIL CRSF commands for the plant and encode CRSF flight telemetry."""
+
+from __future__ import annotations
+
+import math
+import time
+from typing import Optional
+
+import rclpy
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+from rclpy.node import Node
+from std_msgs.msg import Bool, UInt8MultiArray
+
+from aerial_kit.comms.crsf import (
+    AttitudeTelemetry,
+    BatteryTelemetry,
+    CrsfParser,
+    FlightModeTelemetry,
+    GpsTelemetry,
+    make_attitude_frame,
+    make_battery_frame,
+    make_flight_mode_frame,
+    make_gps_frame,
+    unpack_channels,
+)
+from hw_bridge.crsf_radio_mapping import CrsfChannelMap
+from hw_bridge.geo import GeoOrigin, enu_to_lla
+from hw_bridge.rc_mapping import params_from_airframe
+
+
+def euler_from_quaternion(q) -> tuple[float, float, float]:
+    roll = math.atan2(2.0 * (q.w * q.x + q.y * q.z), 1.0 - 2.0 * (q.x * q.x + q.y * q.y))
+    sin_pitch = 2.0 * (q.w * q.y - q.z * q.x)
+    pitch = math.asin(max(-1.0, min(1.0, sin_pitch)))
+    yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+    return roll, pitch, yaw
+
+
+class CrsfSimReceiverNode(Node):
+    def __init__(self) -> None:
+        super().__init__('crsf_sim_receiver_node')
+        defaults = {
+            'airframe_name': 'quad',
+            'kv_xy': 0.5,
+            'hover_throttle': 0.5,
+            'kz': 0.2,
+            'throttle_min': 0.05,
+            'throttle_max': 0.95,
+            'max_yaw_rate_rps': 1.5,
+            'roll_channel': 1,
+            'pitch_channel': 2,
+            'throttle_channel': 3,
+            'yaw_channel': 4,
+            'arm_channel': 5,
+            'mode_channel': 6,
+            'arm_threshold': 1000,
+            'angle_mode_count': 992,
+            'disabled_mode_count': 172,
+            'output_rate_hz': 150.0,
+            'telemetry_rate_hz': 50.0,
+            'receiver_timeout_sec': 0.35,
+            'receiver_rx_topic': '/uav/radio/receiver_rx_bytes',
+            'receiver_tx_topic': '/uav/radio/receiver_tx_bytes',
+            'plant_odom_topic': '/uav/radio/plant_odom',
+            'decoded_cmd_topic': '/uav/radio/decoded_cmd_twist',
+            'decoded_enable_topic': '/uav/radio/decoded_enable',
+            'origin_lat': 37.0,
+            'origin_lon': -122.0,
+            'origin_alt_m': 100.0,
+        }
+        for name, default in defaults.items():
+            self.declare_parameter(name, default)
+        g = self.get_parameter
+        self.params = params_from_airframe(
+            str(g('airframe_name').value),
+            kv_xy=float(g('kv_xy').value),
+            hover_throttle=float(g('hover_throttle').value),
+            kz=float(g('kz').value),
+            throttle_min=float(g('throttle_min').value),
+            throttle_max=float(g('throttle_max').value),
+            max_yaw_rate_rps=float(g('max_yaw_rate_rps').value),
+        )
+        self.channel_map = CrsfChannelMap(
+            roll=int(g('roll_channel').value),
+            pitch=int(g('pitch_channel').value),
+            throttle=int(g('throttle_channel').value),
+            yaw=int(g('yaw_channel').value),
+            arm=int(g('arm_channel').value),
+            mode=int(g('mode_channel').value),
+            arm_threshold=int(g('arm_threshold').value),
+            angle_mode_count=int(g('angle_mode_count').value),
+            disabled_mode_count=int(g('disabled_mode_count').value),
+        )
+        self.parser = CrsfParser()
+        self.last_channels: Optional[tuple[int, ...]] = None
+        self.last_rx_time = 0.0
+        self.receiver_timeout = float(g('receiver_timeout_sec').value)
+        self.last_odom: Optional[Odometry] = None
+        self.origin = GeoOrigin(
+            lat=float(g('origin_lat').value),
+            lon=float(g('origin_lon').value),
+        )
+        self.origin_alt = float(g('origin_alt_m').value)
+        self.battery_percent = 100.0
+
+        self.pub_cmd = self.create_publisher(Twist, str(g('decoded_cmd_topic').value), 20)
+        self.pub_enable = self.create_publisher(Bool, str(g('decoded_enable_topic').value), 20)
+        self.pub_tx = self.create_publisher(UInt8MultiArray, str(g('receiver_tx_topic').value), 20)
+        self.create_subscription(
+            UInt8MultiArray, str(g('receiver_rx_topic').value), self._on_rx, 20
+        )
+        self.create_subscription(
+            Odometry, str(g('plant_odom_topic').value), self._on_odom, 20
+        )
+        output_hz = max(float(g('output_rate_hz').value), 1.0)
+        telemetry_hz = max(float(g('telemetry_rate_hz').value), 1.0)
+        self.create_timer(1.0 / output_hz, self._tick_commands)
+        self.create_timer(1.0 / telemetry_hz, self._tick_telemetry)
+
+    def _on_rx(self, msg: UInt8MultiArray) -> None:
+        for frame in self.parser.feed(bytes(msg.data)):
+            if frame.frame_type == 0x16:
+                try:
+                    self.last_channels = unpack_channels(frame.payload)
+                    self.last_rx_time = time.monotonic()
+                except ValueError:
+                    pass
+
+    def _on_odom(self, msg: Odometry) -> None:
+        self.last_odom = msg
+
+    def _tick_commands(self) -> None:
+        fresh = (
+            self.last_channels is not None
+            and time.monotonic() - self.last_rx_time <= self.receiver_timeout
+        )
+        if fresh:
+            try:
+                enabled, command = self.channel_map.decode(self.last_channels, self.params)
+            except (ValueError, IndexError):
+                enabled, command = False, Twist()
+        else:
+            enabled, command = False, Twist()
+        self.last_enabled = enabled
+        self.pub_cmd.publish(command)
+        enable = Bool()
+        enable.data = enabled
+        self.pub_enable.publish(enable)
+
+    def _publish(self, data: bytes) -> None:
+        msg = UInt8MultiArray()
+        msg.data = list(data)
+        self.pub_tx.publish(msg)
+
+    def _tick_telemetry(self) -> None:
+        odom = self.last_odom
+        if odom is None:
+            return
+        roll, pitch, yaw = euler_from_quaternion(odom.pose.pose.orientation)
+        position = odom.pose.pose.position
+        velocity = odom.twist.twist.linear
+        speed = math.hypot(velocity.x, velocity.y)
+        heading = math.degrees(math.atan2(velocity.y, velocity.x)) % 360.0 if speed > 1e-6 else math.degrees(yaw) % 360.0
+        lat, lon = enu_to_lla(self.origin, float(position.x), float(position.y))
+        frames = [
+            make_attitude_frame(AttitudeTelemetry(roll, pitch, yaw)),
+            make_gps_frame(GpsTelemetry(
+                latitude_deg=lat,
+                longitude_deg=lon,
+                groundspeed_mps=speed,
+                heading_deg=heading,
+                altitude_m=self.origin_alt + float(position.z),
+                satellites=12,
+            )),
+            make_battery_frame(BatteryTelemetry(
+                voltage_v=12.6,
+                current_a=5.0,
+                capacity_mah=round((100.0 - self.battery_percent) * 13.0),
+                remaining_percent=round(self.battery_percent),
+            )),
+            make_flight_mode_frame(FlightModeTelemetry(
+                'DISARMED' if not bool(getattr(self, 'last_enabled', False)) else 'ANGLE'
+            )),
+        ]
+        self._publish(b''.join(frames))
+
+
+def main(args=None) -> None:
+    rclpy.init(args=args)
+    node = CrsfSimReceiverNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

@@ -1,8 +1,10 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 
 # The fastsim backend integrates /uav/backend/cmd_twist as a *world-frame*
 # velocity and has no yaw. Both mission followers default to the Gazebo
@@ -64,7 +66,24 @@ def _tracker_is(name):
     return IfCondition(PythonExpression(["'", LaunchConfiguration('mission_tracker'), "' == '", name, "'"]))
 
 
+def _topic_when_radio(radio_topic, direct_topic):
+    return ParameterValue(
+        PythonExpression([
+            "'", radio_topic, "' if '", LaunchConfiguration('radio_sim'),
+            "' == 'true' else '", direct_topic, "'",
+        ]),
+        value_type=str,
+    )
+
+
+def _launch_float(name):
+    return ParameterValue(LaunchConfiguration(name), value_type=float)
+
+
 def generate_launch_description():
+    radio_config = PathJoinSubstitution([
+        FindPackageShare('hw_bridge'), 'config', 'crsf_radio.yaml',
+    ])
     start_ground_arg = DeclareLaunchArgument('start_ground', default_value='true')
     start_demo_arg = DeclareLaunchArgument('start_demo', default_value='false')
     start_monitor_arg = DeclareLaunchArgument('start_monitor', default_value='true')
@@ -75,6 +94,13 @@ def generate_launch_description():
         'mission_tracker', default_value='executor',
         description='executor (air_unit P-controller) | mpc | mppi (uav_control predictive tracker)',
     )
+    radio_sim_arg = DeclareLaunchArgument(
+        'radio_sim', default_value='false',
+        description='route commands and telemetry through the simulated ELRS/CRSF radio',
+    )
+    radio_latency_arg = DeclareLaunchArgument('radio_latency_ms', default_value='8.0')
+    radio_loss_arg = DeclareLaunchArgument('radio_packet_loss_percent', default_value='0.0')
+    radio_rate_arg = DeclareLaunchArgument('radio_rate_hz', default_value='150.0')
 
     sim_backend_arg = DeclareLaunchArgument(
         'sim_backend', default_value='pointmass',
@@ -105,6 +131,10 @@ def generate_launch_description():
         start_onboard_planner_arg,
         demo_planning_mode_arg,
         mission_tracker_arg,
+        radio_sim_arg,
+        radio_latency_arg,
+        radio_loss_arg,
+        radio_rate_arg,
 
         Node(
             package='sim_bridge',
@@ -112,6 +142,14 @@ def generate_launch_description():
             name='fastsim_backend_adapter_node',
             output='screen',
             condition=_backend_is('pointmass'),
+            parameters=[{
+                'backend_cmd_topic': _topic_when_radio(
+                    '/uav/radio/decoded_cmd_twist', '/uav/backend/cmd_twist'),
+                'backend_enable_topic': _topic_when_radio(
+                    '/uav/radio/decoded_enable', '/uav/backend/enable'),
+                'backend_odom_topic': _topic_when_radio(
+                    '/uav/radio/plant_odom', '/uav/backend/odom'),
+            }],
         ),
         Node(
             package='sim_bridge',
@@ -124,7 +162,63 @@ def generate_launch_description():
                 'viewer': LaunchConfiguration('viewer'),
                 'wind_x_mps': LaunchConfiguration('wind_x_mps'),
                 'wind_y_mps': LaunchConfiguration('wind_y_mps'),
+                'backend_cmd_topic': _topic_when_radio(
+                    '/uav/radio/decoded_cmd_twist', '/uav/backend/cmd_twist'),
+                'backend_enable_topic': _topic_when_radio(
+                    '/uav/radio/decoded_enable', '/uav/backend/enable'),
+                'backend_odom_topic': _topic_when_radio(
+                    '/uav/radio/plant_odom', '/uav/backend/odom'),
             }],
+        ),
+        Node(
+            package='hw_bridge',
+            executable='crsf_radio_backend_node',
+            name='crsf_radio_backend_node',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('radio_sim')),
+            parameters=[
+                radio_config,
+                {
+                    'transport': 'ros',
+                    'send_rate_hz': _launch_float('radio_rate_hz'),
+                    'airframe_name': LaunchConfiguration('airframe'),
+                    'vz_feedback': True,
+                    'vxy_feedback': True,
+                },
+            ],
+        ),
+        Node(
+            package='hw_bridge',
+            executable='sim_elrs_link_node',
+            name='sim_elrs_link_node',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('radio_sim')),
+            parameters=[{
+                'rate_hz': _launch_float('radio_rate_hz'),
+                'latency_ms': _launch_float('radio_latency_ms'),
+                'packet_loss_percent': _launch_float('radio_packet_loss_percent'),
+            }],
+        ),
+        Node(
+            package='hw_bridge',
+            executable='crsf_sim_receiver_node',
+            name='crsf_sim_receiver_node',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('radio_sim')),
+            parameters=[
+                radio_config,
+                {
+                    'airframe_name': LaunchConfiguration('airframe'),
+                    'output_rate_hz': _launch_float('radio_rate_hz'),
+                },
+            ],
+        ),
+        Node(
+            package='hw_bridge',
+            executable='hw_state_estimator_node',
+            name='hw_state_estimator_node',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('radio_sim')),
         ),
         Node(
             package='air_unit',

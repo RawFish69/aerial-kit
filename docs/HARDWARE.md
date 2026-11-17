@@ -13,6 +13,53 @@ This page covers the **Betaflight / CRSF** path over this repo's own ESP32 TX/RX
 `ros2_ws/src/mavlink_bridge/README.md`. Both paths present the same `/uav/backend/*`
 contract, so the control stack above them is identical.
 
+## Direct CRSF host link
+
+The Aerial Kit ELRS USB TX Rev A3 can also accept CRSF directly from a host. This
+is separate from the older ESP-NOW/UDP bridge below:
+
+```text
+ROS velocity command -> crsf_radio_backend_node -> CRSF UART -> ELRS TX ~~ RF ~~> ELRS RX
+FC CRSF telemetry    <- crsf_radio_backend_node <- CRSF UART <-----------------------+
+```
+
+The host UART is 420000 baud, 8N1, non-inverted and full duplex. Pin mapping,
+the need for a 3.3 V USB-UART adapter, role-image selection and native USB-CDC
+limits are in
+[`firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md`](../firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md).
+
+The channel map is AETR on channels 1-4, arm on channel 5, and flight mode on
+channel 6. Arm is asserted only while `/uav/backend/enable` is true. Disabled
+commands use minimum throttle and disarm; a stale command while enabled uses
+neutral hover sticks and remains armed.
+
+Decoded telemetry continues to use the existing hardware topics:
+
+- Attitude -> `/uav/hw/imu`
+- GPS -> `/uav/hw/gps`
+- Battery -> `/uav/hw/battery`
+- Flight mode -> `/uav/radio/flight_mode`
+
+RSSI, link quality and SNR are additive JSON on `/uav/radio/link_stats`; no
+existing message field was changed. `/uav/radio/status` carries human-readable
+transport status.
+
+### Radio failsafe
+
+The ROS backend replaces a command older than `command_timeout_sec` (0.5 s by
+default) with neutral hover sticks while `/uav/backend/enable` remains true. On
+the radio side, the simulated receiver disables the plant after
+`receiver_timeout_sec` (0.35 s) without a fresh channel frame; an airborne
+multirotor backend then auto-lands instead of holding its last command.
+
+The real flight controller's own failsafe remains authoritative. Configure it
+to stop motors or perform the intended controlled landing when CRSF input goes
+stale; do not configure hold-last-command. Aerial Kit firmware documents its
+link-loss behavior in
+[`firmware/docs/04-flight-core.md`](../firmware/docs/04-flight-core.md). Every
+real FC must be verified with props removed; the SIL result is not a substitute
+for that bench check.
+
 The stick mapping and `hover_throttle` described here are **multirotor-specific**. Fixed-wing
 and other airframes need their own mapping; that work is tracked in the roadmap in the
 [root README](STACK-GUIDE.md#roadmap).

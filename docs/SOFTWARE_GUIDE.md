@@ -481,6 +481,7 @@ velocity, so its launch runs them with `command_frame: world` and heading contro
 | Autopilot | Package | Launch |
 |---|---|---|
 | Betaflight over CRSF (ESP-NOW TX) | `hw_bridge` | `ros2 launch hw_bridge hw_crsf.launch.py udp_host:=192.168.4.1` |
+| Direct ELRS/CRSF host UART | `hw_bridge` | `ros2 run hw_bridge crsf_radio_backend_node --ros-args -p transport:=serial -p serial_port:=/dev/ttyUSB0` |
 | PX4 / ArduPilot over MAVLink | `mavlink_bridge` | `ros2 launch mavlink_bridge real_hardware.launch.py` |
 
 Wiring, the TX UDP receiver and the packet format are in [HARDWARE.md](HARDWARE.md). MAVLink
@@ -488,6 +489,9 @@ setup is in [mavlink_bridge/README.md](../ros2_ws/src/mavlink_bridge/README.md).
 
 `hw_bridge` notes:
 
+- `crsf_radio_backend_node` sends real CRSF RC frames over a 420000-baud serial
+  transport. Its `transport:=ros` mode feeds the SIL radio below. Channel mapping,
+  telemetry topics and failsafe behavior are in [HARDWARE.md](HARDWARE.md).
 - `hw_state_estimator_node` runs an **INS EKF** by default (`estimator: ekf`, from
   `aerial_kit.estimation`). It estimates position, velocity, accelerometer bias and baro
   offset, rejects GPS outliers with a chi-square gate, and publishes covariances. Set
@@ -504,6 +508,32 @@ setup is in [mavlink_bridge/README.md](../ros2_ws/src/mavlink_bridge/README.md).
   (`std_msgs/Float64`, m), `/uav/hw/gps` (`sensor_msgs/NavSatFix`).
 - The simulator's elevon convention is physical left/right, trailing-edge-up positive, the
   same as [FIRMWARE_WING_CONTROL.md](FIRMWARE_WING_CONTROL.md).
+
+### Simulated ELRS radio
+
+The standard bringup can insert a deterministic 150 Hz radio between the ROS
+command stack and the MuJoCo plant:
+
+```bash
+ros2 launch sim_fast bringup.launch.py start_demo:=true sim_backend:=mujoco \
+    airframe:=fpv_quad_5in radio_sim:=true radio_rate_hz:=150 \
+    radio_latency_ms:=8 radio_packet_loss_percent:=10
+```
+
+The path is command manager -> `crsf_radio_backend_node` -> simulated ELRS link
+-> CRSF receiver -> plant. Attitude, GPS, battery and flight-mode telemetry travel
+back through the same link into the unchanged hardware estimator. Publish
+`std_msgs/Bool` true on `/uav/radio/link_cut` to cut the link and false to restore
+it.
+
+Recorded campaign commands:
+
+```bash
+RADIO_SIL_TIMEOUT_SEC=600 ./scripts/run_radio_sil_mission.sh fpv_quad_5in 0 8 150 fpv-0pct
+RADIO_SIL_TIMEOUT_SEC=600 ./scripts/run_radio_sil_mission.sh fpv_quad_5in 10 8 150 fpv-10pct
+RADIO_SIL_TIMEOUT_SEC=600 ./scripts/run_radio_sil_mission.sh research_hex 0 8 150 hex-0pct
+./scripts/run_radio_sil_link_loss.sh fpv_quad_5in
+```
 
 ---
 

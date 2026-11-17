@@ -32,6 +32,7 @@ multirotors are in progress).
 | Platform | Link | Package | Status |
 |----------|------|---------|--------|
 | Betaflight | CRSF over ESP-NOW/UDP relay | `ros2_ws/src/hw_bridge` (`crsf_backend_adapter_node`) | ✅ Working |
+| ELRS USB TX Rev A3 | direct CRSF over host UART and over-the-air ELRS | `ros2_ws/src/hw_bridge` (`crsf_radio_backend_node`) | 🧪 SIL validated; RF bench pending |
 | PX4 | MAVLink over USB / UART / telemetry radio | `ros2_ws/src/mavlink_bridge` | ✅ Working |
 | ArduPilot | MAVLink, same node (`flight_stack: ardupilot`) | `ros2_ws/src/mavlink_bridge` | 🚧 Supported, in testing |
 | Custom firmware (this repo) | ESP-NOW + CRSF, 2.4 GHz SX1280 ELRS, LoRa telemetry | `firmware/` (link projects) | ✅ Working |
@@ -58,6 +59,7 @@ TX (IMU+Joystick) -> ESP-NOW -> RX -> Protocol Bridge -> Flight Controller
 ```
 /uav/backend/cmd_twist + /uav/backend/enable
     -> hw_bridge (crsf_backend_adapter_node)      -> Betaflight over CRSF/ESP-NOW
+     | hw_bridge (crsf_radio_backend_node)        -> CRSF UART -> ELRS TX/RX
      | mavlink_bridge (mavlink_bridge_node)       -> PX4 / ArduPilot over MAVLink
 
 FC sensors (/uav/hw/imu, /uav/hw/baro, /uav/hw/gps)
@@ -71,6 +73,7 @@ FC sensors (/uav/hw/imu, /uav/hw/baro, /uav/hw/gps)
 ROS 2:        ground station / air unit -> sim_bridge -> point mass | MuJoCo | Gazebo
               (multirotors: cmd_twist / odom; wings: AirspeedNav / telemetry;
                keyboard: ActuatorCommand or MultirotorManualCommand)
+              optional SIL: CRSF backend -> simulated ELRS latency/loss -> receiver -> backend
 Python only:  planner -> controller -> dynamics backend -> Matplotlib 3D
 ```
 
