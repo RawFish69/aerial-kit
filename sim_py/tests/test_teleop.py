@@ -1293,14 +1293,13 @@ def test_fixedwing_throttle_axis_moves_both_motors_together() -> None:
 
 
 def test_fixedwing_roll_axis_differentiates_the_elevons() -> None:
-    # Verified empirically against FixedWingDynamics: a positive
-    # elevon_L - elevon_R produces a positive roll moment there, which in
-    # this body-FRD convention (y = right) banks the aircraft to the right.
+    # A positive elevon_R - elevon_L produces a positive roll moment, which
+    # in this body-FRD convention (y = right) banks to the right.
     right = fixedwing_actuator_from_axes(InputAxes(right=1.0), tuning=FW_TUNING)
     left = fixedwing_actuator_from_axes(InputAxes(right=-1.0), tuning=FW_TUNING)
 
-    assert right[2] > right[3]  # elevon_L > elevon_R
-    assert left[2] < left[3]
+    assert right[3] > right[2]  # elevon_R > elevon_L
+    assert left[3] < left[2]
     # Throttle is untouched by a pure roll command.
     assert right[0] == pytest.approx(FW_TUNING.throttle_trim_n)
     assert right[1] == pytest.approx(FW_TUNING.throttle_trim_n)
@@ -1332,7 +1331,7 @@ def test_fixedwing_command_from_keys_round_trips_through_axes() -> None:
 
     assert command.axes.right == 1.0
     assert command.actuator_cmd is not None
-    assert command.actuator_cmd[2] > command.actuator_cmd[3]
+    assert command.actuator_cmd[3] > command.actuator_cmd[2]
 
 
 def test_fixedwing_neutral_command_keeps_cruise_thrust_not_zero() -> None:
@@ -1605,7 +1604,7 @@ def test_session_fixed_wing_key_events_reach_the_engine_as_actuator_commands() -
 
         assert session.engine.command.actuator_cmd is not None
         left, right = session.engine.command.actuator_cmd[2:]
-        assert left > right  # right-roll differential reached the backend
+        assert right > left  # right-roll differential reached the backend
     finally:
         session.stop()
         plt.close("all")

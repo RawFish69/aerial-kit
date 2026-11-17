@@ -501,7 +501,7 @@ def _command_hud_suffix(command: TeleopCommand) -> str:
     if command.actuator_cmd is not None:
         throttle_l, throttle_r, elevon_l, elevon_r = np.asarray(command.actuator_cmd, dtype=float)
         elevator_deg = np.degrees(0.5 * (elevon_l + elevon_r))
-        aileron_deg = np.degrees(0.5 * (elevon_l - elevon_r))
+        aileron_deg = np.degrees(0.5 * (elevon_r - elevon_l))
         return f"thrN {throttle_l:4.1f}/{throttle_r:4.1f} elev{elevator_deg:+5.1f} ail{aileron_deg:+5.1f}"
     return f"yr{command.yaw_rate_cmd:+5.2f}"
 
