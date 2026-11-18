@@ -29,6 +29,10 @@ class RcMapParams:
     throttle_min: float
     throttle_max: float
     max_yaw_rate_rps: float
+    # Raise hover throttle by 1/sqrt(cos roll cos pitch) for the commanded tilt,
+    # so a tilted multirotor in a plain angle mode (no FC altitude hold) keeps
+    # its lift. Thrust ~ throttle^2. Off keeps the original mapping.
+    tilt_compensation: bool = False
 
 
 @dataclass(frozen=True)
@@ -99,7 +103,10 @@ def velocity_to_rc(
     pitch_angle = _clamp(params.kv_xy * ey, -max_tilt, max_tilt)
     roll = roll_angle / max_tilt if max_tilt > 0 else 0.0
     pitch = pitch_angle / max_tilt if max_tilt > 0 else 0.0
-    throttle = _clamp(params.hover_throttle + params.kz * ez, params.throttle_min, params.throttle_max)
+    hover = params.hover_throttle
+    if params.tilt_compensation:
+        hover /= math.sqrt(max(math.cos(roll_angle) * math.cos(pitch_angle), 0.25))
+    throttle = _clamp(hover + params.kz * ez, params.throttle_min, params.throttle_max)
     yaw = _clamp(wz / params.max_yaw_rate_rps, -1.0, 1.0) if params.max_yaw_rate_rps > 0 else 0.0
     return RcSticks(roll=roll, pitch=pitch, yaw=yaw, throttle=throttle)
 

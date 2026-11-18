@@ -22,7 +22,7 @@ typedef struct {
     ak_flight_t flight;
 } akfc_t;
 
-int akfc_abi_version(void) { return 1; }
+int akfc_abi_version(void) { return 2; }
 unsigned akfc_rc_channels(void) { return AK_RC_CHANNELS; }
 unsigned akfc_max_motors(void) { return AK_MAX_MOTORS; }
 unsigned akfc_max_servos(void) { return AK_MAX_SERVOS; }
@@ -122,4 +122,16 @@ void akfc_command(const akfc_t *fc, float out[6])
     out[3] = c->throttle;
     out[4] = (float)c->angle_mode;
     out[5] = (float)c->arm_request;
+}
+
+/* Firmware limits a radio or teleop has to match:
+ * max_tilt_deg, max_rate_dps, throttle_low, arm_hold_ms, arm_threshold, mode_threshold. */
+void akfc_config(const akfc_t *fc, float out[6])
+{
+    out[0] = fc->flight.cfg.max_tilt_deg;
+    out[1] = fc->flight.cfg.max_rate_dps;
+    out[2] = fc->flight.cfg.throttle_low;
+    out[3] = (float)fc->flight.cfg.arm_hold_ms;
+    out[4] = (float)fc->flight.rc_cfg.arm_threshold;
+    out[5] = (float)fc->flight.rc_cfg.mode_threshold;
 }

@@ -48,9 +48,10 @@ def _load():
     lib.akfc_state_name.restype = ctypes.c_char_p
     lib.akfc_attitude.argtypes = [ctypes.c_void_p, f32p]
     lib.akfc_command.argtypes = [ctypes.c_void_p, f32p]
+    lib.akfc_config.argtypes = [ctypes.c_void_p, f32p]
     for name in ("akfc_rc_channels", "akfc_max_motors", "akfc_max_servos"):
         getattr(lib, name).restype = ctypes.c_uint
-    if lib.akfc_abi_version() != 1:
+    if lib.akfc_abi_version() != 2:
         raise RuntimeError("akfc shim ABI mismatch; rebuild with build.py --force")
     _lib = lib
     return lib
@@ -124,6 +125,13 @@ class AkFlightCore:
         self._lib.akfc_attitude(self._h, out)
         return np.array(out[:], dtype=float)
 
+    def config(self) -> dict:
+        """The firmware's own limits, read from its config struct."""
+        out = (ctypes.c_float * 6)()
+        self._lib.akfc_config(self._h, out)
+        return dict(max_tilt_deg=out[0], max_rate_dps=out[1], throttle_low=out[2],
+                    arm_hold_s=out[3] / 1000.0, arm_threshold=int(out[4]), mode_threshold=int(out[5]))
+
     def command(self) -> dict:
         out = (ctypes.c_float * 6)()
         self._lib.akfc_command(self._h, out)
@@ -194,6 +202,7 @@ class FirmwareInTheLoop:
         self.sticks = dict(roll=0.0, pitch=0.0, yaw=0.0, throttle=0.0, arm=False, angle_mode=True)
         self.rc_alive = True
         self._last_rc_ms = 0
+        self._raw_channels: list[int] | None = None   # set by receive_frame()
         self._v_prev = np.asarray(self.backend.state().velocity, dtype=float).copy()
         self.motors = np.zeros(4)
         if on_ground:   # settle on the gear before the estimator starts trusting it
@@ -222,14 +231,32 @@ class FirmwareInTheLoop:
             self._v_prev = v
             now_us = int(round(self.t * 1e6))
             now_ms = now_us // 1000
-            if self.rc_alive:
-                self._last_rc_ms = now_ms
-            ch = self.fc.channels_from_sticks(**self.sticks)
+            if self._raw_channels is not None:
+                # Receiver mode: the channels and their arrival time come from
+                # CRSF frames; the firmware decides on its own when they are stale.
+                ch = self._raw_channels
+            else:
+                if self.rc_alive:
+                    self._last_rc_ms = now_ms
+                ch = self.fc.channels_from_sticks(**self.sticks)
             self.motors, _ = self.fc.step(gyro, accel, ch, self.rc_alive, self._last_rc_ms, now_us, now_ms)
             thrust = t_max * np.clip(self.motors[:4], 0.0, 1.0) ** 2   # throttle -> speed -> thrust
             self.backend.step(ControlTarget(accel_cmd=np.zeros(3),
                                             metadata={"rotor_thrust_n": thrust}), self.dt)
             self.t += self.dt
+
+    def receive_frame(self, channels) -> None:
+        """An RC frame arrived from the receiver now (CRSF channel counts).
+
+        Switches this loop to receiver mode for good: from now on only frames
+        feed the firmware, as on a real FC wired to an ELRS receiver.
+        """
+        ch = [int(c) for c in list(channels)[:self.fc.n_channels]]
+        if len(ch) < self.fc.n_channels:
+            raise ValueError(f"need {self.fc.n_channels} channels, got {len(ch)}")
+        self._raw_channels = ch
+        self.rc_alive = True
+        self._last_rc_ms = int(round(self.t * 1e6)) // 1000
 
     @property
     def state(self) -> SimState:
@@ -291,3 +318,42 @@ class FirmwareRadio:
 def hover_throttle(spec) -> float:
     """Throttle (0..1) that hovers this airframe: thrust = T_max * u^2."""
     return float(math.sqrt(float(np.mean(spec.hover_thrusts())) / spec.max_thrust_n))
+
+
+def radio_stick_settings(spec, fc: AkFlightCore | None = None, climb_gain_per_s: float = 2.0,
+                         speed_gain_per_s: float = 0.4, thrust_range=(0.3, 2.0)) -> dict:
+    """Host radio settings that fly this airframe on the AK firmware in angle mode.
+
+    The host's vertical loop sends throttle = hover + kz * (vz_demand - vz).
+    With thrust = T_max u^2 a throttle step du gives about 2 du / hover g
+    of vertical acceleration, so ``kz = hover / (2 g) * climb_gain_per_s``
+    makes the loop a first-order climb-rate controller with that bandwidth.
+    The throttle range is clipped to ``thrust_range`` x hover thrust so up
+    and down authority stay comparable (a 9:1 quad otherwise has +8 g / -1 g
+    and any lag in the velocity estimate ratchets it upward).
+
+    Horizontally, a tilt theta gives g tan(theta) of acceleration, so
+    ``kv_xy = speed_gain_per_s / g`` rad per m/s of error. The defaults
+    (2 /s climb, 0.4 /s speed) stay stable with a 1 s lag on the host's
+    velocity estimate, about what CRSF telemetry plus the 1 Hz baro/GPS
+    filter give; the original kv_xy = 0.5 rad/(m/s) flips the quad there.
+    """
+    own = fc is None
+    fc = fc or AkFlightCore()
+    try:
+        cfg = fc.config()
+    finally:
+        if own:
+            fc.close()
+    hover = hover_throttle(spec)
+    lo, hi = thrust_range
+    return {
+        "stick_mapping": "angle",
+        "max_tilt_deg": float(cfg["max_tilt_deg"]),
+        "hover_throttle": hover,
+        "kz": hover / (2.0 * GRAVITY) * float(climb_gain_per_s),
+        "kv_xy": float(speed_gain_per_s) / GRAVITY,
+        "tilt_compensation": True,
+        "throttle_min": max(float(cfg["throttle_low"]) + 0.01, hover * math.sqrt(lo)),
+        "throttle_max": min(0.95, hover * math.sqrt(hi)),
+    }

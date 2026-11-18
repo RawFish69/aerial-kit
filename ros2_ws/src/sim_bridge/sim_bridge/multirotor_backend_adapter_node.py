@@ -31,7 +31,7 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, String, UInt8MultiArray
 from uav_msgs.msg import MultirotorManualCommand
 
 for _parent in Path(__file__).resolve().parents:
@@ -162,6 +162,10 @@ class MultirotorBackendAdapterNode(Node):
             ('viewer', False),
             ('flight_controller', 'sim'),
             ('firmware_max_thrust_ratio', 2.0),
+            # firmware only: where the RC comes from. 'teleop' = keyboard sticks
+            # on manual_topic; 'crsf' = raw ELRS receiver bytes (the radio SIL).
+            ('firmware_rc_input', 'teleop'),
+            ('crsf_rx_topic', '/uav/radio/receiver_rx_bytes'),
             ('viewer_camera_topic', VIEWER_CAMERA_TOPIC),
         ):
             self.declare_parameter(name, default)
@@ -206,6 +210,15 @@ class MultirotorBackendAdapterNode(Node):
                 max_thrust_ratio=float(self.get_parameter('firmware_max_thrust_ratio').value))
             self.backend = self.firmware.backend
             self._warned = set()
+            self.rc_input = str(self.get_parameter('firmware_rc_input').value).strip().lower()
+            if self.rc_input not in ('teleop', 'crsf'):
+                raise ValueError(f"firmware_rc_input must be 'teleop' or 'crsf', got {self.rc_input!r}")
+            self._crsf_frames: list[tuple[float, list[int]]] = []
+            self._last_tick_wall: float | None = None
+            if self.rc_input == 'crsf':
+                from aerial_kit.comms.crsf import CrsfParser
+
+                self._crsf_parser = CrsfParser()
         self.pilot = MultirotorPilot(
             CascadeGains(**self.backend.controller_defaults('cascade')),
             ManualLimits.from_spec(spec))
@@ -235,6 +248,9 @@ class MultirotorBackendAdapterNode(Node):
             String, self.get_parameter('viewer_camera_topic').value,
             lambda msg: self.camera_switch.handle(self.viewer, self.backend.model, msg.data,
                                                   self.get_logger()), 10)
+        if self.firmware is not None and self.rc_input == 'crsf':
+            self.create_subscription(UInt8MultiArray, self.get_parameter('crsf_rx_topic').value,
+                                     self._on_crsf_bytes, 50)
         self.pub_odom = self.create_publisher(Odometry, self.get_parameter('backend_odom_topic').value, 20)
         self.timer = self.create_timer(self.period, self._tick)
         self.get_logger().info(
@@ -304,7 +320,47 @@ class MultirotorBackendAdapterNode(Node):
             self._warned.add(key)
             self.get_logger().warning(text)
 
+    def _on_crsf_bytes(self, msg: UInt8MultiArray) -> None:
+        """ELRS receiver -> FC UART: keep RC frames with their arrival time."""
+        from aerial_kit.comms.crsf import CRSF_FRAMETYPE_RC_CHANNELS_PACKED, unpack_channels
+
+        now = time.monotonic()
+        for frame in self._crsf_parser.feed(bytes(msg.data)):
+            if frame.frame_type == CRSF_FRAMETYPE_RC_CHANNELS_PACKED:
+                self._crsf_frames.append((now, list(unpack_channels(frame.payload))))
+
+    def _tick_firmware_crsf(self, now: float) -> None:
+        """Step the firmware 1 ms at a time, delivering each frame when it arrived."""
+        start = self._last_tick_wall if self._last_tick_wall is not None else now - self.period
+        self._last_tick_wall = now
+        frames, self._crsf_frames = self._crsf_frames, []
+        total_ms = max(1, int(round(self.period * 1000.0)))
+        done_ms = 0
+        state_before = self.firmware.fc.state
+        try:
+            for arrived, channels in frames:
+                at_ms = min(total_ms, max(0, int(round((arrived - start) * 1000.0))))
+                if at_ms > done_ms:
+                    self.firmware.step((at_ms - done_ms) / 1000.0)
+                    done_ms = at_ms
+                self.firmware.receive_frame(channels)
+            if total_ms > done_ms:
+                self.firmware.step((total_ms - done_ms) / 1000.0)
+        except SimulationDiverged as exc:
+            self.diverged = True
+            self.get_logger().error(f'plant diverged, simulation frozen: {exc}')
+        source = 'firmware_crsf'
+        if source != self.source:
+            self.get_logger().info(f'control source: {self.source} -> {source}')
+            self.source = source
+        if self.firmware.fc.state != state_before:
+            self.get_logger().info(f'firmware: {state_before} -> {self.firmware.fc.state}')
+
     def _tick_firmware(self, now: float) -> None:
+        if self.rc_input == 'crsf':
+            if not getattr(self, 'diverged', False):
+                self._tick_firmware_crsf(now)
+            return
         """Teleop -> radio sticks -> AK flight core (1 kHz) -> MuJoCo rotors."""
         fresh = (self.manual is not None and self.manual_time is not None
                  and 0.0 <= now - self.manual_time <= self.launch['manual_timeout_sec'])
