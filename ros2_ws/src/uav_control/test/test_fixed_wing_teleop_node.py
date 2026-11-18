@@ -212,6 +212,8 @@ def test_repeated_toggle_key_press_is_ignored():
 # --- message and node --------------------------------------------------------
 
 def test_actuator_message_layout():
+    pytest.importorskip('rclpy')
+    pytest.importorskip('uav_msgs.msg')
     from uav_msgs.msg import ActuatorCommand
 
     fields = ActuatorCommand.get_fields_and_field_types()
@@ -235,6 +237,8 @@ def test_actuator_message_layout():
 
 
 def test_node_publishes_and_shuts_down_cleanly():
+    pytest.importorskip('rclpy')
+    pytest.importorskip('uav_msgs.msg')
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
     from std_msgs.msg import Bool

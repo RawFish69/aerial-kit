@@ -83,6 +83,8 @@ def test_long_focus_loss_disarms():
 
 
 def test_message_encoding():
+    pytest.importorskip('rclpy')
+    pytest.importorskip('uav_msgs.msg')
     from uav_msgs.msg import MultirotorManualCommand
 
     out = armed('d', 'space', mode='acro').output()
@@ -94,6 +96,8 @@ def test_message_encoding():
 
 
 def test_node_publishes_and_shuts_down_cleanly():
+    pytest.importorskip('rclpy')
+    pytest.importorskip('uav_msgs.msg')
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
     from std_msgs.msg import Bool
@@ -131,6 +135,8 @@ def test_node_publishes_and_shuts_down_cleanly():
 
 
 def test_c_key_requests_a_viewer_camera_toggle():
+    pytest.importorskip('rclpy')
+    pytest.importorskip('uav_msgs.msg')
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
     from std_msgs.msg import String
