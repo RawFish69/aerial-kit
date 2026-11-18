@@ -8,7 +8,7 @@
  *
  * Units and frames are the firmware's: body FRD, gyro rad/s, accelerometer
  * in g with +1 on z when level and still, RC in receiver counts, motors 0..1,
- * servos -1..1, airframe 0 = quad-X, 1 = elevon wing.
+ * servos -1..1 (trailing edge up positive), airframe = the firmware's id.
  */
 
 #include <stdlib.h>
@@ -33,14 +33,15 @@ akfc_t *akfc_create(int airframe, unsigned motors, unsigned servos, unsigned loo
     if (fc == NULL) {
         return NULL;
     }
-    if (airframe == 1) {
-        ak_flight_init(&fc->flight, &ak_mixer_elevon_wing);
-        fc->flight.airframe = 1u;
-    } else {
-        ak_flight_init(&fc->flight, &ak_mixer_quad_x);
-        fc->flight.airframe = 0u;
-    }
+    /* Any firmware airframe id (ak_mixer_for_airframe): 0 quad-X,
+     * 1 twin-motor elevon wing, 7 single-motor elevon wing, ... */
+    ak_flight_init(&fc->flight, &ak_mixer_quad_x);
+    fc->flight.airframe = (uint32_t)(airframe < 0 ? 0 : airframe);
     ak_flight_apply_airframe(&fc->flight);
+    if (fc->flight.mixer == 0) {
+        free(fc);
+        return NULL;
+    }
     ak_flight_set_board_outputs(&fc->flight, motors, servos);
     if (loop_period_us > 0u) {
         ak_flight_set_loop_period_us(&fc->flight, loop_period_us);

@@ -192,5 +192,109 @@ class TestFirmwareRadio(unittest.TestCase):
         self.assertTrue(radio.sticks(0.0, arm=True, mode="velocity")["angle_mode"])
 
 
+def _wing_eul(quat):
+    """(roll right-wing-down +, pitch nose-up +, heading) in degrees for a body-FRD wing."""
+    r = quat_to_rotmat(quat)
+    x, y, z = r[:, 0], r[:, 1], r[:, 2]
+    return (math.degrees(math.atan2(-y[2], -z[2])), math.degrees(math.asin(max(-1.0, min(1.0, x[2])))),
+            math.degrees(math.atan2(x[1], x[0])))
+
+
+def _launched_wing(airframe, accel_model="physical", throttle=0.6):
+    from sim_py.fc_sil import WingFirmwareInTheLoop
+
+    w = WingFirmwareInTheLoop(airframe, accel_model=accel_model)
+    w.set_sticks(arm=False, throttle=0.0)
+    w.step(0.5)
+    w.set_sticks(arm=True)
+    w.step(1.0)
+    assert w.fc.state == "armed", w.fc.state
+    w.set_sticks(throttle=throttle)
+    w.step(0.3)
+    w.launch()
+    return w
+
+
+@requires
+class TestFirmwareFliesTheWings(unittest.TestCase):
+    WINGS = ("twin_wing", "single_wing")
+
+    def test_arms_in_the_hand_and_not_before_the_switch_cycles(self) -> None:
+        from sim_py.fc_sil import WingFirmwareInTheLoop
+
+        for airframe in self.WINGS:
+            with self.subTest(airframe=airframe):
+                w = WingFirmwareInTheLoop(airframe)
+                w.set_sticks(arm=True)
+                w.step(1.0)
+                self.assertEqual(w.fc.state, "disarmed")       # switch on at power-up
+                self.assertEqual(w.state.position[2], 60.0)      # still in the hand
+                w.set_sticks(arm=False)
+                w.step(0.3)
+                w.set_sticks(arm=True)
+                w.step(1.0)
+                self.assertEqual(w.fc.state, "armed")
+
+    def test_angle_mode_holds_level_with_a_gravity_only_accelerometer(self) -> None:
+        # Isolates the bridge (IMU frames, mixer rows, servo and thrust scaling)
+        # from the estimator: with an accelerometer that reads gravity only the
+        # firmware flies both wings level.
+        for airframe in self.WINGS:
+            with self.subTest(airframe=airframe):
+                w = _launched_wing(airframe, "gravity")
+                w.step(6.0)
+                roll, pitch, _ = _wing_eul(w.state.attitude_quat)
+                self.assertLess(abs(roll), 2.0)
+                self.assertLess(abs(pitch), 3.0)
+                self.assertAlmostEqual(w.state.position[2], 60.0, delta=4.0)
+                self.assertAlmostEqual(pitch, math.degrees(w.fc.attitude()[1]), delta=1.0)
+
+    def test_stick_signs(self) -> None:
+        # RC convention, as on the quads: roll right -> right wing down; pitch
+        # stick forward (positive) -> nose down.
+        for airframe in self.WINGS:
+            for stick, check in (("roll", lambda r, p: r > 10.0), ("pitch", lambda r, p: p < -5.0)):
+                with self.subTest(airframe=airframe, stick=stick):
+                    w = _launched_wing(airframe, "gravity")
+                    w.step(1.0)
+                    w.set_sticks(**{stick: 0.5})
+                    w.step(1.0)
+                    roll, pitch, _ = _wing_eul(w.state.attitude_quat)
+                    self.assertTrue(check(roll, pitch), (airframe, stick, roll, pitch))
+
+    def test_radio_loss_flies_the_descending_circle_not_a_motor_cut(self) -> None:
+        # The firmware's wing failsafe: bank ~30 deg, low throttle, circle down.
+        w = _launched_wing("twin_wing", "gravity")
+        w.step(2.0)
+        w.rc_alive = False
+        w.step(1.0)
+        self.assertEqual(w.fc.state, "circling down")      # AK_FLIGHT_DESCEND, the wing's failsafe
+        headings = []
+        for _ in range(8):
+            w.step(1.0)
+            headings.append(_wing_eul(w.state.attitude_quat)[2])
+        roll = _wing_eul(w.state.attitude_quat)[0]
+        self.assertGreater(abs(roll), 15.0)
+        self.assertGreater(float(w.motors.sum()), 0.1)                # still powered: a wing must keep flying
+        self.assertAlmostEqual(abs(roll), 30.0, delta=5.0)            # wing_descend_bank_deg
+        turned = np.unwrap(np.radians(headings))
+        self.assertGreater(abs(math.degrees(turned[-1] - turned[0])), 90.0)
+
+    @unittest.expectedFailure
+    def test_known_gap_wing_holds_level_with_a_physical_accelerometer(self) -> None:
+        # KNOWN GAP (2026-11-18): the fixed-wing estimator trusts the
+        # accelerometer in flight (tau 0.5 s). Launch thrust (~5 m/s^2 along
+        # the body) tilts the measured specific force ~27 deg from gravity, the
+        # estimate reads nose-up while the wing is nose-down, and angle mode
+        # flies it into the ground (truth -29 deg, estimate +1 deg). Needs
+        # acceleration compensation (airspeed/GPS) or lower trust. See
+        # docs/evidence/fc-sil-wing-estimator-finding-2026-11-18.md.
+        w = _launched_wing("twin_wing", "physical")
+        w.step(6.0)
+        _, pitch, _ = _wing_eul(w.state.attitude_quat)
+        self.assertLess(abs(pitch), 5.0)
+        self.assertGreater(w.state.position[2], 50.0)
+
+
 if __name__ == "__main__":
     unittest.main()
