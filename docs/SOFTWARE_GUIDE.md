@@ -101,7 +101,8 @@ ros2 launch sim_fast bringup.launch.py start_demo:=true sim_backend:=mujoco \
 
 # Keyboard flying (click the small teleop window, Enter to arm)
 ros2 launch sim_fast fixed_wing_mujoco_teleop.launch.py [airframe:=single_wing] [start_z_m:=150.0]
-ros2 launch sim_fast multirotor_mujoco_teleop.launch.py airframe:=fpv_quad_5in [mode:=velocity|angle|acro]
+ros2 launch sim_fast multirotor_mujoco_teleop.launch.py airframe:=fpv_quad_5in [mode:=velocity|angle|acro] \
+    [flight_controller:=firmware]   # the real AK flight core flies it, see below
 ```
 
 Teleop keys (both): `W/S` pitch / forward-back, `A/D` roll / left-right, `Space/Shift`
@@ -122,6 +123,41 @@ Released or stale, a wing flies a safe cruise circle; a multirotor holds positio
 disarmed in the air, and idles on the ground. Closing the teleop window ends the session.
 `viewer:=true` never blocks a headless run: without a display or OpenGL the plant keeps
 flying.
+
+### Flying the AK firmware itself (firmware-in-the-loop)
+
+`sim_py/fc_sil/` compiles the unmodified AK flight core (`firmware/src/core/flight`,
+`filter`, `sensors`) into a host library on first use (`python3 sim_py/fc_sil/build.py`,
+needs `cc`) and runs it at 1 kHz against MuJoCo: the plant's state becomes an IMU sample in
+the firmware's convention (FRD, rad/s, g with +1 on z when level), the sticks become receiver
+counts (ch5 mode, ch6 arm, 172/992/1811), and the firmware's motor outputs drive the rotors
+(thrust = T_max x u^2, no battery compensation). Arming, angle/acro, mixer, estimator and
+failsafe are the firmware's own code. Quad-X airframes only (`fpv_quad_5in`, `micro_lr_quad`).
+
+```bash
+ros2 launch sim_fast multirotor_mujoco_teleop.launch.py airframe:=fpv_quad_5in flight_controller:=firmware
+```
+
+```python
+from sim_py.fc_sil import FirmwareInTheLoop
+sim = FirmwareInTheLoop("fpv_quad_5in")           # on the ground, disarmed
+sim.set_sticks(arm=False); sim.step(0.5)          # arm switch must start off
+sim.set_sticks(arm=True); sim.step(1.0)           # throttle low for the arm hold -> "armed"
+sim.set_sticks(throttle=0.45, roll=0.2); sim.step(2.0)
+print(sim.fc.state, sim.state.position, sim.fc.attitude())
+```
+
+Differences from `flight_controller:=sim`: Enter arms the firmware through its real
+sequence (switch on, throttle held at minimum for 0.8 s, then the sticks pass through).
+Throttle centre is hover thrust and full stick is 2x hover
+(`firmware_max_thrust_ratio`). There is **no altitude hold**, so climb rate is yours.
+`velocity` mode flies as angle, and `cmd_twist` is ignored. If the teleop goes quiet, the
+receiver times out and the firmware's quad failsafe **cuts the motors and latches**, so the
+aircraft falls, as the real one would. Tests: `sim_py/tests/test_fc_sil.py`,
+`ros2_ws/src/sim_bridge/test/test_multirotor_adapter.py -k firmware`.
+
+Known firmware gap (found this way, 2026-11-17): angle mode over-banks in sustained tilts,
+because the estimator under-reads the tilt; see `docs/evidence/fc-sil-estimator-finding-2026-11-17.md`.
 
 ### Regenerating models and review images
 

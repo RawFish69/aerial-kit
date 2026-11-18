@@ -90,6 +90,10 @@ def validate_multirotor_parameters(values):
             f'got {airframe!r}')
     out['airframe'] = airframe
     out['viewer'] = _as_bool('viewer', values.get('viewer', False))
+    fc = str(values.get('flight_controller', 'sim')).strip().lower()
+    if fc not in ('sim', 'firmware'):
+        raise ValueError(f"flight_controller must be 'sim' or 'firmware', got {values.get('flight_controller')!r}")
+    out['flight_controller'] = fc
     for name in ('sim_rate_hz', 'cmd_timeout_sec', 'manual_timeout_sec', 'mujoco_timestep'):
         if name in values:
             out[name] = _finite(name, values[name], positive=True)
@@ -156,12 +160,14 @@ class MultirotorBackendAdapterNode(Node):
             ('wind_x_mps', 0.0),
             ('wind_y_mps', 0.0),
             ('viewer', False),
+            ('flight_controller', 'sim'),
+            ('firmware_max_thrust_ratio', 2.0),
             ('viewer_camera_topic', VIEWER_CAMERA_TOPIC),
         ):
             self.declare_parameter(name, default)
         launch = validate_multirotor_parameters({
             name: self.get_parameter(name).value for name in (
-                'airframe', 'viewer', 'sim_rate_hz', 'cmd_timeout_sec', 'manual_timeout_sec',
+                'airframe', 'viewer', 'flight_controller', 'sim_rate_hz', 'cmd_timeout_sec', 'manual_timeout_sec',
                 'mujoco_timestep', 'start_x_m', 'start_y_m', 'start_z_m', 'start_yaw_rad',
                 'wind_x_mps', 'wind_y_mps')})
         self.launch = launch
@@ -184,6 +190,22 @@ class MultirotorBackendAdapterNode(Node):
                 'wind_mps': [launch['wind_x_mps'], launch['wind_y_mps'], 0.0],
                 'start_motors': 'hover' if airborne else 'idle',
             }}})
+        self.firmware = None
+        if launch['flight_controller'] == 'firmware':
+            # The AK flight core flies this airframe; the plant only does what
+            # it does (its arming, failsafe and control law, nothing simulated).
+            from sim_py.fc_sil import FirmwareInTheLoop, FirmwareRadio, hover_throttle
+
+            if spec.n_rotors != 4:
+                raise ValueError(f'flight_controller:=firmware drives quad-X only; {spec.name} has {spec.n_rotors} rotors')
+            self.firmware = FirmwareInTheLoop(
+                launch['airframe'], start_z=None if not airborne else launch['start_z_m'],
+                wind_mps=(launch['wind_x_mps'], launch['wind_y_mps'], 0.0))
+            self.radio = FirmwareRadio(
+                hover_throttle(spec),
+                max_thrust_ratio=float(self.get_parameter('firmware_max_thrust_ratio').value))
+            self.backend = self.firmware.backend
+            self._warned = set()
         self.pilot = MultirotorPilot(
             CascadeGains(**self.backend.controller_defaults('cascade')),
             ManualLimits.from_spec(spec))
@@ -277,8 +299,48 @@ class MultirotorBackendAdapterNode(Node):
             on_ground=self.backend.on_ground(),
             height_agl_m=float(self.backend.state().position[2]) - self.rest_z)
 
+    def _warn_once(self, key, text):
+        if key not in self._warned:
+            self._warned.add(key)
+            self.get_logger().warning(text)
+
+    def _tick_firmware(self, now: float) -> None:
+        """Teleop -> radio sticks -> AK flight core (1 kHz) -> MuJoCo rotors."""
+        fresh = (self.manual is not None and self.manual_time is not None
+                 and 0.0 <= now - self.manual_time <= self.launch['manual_timeout_sec'])
+        if self.twist_time is not None:
+            self._warn_once('twist', 'flight_controller:=firmware ignores cmd_twist: '
+                                     'the AK firmware has no velocity mode')
+        source = SOURCE_MANUAL if fresh and self.enabled and self.manual[0] else (
+            'firmware_rc_lost' if not fresh else 'firmware_disarmed')
+        if source != self.source:
+            self.get_logger().info(f'control source: {self.source} -> {source}')
+            self.source = source
+        if fresh:
+            active, mode, sticks = self.manual
+            if mode == 'velocity':
+                self._warn_once('velocity', 'firmware has no velocity mode; flying angle mode')
+            self.firmware.set_sticks(**self.radio.sticks(
+                self.firmware.t, self.enabled and active, mode,
+                sticks.roll, sticks.pitch, sticks.yaw, sticks.throttle))
+        self.firmware.rc_alive = fresh
+        state_before = self.firmware.fc.state
+        if not getattr(self, 'diverged', False):
+            try:
+                self.firmware.step(self.period)
+            except SimulationDiverged as exc:
+                self.diverged = True
+                self.get_logger().error(f'plant diverged, simulation frozen: {exc}')
+        if self.firmware.fc.state != state_before:
+            self.get_logger().info(f'firmware: {state_before} -> {self.firmware.fc.state}')
+
     def _tick(self) -> None:
         now = time.monotonic()
+        if self.firmware is not None:
+            self._tick_firmware(now)
+            self._sync_viewer()
+            self._publish(self.backend.state())
+            return
         state = self.backend.state()
         source = self.control_source(now)
         if source != self.source:
@@ -310,6 +372,10 @@ class MultirotorBackendAdapterNode(Node):
                 # reset the aircraft to the origin; keep publishing it.
                 self.diverged = True
                 self.get_logger().error(f'plant diverged, simulation frozen: {exc}')
+        self._sync_viewer()
+        self._publish(self.backend.state())
+
+    def _sync_viewer(self) -> None:
         if self.viewer is not None:
             try:
                 if self.viewer.is_running():
@@ -319,7 +385,6 @@ class MultirotorBackendAdapterNode(Node):
             except Exception as exc:
                 self.get_logger().warning(f'MuJoCo viewer stopped, continuing headless: {exc}')
                 self.viewer = None
-        self._publish(self.backend.state())
 
     def _publish(self, state: SimState) -> None:
         odom = Odometry()

@@ -27,3 +27,26 @@ were from Claude's deliberate reproductions (07:03-07:19) and from the guard
 test forcing a blow-up at t=0 on every suite run. The test now runs that step
 in a temporary directory; the stray log was deleted. Consider adding
 `MUJOCO_LOG.TXT` to `.gitignore`.
+
+## Second batch: firmware-in-the-loop (separate commit)
+
+Suggested message: "sim: fly the unmodified AK flight core in MuJoCo (firmware-in-the-loop)".
+Nothing under `firmware/` was changed; the harness only reads it.
+
+Code
+- `sim_py/fc_sil/akfc_shim.c` (new): flat C API over `ak_flight_step`
+- `sim_py/fc_sil/build.py` (new): builds `sim_py/fc_sil/build/libakfc.so` from firmware/src/core (hash-cached)
+- `sim_py/fc_sil/__init__.py` (new): ctypes binding `AkFlightCore`, `FirmwareInTheLoop`, `FirmwareRadio`, IMU conversion
+- `sim_py/fc_sil/.gitignore` (new): ignores `build/`
+- `ros2_ws/src/sim_bridge/sim_bridge/multirotor_backend_adapter_node.py`: `flight_controller:=sim|firmware`, `firmware_max_thrust_ratio`
+- `ros2_ws/src/sim_fast/launch/multirotor_mujoco_teleop.launch.py`: `flight_controller` argument
+
+Tests
+- `sim_py/tests/test_fc_sil.py` (new): 11 pass + 1 expectedFailure (the estimator finding)
+- `ros2_ws/src/sim_bridge/test/test_multirotor_adapter.py`: firmware mode + non-quad refusal (sim_bridge 57 passed)
+
+Docs / evidence
+- `docs/SOFTWARE_GUIDE.md`: "Flying the AK firmware itself" section
+- `docs/evidence/fc-sil-estimator-finding-2026-11-17.md` (for the firmware owner)
+- `docs/evidence/fc-sil-teleop-fpv-session.{log,json}`: live keyboard session, ROS_DOMAIN_ID 88
+- `docs/evidence/claude-review-radio-2026-11-17.md`: added B4 (arm/mode channel swap vs AK firmware)

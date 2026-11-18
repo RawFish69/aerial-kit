@@ -1,3 +1,5 @@
+import shutil
+
 import pytest
 
 from hw_bridge.crsf_radio_mapping import (
@@ -71,7 +73,7 @@ def test_link_cut_topic_inverts_to_delivery_state():
 
 def test_backend_arm_hold_then_handover_and_disable_reverse():
     channel_map = CrsfChannelMap()
-    sequencer = BackendArmSequencer(arm_hold_sec=1.0, throttle_min=0.0)
+    sequencer = BackendArmSequencer(arm_hold_sec=1.0)
     hover = RcSticks(0.1, 0.2, -0.1, 0.5)
 
     hold_sticks, arm_request = sequencer.update(True, hover, 10.0)
@@ -180,3 +182,43 @@ def test_serial_reconnect_reopens_and_resets_arm_sequence(monkeypatch):
             node.link.close()
         node.destroy_node()
         rclpy.shutdown()
+
+
+@pytest.mark.skipif(
+    not (shutil.which('cc') or shutil.which('gcc')),
+    reason='needs a C compiler to build the AK flight core',
+)
+def test_arm_sequence_arms_the_real_firmware_through_the_wire_format():
+    from aerial_kit.comms.crsf import pack_channels, unpack_channels
+    from sim_py.fc_sil import AkFlightCore
+
+    channel_map = CrsfChannelMap()
+    sequencer = BackendArmSequencer()
+    firmware = AkFlightCore(AkFlightCore.QUAD_X, motors=4, servos=0)
+    hover = RcSticks(0.0, 0.0, 0.0, 0.5)
+
+    def step(now_ms: int, enabled: bool, now_s: float) -> None:
+        sticks, arm_request = sequencer.update(enabled, hover, now_s)
+        channels = channel_map.encode(sticks, enabled=arm_request)
+        wire_channels = unpack_channels(pack_channels(channels))
+        assert wire_channels == channels
+        firmware.step(
+            (0.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0),
+            wire_channels,
+            True,
+            now_ms,
+            now_ms * 1000,
+            now_ms,
+        )
+
+    try:
+        for now_ms in range(0, 200):
+            step(now_ms, False, now_ms / 1000.0)
+        assert firmware.state == 'disarmed'
+
+        for now_ms in range(200, 1201):
+            step(now_ms, True, (now_ms - 200) / 1000.0)
+        assert firmware.state == 'armed'
+    finally:
+        firmware.close()

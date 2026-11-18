@@ -276,3 +276,55 @@ def test_diverged_plant_freezes_and_keeps_publishing(monkeypatch):
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+
+def test_firmware_flight_controller_mode(monkeypatch):
+    import shutil
+
+    import rclpy
+
+    if not (shutil.which('cc') or shutil.which('gcc')):
+        pytest.skip('needs a C compiler to build the AK flight core')
+    clock = {'t': 1000.0}
+    monkeypatch.setattr(adapter.time, 'monotonic', lambda: clock['t'])
+    rclpy.init(args=['--ros-args', '-p', 'airframe:=fpv_quad_5in', '-p', 'flight_controller:=firmware'])
+    node = adapter.MultirotorBackendAdapterNode()
+    try:
+        assert node.firmware is not None and node.backend is node.firmware.backend
+
+        def run(seconds, msg=None):
+            for _ in range(int(seconds / 0.01)):
+                clock['t'] += 0.01
+                if msg is not None:
+                    node._on_manual(msg)
+                node._tick()
+
+        run(0.5, _manual(throttle=0.5, active=False))          # teleop up, disarmed
+        assert node.firmware.fc.state == 'disarmed'
+        node._on_enable(Bool(data=True))
+        run(1.2, _manual(throttle=0.5))                        # arm sequence, then hover
+        assert node.firmware.fc.state == 'armed'
+        run(2.0, _manual(throttle=0.8))                        # climb on the firmware
+        assert node.backend.state().position[2] > 1.0
+        run(0.6)                                               # teleop stops: receiver quiet
+        assert node.source == 'firmware_rc_lost'
+        assert node.firmware.fc.state == 'failsafe'
+        assert np.all(node.firmware.motors == 0.0)
+        # Motors off: from here it decelerates at least at g, whatever it was doing.
+        vz_before = node.backend.state().velocity[2]
+        run(0.5)
+        assert vz_before - node.backend.state().velocity[2] > 0.9 * 9.81 * 0.5
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_firmware_mode_refuses_non_quad_airframes():
+    import rclpy
+
+    rclpy.init(args=['--ros-args', '-p', 'airframe:=research_hex', '-p', 'flight_controller:=firmware'])
+    try:
+        with pytest.raises(ValueError, match='quad-X'):
+            adapter.MultirotorBackendAdapterNode()
+    finally:
+        rclpy.shutdown()

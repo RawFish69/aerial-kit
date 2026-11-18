@@ -24,6 +24,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'mode', default_value='auto',
             description='auto (FPV airframes: angle, research: velocity) | velocity | angle | acro'),
+        DeclareLaunchArgument(
+            'flight_controller', default_value='sim',
+            description="sim (simulator flight modes) | firmware (the AK flight core flies it: "
+                        "its arming, angle/acro modes and failsafe; quad-X airframes only)"),
         DeclareLaunchArgument('viewer', default_value='true',
                               description='Open the MuJoCo viewer (falls back to headless).'),
         DeclareLaunchArgument('start_z_m', default_value='0.0',
@@ -40,6 +44,7 @@ def generate_launch_description():
         parameters=[{
             'airframe': LaunchConfiguration('airframe'),
             'viewer': LaunchConfiguration('viewer'),
+            'flight_controller': LaunchConfiguration('flight_controller'),
             'start_z_m': LaunchConfiguration('start_z_m'),
             'wind_x_mps': LaunchConfiguration('wind_x_mps'),
             'wind_y_mps': LaunchConfiguration('wind_y_mps'),
