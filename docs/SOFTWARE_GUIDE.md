@@ -160,6 +160,13 @@ receiver times out and the firmware's quad failsafe **cuts the motors and latche
 aircraft falls, as the real one would. Tests: `sim_py/tests/test_fc_sil.py`,
 `ros2_ws/src/sim_bridge/test/test_multirotor_adapter.py -k firmware`.
 
+The wings too (Python): `WingFirmwareInTheLoop("twin_wing" | "single_wing")` runs the firmware's
+elevon-wing mixers (airframes 1 and 7) against the MuJoCo wings. Like the real aircraft it is
+armed in the hand and then thrown (`launch()`). Stick signs, arming and the lost-link
+"circling down" failsafe pass, and with a gravity-only accelerometer it flies level. With the
+physical accelerometer it dives: launch thrust tilts the measured gravity about 27 deg, and the
+fixed-wing estimator trusts it (`docs/evidence/fc-sil-wing-estimator-finding-2026-11-18.md`).
+
 Through the radio, end to end: `ros2 launch sim_fast bringup.launch.py sim_backend:=mujoco radio_sim:=true
 flight_controller:=firmware start_demo:=true` (or `FLIGHT_CONTROLLER=firmware scripts/run_radio_sil_mission.sh`).
 The host radio backend arms the firmware through CRSF, the simulated ELRS link carries the frames, and the
