@@ -1,5 +1,8 @@
 import numpy as np
-from uav_msgs.msg import Waypoint
+import pytest
+
+# Needs the built uav_msgs interfaces; the ROS 2 Jazzy CI job runs it.
+Waypoint = pytest.importorskip('uav_msgs.msg').Waypoint
 
 from uav_control.fixed_wing_guidance_node import active_waypoint
 

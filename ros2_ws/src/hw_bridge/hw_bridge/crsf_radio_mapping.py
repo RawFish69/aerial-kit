@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
-from geometry_msgs.msg import Twist
+if TYPE_CHECKING:  # ROS message types; imported lazily so the mapping logic tests without ROS
+    from geometry_msgs.msg import Twist
 
 from aerial_kit.comms.crsf import (
     CRSF_CHANNEL_COUNT,
@@ -192,7 +193,9 @@ class CrsfChannelMap:
             angle_mode=int(channels[self.mode - 1]) >= self.angle_mode_count,
         )
 
-    def decode(self, channels: Sequence[int], params: RcMapParams) -> tuple[bool, Twist]:
+    def decode(self, channels: Sequence[int], params: RcMapParams) -> tuple[bool, "Twist"]:
+        from geometry_msgs.msg import Twist
+
         decoded = self.decode_sticks(channels)
         command = Twist()
         if not decoded.arm_request:
