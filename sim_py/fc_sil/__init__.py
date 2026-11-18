@@ -485,3 +485,26 @@ class WingFirmwareInTheLoop:
 
     def close(self) -> None:
         self.fc.close()
+
+
+def wing_sticks_from_actuators(command, n_motors: int, max_thrust_n: float, travel_rad: float) -> dict:
+    """Invert the elevon-wing mix: a surface/thrust command -> the sticks that ask for it.
+
+    ``command`` is the wing backends' layout, ``[thrust_L, thrust_R, elevon_L,
+    elevon_R]`` (twin) or ``[thrust, elevon_L, elevon_R]`` (single), N and rad,
+    trailing edge up positive. The firmware mixes ``left = -roll + pitch``,
+    ``right = roll + pitch`` (pitch positive = nose up = stick back), so
+    roll = (R - L) / 2, stick pitch = -(L + R) / 2, each over the travel;
+    twin yaw = differential thrust; throttle = sqrt(thrust / T_max).
+    """
+    c = np.asarray(command, dtype=float).reshape(-1)
+    thrusts, (left, right) = c[:n_motors], c[n_motors:n_motors + 2]
+    total = float(np.clip(thrusts, 0.0, None).sum())
+    clip = lambda v: float(min(1.0, max(-1.0, v)))  # noqa: E731
+    yaw = 0.0
+    if n_motors == 2 and total > 1e-6:
+        yaw = clip((thrusts[0] - thrusts[1]) / total)
+    return dict(roll=clip((right - left) / (2.0 * travel_rad)),
+                pitch=clip(-(left + right) / (2.0 * travel_rad)),
+                yaw=yaw,
+                throttle=float(min(1.0, math.sqrt(total / (n_motors * max_thrust_n)))))

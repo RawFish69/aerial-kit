@@ -395,6 +395,14 @@ class FixedWingBackendAdapterNode(Node):
         self.declare_parameter('gps_sigma_z_m', 0.6)
         self.declare_parameter('baro_sigma_m', 0.15)
         self.declare_parameter('accel_sigma_mps2', 0.03)
+        # firmware: the unmodified AK flight core flies the wing (MuJoCo only).
+        # Teleop surface commands are turned back into sticks; Enter arms it
+        # in the hand, throttle up throws it. firmware_accel_model 'gravity'
+        # is a test instrument until the firmware's in-flight accelerometer
+        # compensation lands (docs/evidence/fc-sil-wing-estimator-finding-*).
+        self.declare_parameter('flight_controller', 'sim')
+        self.declare_parameter('firmware_accel_model', 'physical')
+        self.declare_parameter('firmware_angle_mode', True)
 
         # Validate everything launch-facing first: no plant, estimator or
         # viewer/OpenGL context exists until this has passed.
@@ -530,6 +538,26 @@ class FixedWingBackendAdapterNode(Node):
             })
             self.estimated_state = self.estimator.reset(initial_state)
         self.backend.reset(initial_state, {}, runtime_cfg)
+        self.firmware = None
+        fc_mode = str(self.get_parameter('flight_controller').value).strip().lower()
+        if fc_mode not in ('sim', 'firmware'):
+            raise ValueError(f"flight_controller must be 'sim' or 'firmware', got {fc_mode!r}")
+        if fc_mode == 'firmware':
+            if backend_kind != 'mujoco':
+                raise ValueError('flight_controller:=firmware needs backend:=mujoco')
+            from sim_py.fc_sil import WingFirmwareInTheLoop
+
+            self.firmware = WingFirmwareInTheLoop(
+                launch['airframe'], start_z=float(position[2]), start_speed=speed, heading_rad=heading,
+                wind_mps=runtime_cfg['simulation'].get('fixedwing', {}).get(
+                    'wind_mps', runtime_cfg['simulation'].get('singlewing', {}).get('wind_mps', [0.0] * 3)),
+                accel_model=str(self.get_parameter('firmware_accel_model').value))
+            self.backend = self.firmware.backend
+            self._arm_since = None
+            self.get_logger().info(
+                f'AK firmware flies the {launch["airframe"]} '
+                f'(accelerometer: {self.firmware.accel_model}); Enter arms it in the hand, '
+                'throttle up throws it')
         if launch['mujoco_viewer']:
             if backend_kind == 'mujoco':
                 self.viewer = open_mujoco_viewer(
@@ -621,10 +649,55 @@ class FixedWingBackendAdapterNode(Node):
             nav_timeout_s=self.nav_timeout_s,
         )
 
+    def _tick_firmware(self, now: float) -> None:
+        """Teleop surfaces -> sticks -> AK flight core (1 kHz) -> MuJoCo wing."""
+        from sim_py.fc_sil import wing_sticks_from_actuators
+
+        fw = self.firmware
+        fresh = (self.manual is not None and self.manual_time is not None
+                 and 0.0 <= now - self.manual_time <= self.manual_timeout_s)
+        source = 'firmware_manual' if fresh else 'firmware_rc_lost'
+        if source != self.source:
+            self.get_logger().info(f'control source: {self.source} -> {source}')
+            self.source = source
+        fw.rc_alive = fresh
+        if fresh:
+            active, command = self.manual
+            arm = bool(self.enabled and active)
+            sticks = wing_sticks_from_actuators(command, fw.n_motors, fw.max_thrust_n, fw.travel_rad)
+            if not arm:
+                self._arm_since = None
+                fw.set_sticks(roll=0.0, pitch=0.0, yaw=0.0, throttle=0.0, arm=False)
+            else:
+                if self._arm_since is None:
+                    self._arm_since = fw.t
+                holding = fw.t - self._arm_since < 0.8 or fw.fc.state != 'armed' and not fw.launched
+                if holding:      # the arm sequence: switch on, throttle at minimum
+                    fw.set_sticks(roll=0.0, pitch=0.0, yaw=0.0, throttle=0.0, arm=True)
+                else:
+                    fw.set_sticks(**sticks, arm=True)
+                if not fw.launched and fw.fc.state == 'armed' and not holding and sticks['throttle'] > 0.2:   # cruise throttle throws it
+                    fw.launch()
+                    self.get_logger().info('launched (thrown from the hand)')
+            fw.set_sticks(angle_mode=bool(self.get_parameter('firmware_angle_mode').value))
+        before = fw.fc.state
+        if not getattr(self, 'diverged', False):
+            try:
+                fw.step(self.period)
+            except SimulationDiverged as exc:
+                self.diverged = True
+                self.get_logger().error(f'plant diverged, simulation frozen: {exc}')
+        if fw.fc.state != before:
+            self.get_logger().info(f'firmware: {before} -> {fw.fc.state}')
+
     def _tick(self) -> None:
         if not rclpy.ok():
             return
         now = time.monotonic()
+        if self.firmware is not None:
+            self._tick_firmware(now)
+            self._finish_tick()
+            return
         truth_state = self.backend.state()
         state = state_for_control(
             self.estimator, self.estimated_state, truth_state)
@@ -667,6 +740,9 @@ class FixedWingBackendAdapterNode(Node):
                 # reset the aircraft to the origin; keep publishing it.
                 self.diverged = True
                 self.get_logger().error(f'plant diverged, simulation frozen: {exc}')
+        self._finish_tick()
+
+    def _finish_tick(self) -> None:
         truth_state = self.backend.state()
         if self.estimator is not None:
             self.estimated_state = self.estimator.update(truth_state)
