@@ -166,6 +166,24 @@ int ak_flight_selftest(ak_printf_fn out)
     check(&ctx, "arm switch plus low throttle arms",
           flight.state == AK_FLIGHT_ARMED, "");
 
+    /* A small tilt still gets the accelerometer's help; beyond the gate the
+     * thrust vector must not be mistaken for gravity. */
+    flight.est.roll = ak_deg2rad(10.0f);
+    t_ms += 1;
+    synthetic_imu(&imu, t_ms * 1000u, 0.0f, 0.0f);
+    rc_frame(&rc, t_ms, 0.0f, 0.0f, 1);
+    ak_flight_step(&flight, &imu, &rc, t_ms * 1000u, t_ms);
+    check(&ctx, "an armed quadrotor does not treat tilted rotor thrust as gravity",
+          flight.est.accel_enabled == 0, "");
+    flight.est.roll = 0.0f;
+    flight.est.pitch = 0.0f;
+    for (int i = 0; i < 20; i++) {
+        t_ms += 1;
+        synthetic_imu(&imu, t_ms * 1000u, 0.0f, 0.0f);
+        rc_frame(&rc, t_ms, 0.0f, 0.0f, 1);
+        ak_flight_step(&flight, &imu, &rc, t_ms * 1000u, t_ms);
+    }
+
     /* Throttle up and roll right: motors spin, and the mix leans right. */
     for (int i = 0; i < 50; i++) {
         t_ms += 1;
@@ -241,6 +259,8 @@ int ak_flight_selftest(ak_printf_fn out)
         ak_flight_step(&wing, &imu, &rc, t_ms * 1000u, t_ms);
     }
     check(&ctx, "a wing arms the same way", wing.state == AK_FLIGHT_ARMED, "");
+    check(&ctx, "an armed wing keeps its accelerometer attitude aid",
+          wing.est.accel_enabled == 1, "");
 
     for (int i = 0; i < 300; i++) { /* the receiver goes quiet */
         t_ms += 1;

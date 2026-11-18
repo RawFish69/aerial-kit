@@ -42,6 +42,14 @@ typedef struct {
     float pitch;     /* rad, derived from q */
     float yaw;       /* rad, derived from q's yaw plus however many turns it has made */
     float tau;       /* filter time constant, s */
+    /*
+     * Whether this sample's accelerometer direction is allowed to correct
+     * attitude. Wings normally leave it on. The flight core turns it off for
+     * a tilted multirotor in flight: its accelerometer measures thrust along
+     * the body axis, not gravity, so using it as an up vector pulls a
+     * sustained bank back toward level and makes angle mode keep rolling.
+     */
+    int   accel_enabled;
     int   converged; /* set once the accelerometer has been used enough times */
     int   accel_used;
     /* How long the ground track has been agreeing with the yaw estimate, and
