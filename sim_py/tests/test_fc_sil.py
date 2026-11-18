@@ -164,6 +164,26 @@ class TestFirmwareFliesMujoco(unittest.TestCase):
             FirmwareInTheLoop("research_hex")
 
 
+class TestPackagedWithoutFirmware(unittest.TestCase):
+    def test_missing_firmware_sources_raise_a_clear_error(self) -> None:
+        # An installed wheel has sim_py but not firmware/: say so, do not hand
+        # the compiler a missing file (clean-install CI checks the same).
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        import importlib
+
+        fc_build = importlib.import_module("sim_py.fc_sil.build")
+
+        with tempfile.TemporaryDirectory() as empty, mock.patch.object(fc_build, "CORE", Path(empty) / "core"):
+            with self.assertRaises(RuntimeError) as ctx:
+                fc_build.build()
+        message = str(ctx.exception).lower()
+        self.assertIn("firmware", message)
+        self.assertIn("source", message)
+
+
 class TestFirmwareRadio(unittest.TestCase):
     def test_arm_sequence_holds_throttle_low_then_passes_sticks(self) -> None:
         from sim_py.fc_sil import FirmwareRadio

@@ -52,7 +52,21 @@ def fingerprint() -> str:
     return h.hexdigest()
 
 
+def check_sources() -> None:
+    """Fail clearly when the firmware sources are not here (e.g. an installed wheel).
+
+    The wheel ships ``sim_py`` but not ``firmware/`` (nor the shim's C file):
+    firmware-in-the-loop compiles those sources, so it needs a source checkout.
+    """
+    missing = [str(p) for p in (CORE / "flight" / "ak_flight.c", HERE / "akfc_shim.c") if not p.is_file()]
+    if missing:
+        raise RuntimeError(
+            "firmware-in-the-loop needs the AK firmware source tree, which is not installed with the "
+            "package: run it from a source checkout of aerial-kit (missing: " + ", ".join(missing) + ")")
+
+
 def build(force: bool = False) -> Path:
+    check_sources()
     cc = os.environ.get("CC") or shutil.which("cc") or shutil.which("gcc")
     if cc is None:
         raise RuntimeError("no C compiler found (install gcc, or set CC)")
