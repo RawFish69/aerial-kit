@@ -255,11 +255,14 @@ class MultirotorGeometry:
         s, g = self.spec, self.spec.geometry
         hub = g["hub"]
         R, H = float(hub["radius_m"]), float(hub["height_m"])
+        # Fixed detail sizes below were drawn for the 0.115 m hub of the research
+        # hex; smaller frames (the swarm quad) scale them down, larger keep them.
+        k = min(1.0, R / 0.115)
         parts = [
             VisualPart("hub_lower", "body", "carbon", z_cylinder([0, 0, -0.25 * H], R, 0.5 * H, 24)),
             VisualPart("hub_canopy", "body", "hub",
-                       revolve([(0.5 * H + 0.04, 0.02), (0.5 * H + 0.03, 0.55 * R),
-                                 (0.5 * H + 0.01, 0.9 * R), (0.0, R * 1.01), (-0.004, R * 1.01)], 24)
+                       revolve([(0.5 * H + 0.04 * k, 0.02 * k), (0.5 * H + 0.03 * k, 0.55 * R),
+                                 (0.5 * H + 0.01 * k, 0.9 * R), (0.0, R * 1.01), (-0.004 * k, R * 1.01)], 24)
                        .transformed(_axis_angle([0, 1, 0], -math.pi / 2))),
         ]
         motor_h = float(g["motor"]["height_m"])
@@ -274,7 +277,7 @@ class MultirotorGeometry:
                                     "front_arm" if _is_front(rotor) else "carbon",
                                     cylinder_between(start, end, arm_r, 12)))
             parts.append(VisualPart(f"{rotor.name}_mount", "body", "carbon",
-                                    oriented_box(end, [0.025, 0.02, arm_r + 0.004],
+                                    oriented_box(end, [0.025 * k, 0.02 * k, arm_r + 0.004 * k],
                                                  yaw=math.atan2(direction[1], direction[0]))))
         lg = g["landing_gear"]
         w, L, h, tr = (float(lg[k]) for k in ("width_m", "length_m", "height_m", "tube_radius_m"))
@@ -288,27 +291,28 @@ class MultirotorGeometry:
                                         cylinder_between([sx * 0.25 * L, y, bottom - h],
                                                          [sx * 0.35 * R, sy * 0.35 * R, bottom], tr, 10)))
         mast = g["gps_mast"]
-        top = 0.5 * H + 0.04
+        top = 0.5 * H + 0.04 * k
         parts.append(VisualPart("gps_mast", "body", "carbon",
-                                cylinder_between([-0.3 * R, 0, top - 0.01], [-0.3 * R, 0, top + mast["height_m"]], 0.006, 8)))
+                                cylinder_between([-0.3 * R, 0, top - 0.01 * k], [-0.3 * R, 0, top + mast["height_m"]],
+                                                 0.006 * k, 8)))
         parts.append(VisualPart("gps_puck", "body", "gps",
-                                z_cylinder([-0.3 * R, 0, top + mast["height_m"] + 0.008],
-                                           float(mast["puck_radius_m"]), 0.016, 20)))
+                                z_cylinder([-0.3 * R, 0, top + mast["height_m"] + 0.008 * k],
+                                           float(mast["puck_radius_m"]), 0.016 * k, 20)))
         pay = g["payload"]
         psize, ppos = np.asarray(pay["size_m"], float), np.asarray(pay["position_m"], float)
         parts.append(VisualPart("payload", "body", "payload", box_mesh(ppos, 0.5 * psize)))
         parts.append(VisualPart("payload_mount", "body", "carbon",
-                                cylinder_between([ppos[0], 0, bottom], ppos + [0, 0, 0.5 * psize[2]], 0.01, 8)))
+                                cylinder_between([ppos[0], 0, bottom], ppos + [0, 0, 0.5 * psize[2]], 0.01 * k, 8)))
         cam = s.camera
         if cam:
             cpos = np.asarray(cam["position_m"], float)
             tilt = math.radians(float(cam["uptilt_deg"]))
             d = np.array([math.cos(tilt), 0.0, math.sin(tilt)])
             parts.append(VisualPart("payload_lens", "body", "lens",
-                                    cylinder_between(cpos - 0.01 * d, cpos + 0.012 * d, 0.02, 16)))
+                                    cylinder_between(cpos - 0.01 * k * d, cpos + 0.012 * k * d, 0.02 * k, 16)))
         bat = g["battery"]
         parts.append(VisualPart("battery", "body", "battery",
-                                box_mesh(np.asarray(bat["position_m"], float) + [0, 0, 0.03],
+                                box_mesh(np.asarray(bat["position_m"], float) + [0, 0, 0.03 * k],
                                          0.5 * np.asarray(bat["size_m"], float))))
         return parts + self._rotor_parts("motor_bell", "prop_front", "prop_rear",
                                          "prop_tip_front", "prop_tip_rear")
