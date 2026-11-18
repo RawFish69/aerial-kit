@@ -20,6 +20,7 @@
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>terrain_generator</exec_depend>
   <exec_depend>sim_bridge</exec_depend>
+  <exec_depend>sim_fast</exec_depend>
   <exec_depend>air_unit</exec_depend>
   <exec_depend>uav_control</exec_depend>
   <exec_depend>planner</exec_depend>

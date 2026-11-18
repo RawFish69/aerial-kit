@@ -8,7 +8,11 @@ import pytest
 from aerial_kit.airframes.fixed_wing import TwinWingAirframe
 from aerial_kit.guidance.l1 import l1_bank_command
 from aerial_kit.guidance.tecs import TecsGains, tecs_command
-from aerial_kit.controllers.fixed_wing import FixedWingL1TECSController, body_axis_pitch_bank
+from aerial_kit.controllers.fixed_wing import (
+    FixedWingL1TECSController,
+    airspeed_nav_wrench,
+    body_axis_pitch_bank,
+)
 from sim_py.core.types import CommandKind, SimState, Waypoint
 from aerial_kit.dynamics.fixed_wing import FixedWingDynamics, level_attitude_quat
 
@@ -66,6 +70,63 @@ def test_l1_closed_loop_kinematic_convergence():
             break
 
     assert np.linalg.norm(position - target) < 5.0
+
+
+def test_airspeed_nav_wrench_turns_bank_and_climb_into_moments():
+    level = SimState(
+        position=np.array([0.0, 0.0, 20.0]),
+        velocity=np.array([15.0, 0.0, 0.0]),
+        attitude_quat=level_attitude_quat(),
+        body_rates=np.zeros(3),
+    )
+    cfg = {"controller": {"l1_tecs": {
+        "cruise_airspeed_mps": 15.0,
+        "trim_throttle_n": 3.0,
+        "max_thrust_n": 10.0,
+    }}}
+    straight = airspeed_nav_wrench(level, 15.0, 0.0, 0.0, cfg)
+    climbing_right = airspeed_nav_wrench(level, 15.0, np.radians(20.0), 1.0, cfg)
+
+    assert straight.force_body[0] == pytest.approx(3.0, abs=1e-9)
+    assert np.allclose(straight.moment_body, 0.0, atol=1e-9)
+    assert climbing_right.moment_body[0] > 0.0
+    assert climbing_right.moment_body[1] > 0.0
+    assert climbing_right.moment_body[2] > 0.0
+
+
+def test_airspeed_nav_wrench_raises_thrust_for_low_airspeed():
+    state = SimState(
+        position=np.array([0.0, 0.0, 20.0]),
+        velocity=np.array([10.0, 0.0, 0.0]),
+        attitude_quat=level_attitude_quat(),
+        body_rates=np.zeros(3),
+    )
+    wrench = airspeed_nav_wrench(
+        state, 15.0, 0.0, 0.0,
+        {"controller": {"l1_tecs": {
+            "trim_throttle_n": 3.0,
+            "tecs_kp_throttle": 0.2,
+        }}},
+    )
+    assert wrench.force_body[0] == pytest.approx(4.0, abs=1e-9)
+
+
+def test_airspeed_nav_wrench_uses_measured_air_relative_speed():
+    cfg = {"controller": {"l1_tecs": {
+        "trim_throttle_n": 3.0,
+        "tecs_kp_throttle": 0.2,
+    }}}
+    common = {
+        "position": np.array([0.0, 0.0, 20.0]),
+        "velocity": np.array([18.0, 0.0, 0.0]),
+        "attitude_quat": level_attitude_quat(),
+        "body_rates": np.zeros(3),
+    }
+    fast_air = SimState(**common, airspeed_mps=20.0)
+    slow_air = SimState(**common, airspeed_mps=10.0)
+    fast = airspeed_nav_wrench(fast_air, 15.0, 0.0, 0.0, cfg)
+    slow = airspeed_nav_wrench(slow_air, 15.0, 0.0, 0.0, cfg)
+    assert fast.force_body[0] < slow.force_body[0]
 
 
 def test_tecs_throttle_increases_when_slow_and_low():
@@ -133,7 +194,9 @@ def _step_with_controller(dyn: FixedWingDynamics, controller, target: Waypoint, 
     max_elevon = np.radians(25.0)
     delta_pitch = float(np.clip(pitch_m, -max_elevon, max_elevon))
     delta_roll = float(np.clip(roll_m, -(max_elevon - abs(delta_pitch)), max_elevon - abs(delta_pitch)))
-    actuator_cmd = np.array([throttle, throttle, delta_pitch + delta_roll, delta_pitch - delta_roll], dtype=float)
+    actuator_cmd = np.array(
+        [throttle, throttle, delta_pitch - delta_roll,
+         delta_pitch + delta_roll], dtype=float)
     dyn.step(actuator_cmd, dt)
 
 
@@ -368,7 +431,8 @@ def test_stall_guard_impossible_climb_clamps_and_does_not_stall():
         delta_pitch = float(np.clip(pitch_m, -max_elevon, max_elevon))
         delta_roll = float(np.clip(roll_m, -(max_elevon - abs(delta_pitch)), max_elevon - abs(delta_pitch)))
         actuator_cmd = np.array(
-            [throttle, throttle, delta_pitch + delta_roll, delta_pitch - delta_roll], dtype=float
+            [throttle, throttle, delta_pitch - delta_roll,
+             delta_pitch + delta_roll], dtype=float
         )
         dyn.step(actuator_cmd, dt)
         airspeed, _, _ = dyn.airspeed_alpha_beta()
@@ -421,7 +485,9 @@ def test_motor_out_stays_controllable_in_roll_pitch():
         delta_pitch = float(np.clip(pitch_m, -max_elevon, max_elevon))
         delta_roll = float(np.clip(roll_m, -(max_elevon - abs(delta_pitch)), max_elevon - abs(delta_pitch)))
         # Right motor failed: zero regardless of what the controller commands.
-        actuator_cmd = np.array([throttle, 0.0, delta_pitch + delta_roll, delta_pitch - delta_roll], dtype=float)
+        actuator_cmd = np.array(
+            [throttle, 0.0, delta_pitch - delta_roll,
+             delta_pitch + delta_roll], dtype=float)
         dyn.step(actuator_cmd, dt)
 
     pitch, bank = body_axis_pitch_bank(dyn.attitude_quat)

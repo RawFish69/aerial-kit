@@ -1,0 +1,41 @@
+Direct FC-in-the-loop feasibility check
+Date: 2026-11-17
+Working tree: /home/cy/Projects/aerial-kit
+
+Command:
+  cd firmware && make -n BOARD=HOST
+
+Output:
+  Makefile:12: *** This public build supports BOARD=FEATHER_F405; ESP32DEV uses ESP-IDF.  Stop.
+  exit status 2
+
+Command:
+  cd firmware && make -n sil
+
+Output:
+  make: *** No rule to make target 'sil'.  Stop.
+  exit status 2
+
+Command:
+  cd firmware && rg -n '^sil:|^control-check:|^control-experiment:|HOST_OUT|aerialkit-fw-sim' Makefile CMakeLists.txt
+
+Output:
+  No matches; CMakeLists.txt is not present at the firmware root.
+  exit status 2
+
+Filesystem inspection:
+  firmware/tools/akcontrol.py                         present
+  firmware/tools/akcontrol_check.py                   present
+  firmware/tools/akcontrol_cascade.py                 present
+  firmware/tools/ak_control.h                         missing
+  firmware/tests/                                     present, fixture data only
+  firmware/tests host C sources/models                 missing
+
+Result:
+  The public firmware build target is the ARM Feather F405 image. The
+  retained Python ABI binding documents the intended shared-control-core
+  harness, but its C ABI header, library build targets, host tests and
+  simulator executable are not present in this checkout. FC-in-the-loop with
+  MuJoCo is blocked until that retained development harness is restored or
+  reimplemented and tested. No fallback binary was fabricated and no hardware
+  was accessed.

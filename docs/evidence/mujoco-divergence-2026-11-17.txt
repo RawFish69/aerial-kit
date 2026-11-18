@@ -1,0 +1,58 @@
+MuJoCo divergence after a crash: diagnosis and fix
+2026-11-17. MuJoCo 4.0.1.
+
+Symptom
+  ros2_ws/MUJOCO_LOG.TXT (2026-11-16 15:18:05):
+    "Nan, Inf or huge value in QACC at DOF 3. The simulation is unstable. Time = 33.7340."
+  Source: a manual multirotor_mujoco_teleop session started 15:17:30 (FPV quad
+  default; node output not logged). Not reproduced by any ROS test.
+
+Reproduction (headless, FPV quad, angle mode)
+  full forward stick, throttle centred for 4 s (-> 44 m/s), then throttle 0
+  (= max descent rate): ground strike at 44 m/s at t~5.7 s, airframe bounced
+  into a ~140 rad/s pitch tumble. With no thrust the spin should be bounded,
+  but it grew 130 -> 17,600 rad/s in the air (no contacts), then BADQACC and
+  MuJoCo reset the state: the aircraft reappeared at the origin.
+
+Cause
+  implicitfast integrates the gyroscopic (Coriolis) terms explicitly. Free
+  tumble 5/130/-3 rad/s, no gravity, 2 s:
+    implicitfast 2 ms  diverged          implicitfast 0.5 ms  130 -> 160 (energy gain)
+    implicit     2 ms  130 -> 79 (lossy)  RK4 2 ms             130 -> 133 (axis exchange)
+  Cost (FPV, x real time): implicitfast 452, implicit 294, RK4 140. Contact rest
+  and 6 rad/s accuracy equal for all three.
+
+Fix
+  - multirotor MJCF integrator implicitfast -> RK4 (all four airframes).
+    Wings stay implicitfast: their stiff elevon servos (kv/I ~ 2500/s) need its
+    implicit damping.
+  - sim_py/backends/mujoco_guard.py: step_guarded() on every mj_step in the three
+    MuJoCo backends; on BADQACC or non-finite state it restores the last finite
+    state and raises SimulationDiverged (no silent teleport).
+  - ROS adapters (fixed wing, multirotor): catch it, log "plant diverged,
+    simulation frozen", stop stepping, keep publishing the last state.
+
+After
+  same crash: peak |qvel| 144, comes to rest, no BADQACC, no position jump.
+  Eight crash/tumble/acro scenarios: 0 divergences.
+  Tests: sim_py 517 passed (+3: ground strike, free tumble, guard restore);
+  sim_bridge/uav_control teleop/sim_fast ROS tests 107 passed (+1 freeze test).
+  The ActuatorPlant cross-check still passes under RK4.
+
+Wings (same weakness, different fix)
+  Free tumble, implicitfast: 66 -> 103 rad/s (energy gain), 142 rad/s diverged,
+  both twin and single wing. RK4 is unsuitable (stiff elevon servos).
+  integrator="implicit" (servo damping and gyroscopic terms implicit):
+    6.6 -> 6.5, 22 -> 21, 66 -> 47, 142 -> 64-71 rad/s; never diverged.
+    Servo step 0.3 rad -> 0.281 rad at 0.2 s (unchanged); 311-358x real time.
+  Wing tests (twin model, single wing, teleop, backends): 47 passed, plus a
+  new tumble test for both wings.
+
+Multirotor Gazebo demos, re-validated in isolation
+  (ROS_DOMAIN_ID=88, GZ_PARTITION=claude88; DeepSeek's earlier run had been
+  disturbed by a concurrent teleop test)
+  ros2 launch sim_gazebo multirotor_gazebo_demo.launch.py headless:=true start_demo:=true airframe:=<a>
+    research_hex   pose stream ok, Demo: disarm, closest 0.55 m, finite
+    fpv_quad_5in   pose stream ok, Demo: disarm, closest 0.73 m, finite
+    micro_lr_quad  pose stream ok, Demo: disarm, closest 0.63 m, finite
+  logs/json: multirotor-gazebo-<airframe>-demo.*

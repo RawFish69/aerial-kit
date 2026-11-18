@@ -1,0 +1,67 @@
+Gap closing: single wing integration, multirotor propulsion model, tracker tau
+Measured 2026-11-16. MuJoCo 4.0.1, ROS 2 Jazzy.
+
+1. Single-motor wing (DeepSeek's model, reviewed and integrated)
+  Review: dynamics signs correct (high pusher thrust line pitches nose down;
+  motor reaction opposes prop spin); stall/lift reused from fixed_wing.py;
+  allocate() re-solves trim each call: probed 5-30 m/s x 0-8 N, 442 calls,
+  0 exceptions, 0.84 ms/call. Declared prop/motor inertias were unused by the
+  analytic model (now used for the MuJoCo rotor).
+  Merged: airframe single_wing, controller single_wing_l1_tecs, backends
+  singlewing + mujoco_singlewing. Runner offers backend controller_defaults
+  to l1_tecs (trim thrust from the spec); example starts at cruise.
+  Generic runner, examples/single_wing/config.yaml (acceptance 12 m):
+    singlewing         goal err 11.86 m, 43/43 waypoints, 0 collisions
+    mujoco_singlewing  goal err 11.77 m, 43/43 waypoints, 0 collisions
+  MuJoCo model: composite mass 1.100 kg and inertia equal the spec; pusher
+  prop behind the CG spins in the spec direction; roll-right raises the
+  right TE; 3 s trim flight within 1 m / 0.5 m/s of the analytic plant.
+  ROS: ros2 launch sim_fast fixed_wing_mujoco_demo.launch.py airframe:=single_wing \
+         start_delay_sec:=2.0 wind_x_mps:=3.0 wind_y_mps:=1.0 estimator_mode:=ekf estimator_seed:=7
+    final distance 9.20 m; altitude 52.27-54.29 m (max |z-55| 2.73); NaN 0
+    log/json: single-wing-mujoco-ekf-wind-mission.*
+  Live keyboard (XTEST), airframe:=single_wing start_z_m:=150:
+    D: elevons L/R -0.134/+0.198 rad, p +0.80 rad/s;  A mirror
+    S: both +0.197, q +0.82;  W: both -0.143, q -0.78
+    Space: 2 x 2.11 N (one motor 4.2 N);  Shift: 0 N;  Q/E: no change
+    P with D held: trim;  shutdown clean.
+    log/json: single-wing-teleop-session.*
+    Note: in an earlier attempt the viewer took focus at start-up and the
+    probe's phase labels lagged; the teleop was then checked directly: with
+    no key pressed for 15 s it publishes active=false, enable=false.
+
+2. Multirotor propulsion model (now default for all four airframes)
+  rpm model: lag on motor speed, thrust ~ speed^2, pack voltage =
+  OCV(SoC) - I R with momentum-theory power, ground effect per rotor,
+  flight-controller voltage compensation (default on).
+  Tests: spin-up < 63 % and spin-down > 63 % of the step at one tau
+  (asymmetric); at 10 % charge full throttle < 85 % of full-pack thrust;
+  compensation holds commanded hover thrust within 1 %, off droops > 5 %
+  and loses > 0.2 m; ground-effect ratio matches Cheeseman-Bennett within
+  0.01 at hub height 0.36 m on the hex.
+  Hover (research defaults): FPV 3.9 A / ~14 min, micro 4.9 A / ~6 min,
+  hex 14.3 A / ~33 min, octo 27.7 A / ~28 min (80 % of pack).
+  lagged_thrust model kept and pinned by the ActuatorPlant cross-check.
+  ROS demos on the rpm model:
+    fpv_quad_5in (executor)   closest 0.73 m, tilt 16.2 deg, disarmed, finite
+    research_hex (mpc)        closest 0.01 m, tilt 11.9 deg, disarmed, finite
+    logs/json: multirotor-rpm-*-demo.*
+
+3. Predictive trackers
+  bringup.launch.py sets mpc/mppi velocity_loop_tau_s per backend
+  (pointmass 1/1.5 s; mujoco 1/velocity_kp of the airframe). Tested.
+
+4. Housekeeping
+  An orphaned telemetry_adapter_node (left by an earlier forced launch
+  kill) was found and killed; it only republished odometry as telemetry.
+  The demo runner now kills the launch process group.
+
+5. Tests
+  sim_py: 514 passed, 84 subtests      (500 before)
+  ROS:    191 passed                   (184 before)
+  twin-wing assets --check: 32 files match
+  Twin-wing regressions: analytic final 9.13 m; MuJoCo+EKF+wind 7.31 m,
+  altitude 52.6-54.5, NaN 0 (gaps-regression-wing-*).
+
+Not done here: Gazebo models for the multirotors (handed to DeepSeek),
+swarm quad (later), hardware validation (none claimed).

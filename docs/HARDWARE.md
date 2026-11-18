@@ -13,6 +13,77 @@ This page covers the **Betaflight / CRSF** path over this repo's own ESP32 TX/RX
 `ros2_ws/src/mavlink_bridge/README.md`. Both paths present the same `/uav/backend/*`
 contract, so the control stack above them is identical.
 
+## Direct CRSF host link
+
+The Aerial Kit ELRS USB TX Rev A3 can also accept CRSF directly from a host. This
+is separate from the older ESP-NOW/UDP bridge below:
+
+```text
+ROS velocity command -> crsf_radio_backend_node -> CRSF UART -> ELRS TX ~~ RF ~~> ELRS RX
+FC CRSF telemetry    <- crsf_radio_backend_node <- CRSF UART <-----------------------+
+```
+
+The host UART is 400000 baud, 8N1, non-inverted and full duplex. This is the
+handset rate in the ELRS autobaud table. The RX-to-FC UART remains 420000 baud.
+Pin mapping, the need for a 3.3 V USB-UART adapter, role-image selection and
+native USB-CDC limits are in
+[`firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md`](../firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md).
+
+The channel map is AETR on channels 1-4, flight mode on channel 5, and arm on
+channel 6, matching AerialKit firmware defaults. Switch values use the same
+1300-count threshold, and high on channel 5 selects Angle mode. A Betaflight
+setup must map its AUX channels to that same assignment. An enable rising edge
+starts a configurable `arm_hold_sec` sequence:
+arm is high with throttle at the CRSF low endpoint before controller sticks are
+handed over. Disable drives arm low and throttle low immediately. A stale command
+after handover uses neutral hover sticks and remains armed.
+
+`command_frame` must state the incoming `/uav/backend/cmd_twist` convention.
+`world` rotates ENU velocity into body right/forward using measured yaw before
+converting it to sticks; `body` expects body-frame velocity directly. The
+simulated bringup uses `world`. If `world` is selected without fresh attitude,
+the backend holds minimum throttle instead of guessing a heading.
+
+`stick_mapping: angle` is the hardware default: it turns velocity error into
+the Angle-mode stick values in `crsf_radio.yaml`. The SIL launch overrides this
+to normalized velocity sticks so the MuJoCo manual controller can close the
+velocity loop.
+
+`vxy_feedback` defaults off for hardware until the vehicle's GPS-derived body
+velocity has been checked to be smooth and correctly signed. `vz_feedback`
+remains enabled by default.
+
+Serial transport failures are reported on `/uav/radio/status`. The backend
+closes and retries the port, resets the parser, and requires a fresh arm hold
+after reconnecting before sending an armed handover.
+
+Decoded telemetry continues to use the existing hardware topics:
+
+- Attitude -> `/uav/hw/imu`
+- GPS -> `/uav/hw/gps`
+- Battery -> `/uav/hw/battery`
+- Flight mode -> `/uav/radio/flight_mode`
+
+RSSI, link quality and SNR are additive JSON on `/uav/radio/link_stats`; no
+existing message field was changed. `/uav/radio/status` carries human-readable
+transport status.
+
+### Radio failsafe
+
+The ROS backend replaces a command older than `command_timeout_sec` (0.5 s by
+default) with neutral hover sticks while `/uav/backend/enable` remains true. On
+the radio side, the simulated receiver disables the plant after
+`receiver_timeout_sec` (0.35 s) without a fresh channel frame; an airborne
+multirotor backend then auto-lands instead of holding its last command.
+
+The real flight controller's own failsafe remains authoritative. Configure it
+to stop motors or perform the intended controlled landing when CRSF input goes
+stale; do not configure hold-last-command. Aerial Kit firmware documents its
+link-loss behavior in
+[`firmware/docs/04-flight-core.md`](../firmware/docs/04-flight-core.md). Every
+real FC must be verified with props removed; the SIL result is not a substitute
+for that bench check.
+
 The stick mapping and `hover_throttle` described here are **multirotor-specific**. Fixed-wing
 and other airframes need their own mapping; that work is tracked in the roadmap in the
 [root README](STACK-GUIDE.md#roadmap).

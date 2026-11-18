@@ -7,6 +7,7 @@ import numpy as np
 
 from sim_py.backends.pointmass_backend import PointMassBackend
 from sim_py.backends.mujoco_backend import MujocoBackend
+from sim_py.backends.mujoco_fixedwing_backend import MujocoFixedWingBackend
 from sim_py.backends.rotorpy_backend import RotorPyBackend
 from sim_py.core.types import ControlTarget, SimState
 
@@ -174,6 +175,63 @@ class TestMujocoBackendTimestep(unittest.TestCase):
             with self.subTest(timestep=bad):
                 with self.assertRaises(ValueError):
                     self._backend({"mass": 1.0, "timestep": bad})
+
+
+@requires_mujoco
+class TestMujocoFixedWingBackend(unittest.TestCase):
+    def _backend(self):
+        from aerial_kit.dynamics.fixed_wing import (
+            FixedWingDynamics,
+            level_attitude_quat,
+        )
+
+        plant = FixedWingDynamics()
+        backend = MujocoFixedWingBackend()
+        backend.reset(
+            initial_state=SimState(
+                position=np.array([0.0, 0.0, 55.0]),
+                velocity=np.array([15.0, 0.0, 0.0]),
+                t=0.0,
+                attitude_quat=level_attitude_quat(),
+                body_rates=np.zeros(3),
+            ),
+            world={},
+            cfg={"simulation": {
+                "fixedwing": {"max_thrust_n": 10.0},
+                "mujoco": {"timestep": 0.002, "thrust_tau_s": 0.03},
+            }},
+        )
+        return backend, plant
+
+    def test_mujoco_owns_a_flying_wing_state(self) -> None:
+        backend, plant = self._backend()
+        trim = plant.compute_trim(15.0)
+        target = ControlTarget(
+            accel_cmd=np.zeros(3),
+            metadata={"actuator_cmd": trim},
+        )
+        for _ in range(100):
+            backend.step(target, 0.01)
+        state = backend.state()
+        self.assertTrue(np.all(np.isfinite(state.position)))
+        self.assertTrue(np.all(np.isfinite(state.velocity)))
+        self.assertGreater(state.position[0], 10.0)
+        self.assertLess(abs(state.position[2] - 55.0), 2.0)
+        self.assertAlmostEqual(state.t, 1.0, places=10)
+
+    def test_elevon_hinges_follow_actuator_commands(self) -> None:
+        backend, _ = self._backend()
+        command = np.array([2.0, 2.0, 0.2, 0.2])
+        target = ControlTarget(
+            accel_cmd=np.zeros(3),
+            metadata={"actuator_cmd": command},
+        )
+        for _ in range(20):
+            backend.step(target, 0.01)
+        left = backend._data.qpos[backend._qpos_adr["left_elevon_joint"]]
+        right = backend._data.qpos[backend._qpos_adr["right_elevon_joint"]]
+        self.assertGreater(left, 0.15)
+        self.assertAlmostEqual(left, right, places=5)
 
 
 if __name__ == "__main__":

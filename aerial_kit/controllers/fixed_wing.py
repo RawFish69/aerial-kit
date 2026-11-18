@@ -93,7 +93,11 @@ class FixedWingL1TECSController(Controller):
 
         position = np.asarray(state.position, dtype=float)
         velocity = np.asarray(state.velocity, dtype=float)
-        airspeed = float(np.linalg.norm(velocity[:2]))
+        airspeed = (
+            float(state.airspeed_mps)
+            if state.airspeed_mps is not None
+            else float(np.linalg.norm(velocity[:2]))
+        )
 
         bank_cmd = l1_bank_command(
             position_xy=position[:2],
@@ -146,3 +150,72 @@ class FixedWingL1TECSController(Controller):
                 "throttle_cmd_n": throttle_cmd_n,
             },
         )
+
+
+def airspeed_nav_wrench(
+    state: SimState,
+    airspeed_cmd: float,
+    bank_cmd: float,
+    climb_rate_cmd: float,
+    cfg: Mapping[str, Any] | None = None,
+) -> Wrench:
+    """Realise ROS ``AirspeedNav`` as a body wrench for an actuator-level plant.
+
+    The message carries the outer-loop outputs, not moments. This function is
+    the inner-loop half shared by the headless ROS backend: airspeed error maps
+    to collective thrust, climb/airspeed maps to a pitch command, and the same
+    body-axis attitude law as ``FixedWingL1TECSController`` produces moments.
+    """
+    ctrl_cfg = dict((cfg or {}).get("controller", {}) or {})
+    fw_cfg = dict(ctrl_cfg.get("l1_tecs", {}) or {})
+    gains = AttitudeGains(
+        kp_roll=float(fw_cfg.get("kp_roll", 0.6)),
+        kd_roll=float(fw_cfg.get("kd_roll", 0.15)),
+        kp_pitch=float(fw_cfg.get("kp_pitch", 0.8)),
+        kd_pitch=float(fw_cfg.get("kd_pitch", 0.2)),
+        kp_yaw_rate=float(fw_cfg.get("kp_yaw_rate", 2.0)),
+    )
+    cruise = float(fw_cfg.get("cruise_airspeed_mps", 15.0))
+    airspeed = (
+        float(state.airspeed_mps)
+        if state.airspeed_mps is not None
+        else float(np.linalg.norm(
+            np.asarray(state.velocity, dtype=float)[:2]))
+    )
+    requested_speed = float(airspeed_cmd) if np.isfinite(airspeed_cmd) else cruise
+    requested_speed = max(requested_speed, 1.0)
+    climb = float(climb_rate_cmd) if np.isfinite(climb_rate_cmd) else 0.0
+    max_pitch = float(fw_cfg.get("max_pitch_rad", np.radians(20.0)))
+    pitch_cmd = float(np.arcsin(np.clip(climb / requested_speed, -1.0, 1.0)))
+    climb_rate_kp = float(fw_cfg.get("climb_rate_kp", 0.25))
+    pitch_cmd += climb_rate_kp * (
+        climb - float(state.velocity[2])) / requested_speed
+    pitch_cmd = float(np.clip(pitch_cmd, -max_pitch, max_pitch))
+    bank_cmd = float(np.clip(bank_cmd, -np.pi / 2.0, np.pi / 2.0))
+
+    trim_thrust = float(fw_cfg.get("trim_throttle_n", 3.0))
+    thrust_gain = float(fw_cfg.get("tecs_kp_throttle", 0.15))
+    max_thrust = float(fw_cfg.get("max_thrust_n", 10.0))
+    throttle = float(np.clip(
+        trim_thrust + thrust_gain * (requested_speed - airspeed),
+        0.0,
+        max_thrust,
+    ))
+
+    if state.attitude_quat is None or state.body_rates is None:
+        pitch, bank = 0.0, 0.0
+        p_rate = q_rate = r_rate = 0.0
+    else:
+        pitch, bank = body_axis_pitch_bank(
+            np.asarray(state.attitude_quat, dtype=float))
+        p_rate, q_rate, r_rate = np.asarray(state.body_rates, dtype=float)
+
+    roll_m = gains.kp_roll * (bank_cmd - bank) - gains.kd_roll * p_rate
+    pitch_m = gains.kp_pitch * (pitch_cmd - pitch) - gains.kd_pitch * q_rate
+    turn_speed = max(airspeed, 1.0)
+    yaw_rate_cmd = 9.81 * np.tan(bank_cmd) / turn_speed
+    yaw_m = gains.kp_yaw_rate * (yaw_rate_cmd - r_rate)
+    return Wrench(
+        force_body=np.array([throttle, 0.0, 0.0], dtype=float),
+        moment_body=np.array([roll_m, pitch_m, yaw_m], dtype=float),
+    )

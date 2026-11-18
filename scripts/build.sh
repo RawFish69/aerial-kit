@@ -8,16 +8,29 @@ echo "=== Building aerial-kit Workspace ==="
 # Navigate to workspace
 cd "$(dirname "$0")/../ros2_ws"
 
-# Source ROS 2 (Jazzy on Ubuntu 24.04, Humble on 22.04)
+# Source ROS 2. A Conda/RoboStack Jazzy environment is already exported when
+# `colcon` and `AMENT_PREFIX_PATH` are present; otherwise prefer an explicit
+# ROS_SETUP, then this repo's installation guide's local Jazzy prefix, then the
+# conventional system installs.
+REQUESTED_ROS_SETUP="${ROS_SETUP:-}"
 ROS_SETUP=""
-for distro in jazzy humble; do
-    if [ -f "/opt/ros/$distro/setup.bash" ]; then ROS_SETUP="/opt/ros/$distro/setup.bash"; break; fi
-done
-if [ -z "$ROS_SETUP" ]; then
-    echo "Error: no ROS 2 install found under /opt/ros (tried jazzy, humble)."
-    exit 1
+if ! command -v colcon >/dev/null 2>&1 || [ -z "${AMENT_PREFIX_PATH:-}" ]; then
+    for candidate in \
+        "$REQUESTED_ROS_SETUP" \
+        "$HOME/.local/share/ros/jazzy/setup.bash" \
+        "/opt/ros/jazzy/setup.bash" \
+        "/opt/ros/humble/setup.bash"; do
+        if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+            ROS_SETUP="$candidate"
+            break
+        fi
+    done
+    if [ -z "$ROS_SETUP" ]; then
+        echo "Error: no active ROS 2 environment; set ROS_SETUP to the underlay setup.bash."
+        exit 1
+    fi
 fi
-source "$ROS_SETUP"
+[ -n "$ROS_SETUP" ] && source "$ROS_SETUP"
 
 # Build with colcon
 echo "Building packages..."

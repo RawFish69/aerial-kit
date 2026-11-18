@@ -1,0 +1,30 @@
+$ ros2 launch sim_fast multirotor_mujoco_teleop.launch.py airframe:=fpv_quad_5in flight_controller:=firmware
+[INFO] [launch]: All log files can be found below /home/cy/.ros/log/2026-11-17-16-39-23-848108-slim-3050-137882
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [multirotor_backend_adapter_node-1]: process started with pid [137887]
+[INFO] [multirotor_teleop_node-2]: process started with pid [137889]
+[multirotor_teleop_node-2] [INFO] [1794962364.268812986] [multirotor_teleop_node]: multirotor teleop ready for fpv_quad_5in in angle mode; press Enter in the teleop window to arm
+[multirotor_backend_adapter_node-1] [INFO] [1794962365.497844574] [multirotor_backend_adapter_node]: MuJoCo viewer open (chase camera on the airframe)
+[multirotor_backend_adapter_node-1] [INFO] [1794962365.506864525] [multirotor_backend_adapter_node]: multirotor backend: mujoco fpv_quad_5in (4 rotors, 0.65 kg, TWR 8.8), on the ground at z=0.02 m
+[multirotor_backend_adapter_node-1] [INFO] [1794962365.517057066] [multirotor_backend_adapter_node]: control source: None -> firmware_disarmed
+[multirotor_teleop_node-2] [INFO] [1794962372.879130312] [multirotor_teleop_node]: armed (angle mode)
+[multirotor_backend_adapter_node-1] [INFO] [1794962372.887160820] [multirotor_backend_adapter_node]: control source: firmware_disarmed -> manual
+[multirotor_backend_adapter_node-1] [INFO] [1794962373.389769416] [multirotor_backend_adapter_node]: firmware: disarmed -> armed
+[multirotor_teleop_node-2] [INFO] [1794962387.862207826] [multirotor_teleop_node]: mode: acro
+[multirotor_backend_adapter_node-1] 
+[multirotor_backend_adapter_node-1] ** (python3.12:137887): WARNING **: 16:39:50.378: atk-bridge: get_device_events_reply: unknown signature
+[multirotor_teleop_node-2] [INFO] [1794962393.155158343] [multirotor_teleop_node]: disarmed (Backspace)
+[multirotor_backend_adapter_node-1] [INFO] [1794962393.156723221] [multirotor_backend_adapter_node]: control source: manual -> firmware_disarmed
+[multirotor_backend_adapter_node-1] [INFO] [1794962393.159193255] [multirotor_backend_adapter_node]: firmware: armed -> disarmed
+[multirotor_teleop_node-2] [INFO] [1794962397.220968373] [multirotor_teleop_node]: armed (acro mode)
+[multirotor_backend_adapter_node-1] [INFO] [1794962397.226815248] [multirotor_backend_adapter_node]: control source: firmware_disarmed -> manual
+[multirotor_backend_adapter_node-1] [INFO] [1794962397.728895931] [multirotor_backend_adapter_node]: firmware: disarmed -> armed
+[multirotor_teleop_node-2] [INFO] [1794962398.276692396] [multirotor_teleop_node]: focus lost: sticks centred
+[multirotor_teleop_node-2] [INFO] [1794962401.271663928] [multirotor_teleop_node]: disarmed: window unfocused too long
+[multirotor_backend_adapter_node-1] [INFO] [1794962401.276704062] [multirotor_backend_adapter_node]: control source: manual -> firmware_disarmed
+[multirotor_backend_adapter_node-1] [INFO] [1794962401.279035735] [multirotor_backend_adapter_node]: firmware: armed -> disarmed
+[multirotor_teleop_node-2] [INFO] [1794962402.612049600] [multirotor_teleop_node]: teleop exited; manual control released
+[INFO] [multirotor_teleop_node-2]: process has finished cleanly [pid 137889]
+[INFO] [launch.user]: teleop window closed; shutting down the multirotor session
+[INFO] [multirotor_backend_adapter_node-1]: sending signal 'SIGINT' to process[multirotor_backend_adapter_node-1]
+[INFO] [multirotor_backend_adapter_node-1]: process has finished cleanly [pid 137887]

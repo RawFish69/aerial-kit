@@ -112,6 +112,20 @@ def test_a_level_backend_without_attitude_works():
     assert abs(est.velocity[0] - 0.5) < 0.3
 
 
+def test_measured_airspeed_is_passed_through_the_estimator():
+    ins = SimulatedIns(SensorConfig(seed=2))
+    state = SimState(
+        position=np.array([0.0, 0.0, 10.0]),
+        velocity=np.array([12.0, 0.0, 0.0]),
+        t=0.0,
+        attitude_quat=np.array([0.0, 1.0, 0.0, 0.0]),
+        body_rates=np.zeros(3),
+        airspeed_mps=16.5,
+    )
+    estimated = ins.reset(state)
+    assert estimated.airspeed_mps == pytest.approx(16.5)
+
+
 def test_the_same_seed_gives_the_same_run():
     a, _ = fly(SimulatedIns(SensorConfig(seed=9)), duration=5.0)
     b, _ = fly(SimulatedIns(SensorConfig(seed=9)), duration=5.0)

@@ -37,6 +37,16 @@ class TestTwinWingAirframe(unittest.TestCase):
         actuators = wing.allocate(wrench, _state())
         np.testing.assert_allclose(actuators, [4.0, 4.0, 0.0, 0.0], atol=1e-9)
 
+    def test_positive_roll_drives_the_physical_right_elevon_up(self) -> None:
+        wing = TwinWingAirframe(max_thrust_n=10.0)
+        wrench = Wrench(
+            force_body=np.array([4.0, 0.0, 0.0]),
+            moment_body=np.array([0.2, 0.0, 0.0]),
+        )
+        _, _, elevon_l, elevon_r = wing.allocate(wrench, _state())
+        self.assertGreater(elevon_r, elevon_l)
+        self.assertAlmostEqual(0.5 * (elevon_r - elevon_l), 0.2, places=9)
+
     def test_pitch_preserved_over_roll_when_elevons_saturate(self) -> None:
         wing = TwinWingAirframe(max_elevon_rad=np.radians(25.0))
         max_rad = np.radians(25.0)

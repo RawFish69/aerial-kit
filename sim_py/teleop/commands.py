@@ -162,7 +162,7 @@ def fixedwing_actuator_from_axes(
 
     Elevon sign matches ``cm_delta_e``/``cl_delta_a`` in
     :class:`~aerial_kit.dynamics.fixed_wing.FixedWingParams`: positive elevon
-    is nose-up, and positive ``elevon_L - elevon_R`` rolls right.
+    is nose-up, and positive ``elevon_R - elevon_L`` rolls right.
     """
     throttle = tuning.throttle_trim_n + tuning.throttle_range_n * axes.up
     throttle = float(np.clip(throttle, 0.0, tuning.throttle_max_n))
@@ -173,8 +173,8 @@ def fixedwing_actuator_from_axes(
     delta_e = tuning.trim_elevon_rad - tuning.elevon_max_rad * axes.forward
     delta_a = tuning.elevon_max_rad * axes.right
     elevon_max = tuning.elevon_max_rad + tuning.trim_elevon_rad
-    elevon_l = float(np.clip(delta_e + delta_a, -elevon_max, elevon_max))
-    elevon_r = float(np.clip(delta_e - delta_a, -elevon_max, elevon_max))
+    elevon_l = float(np.clip(delta_e - delta_a, -elevon_max, elevon_max))
+    elevon_r = float(np.clip(delta_e + delta_a, -elevon_max, elevon_max))
 
     return np.array([throttle_l, throttle_r, elevon_l, elevon_r], dtype=float)
 

@@ -51,10 +51,18 @@ def params_from_airframe(
 ) -> RcMapParams:
     """Build RC mapping limits from the selected aerial_kit airframe profile."""
     register_builtin_components()
-    airframe = create_airframe(airframe_name)
+    try:
+        airframe = create_airframe(airframe_name)
+        max_bank_deg = airframe.capabilities.max_bank_deg
+    except ValueError:
+        # The detailed MuJoCo multirotors are specs rather than entries in the
+        # legacy registry. Their control section owns the same tilt capability.
+        from aerial_kit.airframes.multirotor_specs import load_multirotor_spec
+
+        max_bank_deg = float(load_multirotor_spec(airframe_name).control["max_tilt_deg"])
     return RcMapParams(
         kv_xy=kv_xy,
-        max_tilt_deg=airframe.capabilities.max_bank_deg,
+        max_tilt_deg=max_bank_deg,
         hover_throttle=hover_throttle,
         kz=kz,
         throttle_min=throttle_min,

@@ -1,0 +1,466 @@
+{
+ "disarmed_on_ground": {
+  "active_frac": 0.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.02,
+  "v_end": [
+   0.0,
+   0.0,
+   -0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": -0.0
+ },
+ "arm": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.02,
+  "v_end": [
+   -0.0,
+   0.0,
+   0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": -0.0
+ },
+ "climb_Space": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.847
+  ],
+  "z_end": 9.7,
+  "v_end": [
+   -0.0,
+   0.0,
+   5.21
+  ],
+  "mean_yaw_rate": 0.0,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": -0.0
+ },
+ "settle": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 11.88,
+  "v_end": [
+   -0.0,
+   0.0,
+   0.02
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": -0.0
+ },
+ "forward_W": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   1.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 12.2,
+  "v_end": [
+   12.79,
+   0.0,
+   -0.04
+  ],
+  "mean_yaw_rate": 0.0,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": -0.0
+ },
+ "recentre_X": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 12.03,
+  "v_end": [
+   11.01,
+   0.0,
+   -0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": -0.0
+ },
+ "right_D": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.983,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 12.35,
+  "v_end": [
+   9.46,
+   -13.04,
+   -0.06
+  ],
+  "mean_yaw_rate": 0.0,
+  "max_abs_roll_deg": 55.0,
+  "yaw_end_deg": -0.0
+ },
+ "recentre_X2": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 12.18,
+  "v_end": [
+   7.35,
+   -11.02,
+   -0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 54.6,
+  "yaw_end_deg": -0.0
+ },
+ "yaw_right_E": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.98,
+   0.5
+  ],
+  "z_end": 12.18,
+  "v_end": [
+   6.46,
+   -9.68,
+   -0.0
+  ],
+  "mean_yaw_rate": -5.434,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": 34.5
+ },
+ "yaw_left_Q": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   -0.98,
+   0.5
+  ],
+  "z_end": 12.18,
+  "v_end": [
+   5.66,
+   -8.48,
+   -0.0
+  ],
+  "mean_yaw_rate": 2.169,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": 165.7
+ },
+ "settle2": {
+  "active_frac": 1.0,
+  "mode": [
+   1
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 12.18,
+  "v_end": [
+   4.7,
+   -7.05,
+   -0.0
+  ],
+  "mean_yaw_rate": 0.598,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": -141.3
+ },
+ "mode_M": {
+  "active_frac": 1.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 12.18,
+  "v_end": [
+   4.38,
+   -6.57,
+   -0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 0.0,
+  "yaw_end_deg": -141.3
+ },
+ "mode2_right_D": {
+  "active_frac": 1.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.944,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 11.9,
+  "v_end": [
+   3.01,
+   -4.81,
+   -3.04
+  ],
+  "mean_yaw_rate": 0.0,
+  "max_abs_roll_deg": 179.6,
+  "yaw_end_deg": -141.3
+ },
+ "mode2_left_A": {
+  "active_frac": 1.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   -0.9,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 10.86,
+  "v_end": [
+   3.1,
+   -4.89,
+   -6.82
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 177.6,
+  "yaw_end_deg": -141.3
+ },
+ "recentre_X3": {
+  "active_frac": 1.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.01,
+  "v_end": [
+   -0.0,
+   0.0,
+   0.0
+  ],
+  "mean_yaw_rate": -0.001,
+  "max_abs_roll_deg": 180.0,
+  "yaw_end_deg": -141.2
+ },
+ "pause_P": {
+  "active_frac": 1.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.01,
+  "v_end": [
+   -0.0,
+   0.0,
+   0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 180.0,
+  "yaw_end_deg": -141.2
+ },
+ "paused_W_held": {
+  "active_frac": 1.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.01,
+  "v_end": [
+   -0.0,
+   0.0,
+   -0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 180.0,
+  "yaw_end_deg": -141.2
+ },
+ "unpause_P": {
+  "active_frac": 1.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.01,
+  "v_end": [
+   -0.0,
+   0.0,
+   -0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 180.0,
+  "yaw_end_deg": -141.2
+ },
+ "disarm_Backspace": {
+  "active_frac": 0.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.01,
+  "v_end": [
+   0.0,
+   0.0,
+   -0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 180.0,
+  "yaw_end_deg": -141.2
+ },
+ "rearm": {
+  "active_frac": 1.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.01,
+  "v_end": [
+   -0.0,
+   -0.0,
+   0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 180.0,
+  "yaw_end_deg": -141.2
+ },
+ "focus_loss": {
+  "active_frac": 0.751,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.01,
+  "v_end": [
+   0.0,
+   0.0,
+   -0.0
+  ],
+  "mean_yaw_rate": -0.0,
+  "max_abs_roll_deg": 180.0,
+  "yaw_end_deg": -141.2
+ },
+ "exit_Esc": {
+  "active_frac": 0.0,
+  "mode": [
+   2
+  ],
+  "sticks_rpy_thr": [
+   0.0,
+   0.0,
+   0.0,
+   0.5
+  ],
+  "z_end": 0.01,
+  "v_end": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "mean_yaw_rate": 0.0,
+  "max_abs_roll_deg": 180.0,
+  "yaw_end_deg": -141.2
+ },
+ "_odom_finite": true,
+ "_odom_samples": 3662
+}

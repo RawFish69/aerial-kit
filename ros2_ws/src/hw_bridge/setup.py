@@ -25,8 +25,11 @@ setup(
     entry_points={
         'console_scripts': [
             'crsf_backend_adapter_node = hw_bridge.crsf_backend_adapter_node:main',
+            'crsf_radio_backend_node = hw_bridge.crsf_radio_backend_node:main',
+            'crsf_sim_receiver_node = hw_bridge.crsf_sim_receiver_node:main',
             'hw_state_estimator_node = hw_bridge.hw_state_estimator_node:main',
             'px4_backend_adapter_node = hw_bridge.px4_backend_adapter_node:main',
+            'sim_elrs_link_node = hw_bridge.sim_elrs_link_node:main',
         ],
     },
 )

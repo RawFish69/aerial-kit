@@ -96,12 +96,14 @@ def register_builtin_components() -> None:
 
     from .airframes.fixed_wing import TwinWingAirframe
     from .airframes.multirotor import MultirotorAirframe
+    from .airframes.single_wing_airframe import SingleWingAirframe
     from .controllers.basic import LQRController, MPCController, MPPIController, PIDController
     from .controllers.fixed_wing import FixedWingL1TECSController
     from .controllers.cascade import CascadeController
     from .controllers.geometric import GeometricController
     from .controllers.nmpc import NMPCController
     from .controllers.predictive import ConstrainedMPCController, WarmMPPIController
+    from .controllers.single_wing import SingleWingL1TECSController
 
     register_controller("pid", PIDController)
     register_controller("lqr", LQRController)
@@ -116,10 +118,12 @@ def register_builtin_components() -> None:
     register_controller("nmpc", NMPCController)
     register_controller("cascade", lambda: CascadeController(inner=PIDController()))
     register_controller("l1_tecs", FixedWingL1TECSController)
+    register_controller("single_wing_l1_tecs", SingleWingL1TECSController)
 
     register_airframe("quad", lambda: MultirotorAirframe(arms=4, layout="x"))
     register_airframe("hex", lambda: MultirotorAirframe(arms=6, layout="x"))
     register_airframe("octo", lambda: MultirotorAirframe(arms=8, layout="x"))
     register_airframe("twin_wing", TwinWingAirframe)
+    register_airframe("single_wing", SingleWingAirframe)
 
     _BUILTINS_REGISTERED = True

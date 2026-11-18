@@ -57,6 +57,16 @@ check) and `test_runner_integration.py`'s dispatch smoke test. Full coordinated 
 (bank-to-turn-rate coupling, not just this model's weak weathervaning aero) remain open --
 see `plans/PROGRESS.md`.
 
+`MujocoFixedWingBackend` (`sim_py/backends/mujoco_fixedwing_backend.py`, registered as
+`mujoco_fixedwing`) uses the same airframe allocator and aero equations, but MuJoCo owns the
+free-body integration, the servo-driven elevon hinges and the two prop shafts. The model is
+generated from the shared airframe spec (`aerial_kit/airframes/twin_wing/twin_wing.yaml`):
+procedural low-poly wing, pod, fins, nacelles and two-blade props, with masses and
+inertias that sum to the spec's 1.5 kg composite. Props spin (counter-rotating) from the
+commanded thrust, and the measured hinge positions feed the next aero step. This backend is
+also the physics plant behind the ROS `fixed_wing_mujoco_demo.launch.py` path. See
+`docs/TWIN_WING_AIRFRAME.md` for what is integrated, articulated, visual or approximate.
+
 ## Quick usage
 
 From repo root:
@@ -87,6 +97,10 @@ python -m sim_py.run_sim --sim-time 120 --dt 0.01
 source sim_py/.venv/bin/activate
 python -m sim_py.run_sim --backend rotorpy
 
+# MuJoCo twin-wing physics
+python -m pip install -r sim_py/requirements-mujoco.txt
+python examples/fixed_wing/run.py --config examples/fixed_wing/mujoco.yaml --no-show
+
 # RotorPy + mountains terrain
 python -m sim_py.run_sim --backend rotorpy --terrain mountains
 
@@ -109,7 +123,8 @@ Key sections:
 - `path.*`: planner config and start/goal settings
 - `controller.*`: controller selection and gains
 - `visual.*`: plotting and terrain visual scaling
-- `simulation.backend`: `pointmass` (default) or `rotorpy`
+- `simulation.backend`: `pointmass` (default), `rotorpy`, `fixedwing`, or
+  `mujoco_fixedwing`
 - `simulation.seed`: optional deterministic random seed
 - `simulation.rotorpy.*`: optional RotorPy backend settings
 

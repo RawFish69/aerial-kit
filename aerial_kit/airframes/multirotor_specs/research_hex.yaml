@@ -1,0 +1,116 @@
+# Research hexacopter (~3.2 kg, 840 mm wheelbase, 15" props) -- single source of truth.
+# Frame: body FLU (x forward, y left, z up), origin at the composite CG.
+# Research defaults; nothing here is measured.
+
+schema_version: 1
+name: research_hex
+role: research
+style: research_hub
+
+mass_properties:
+  total_mass_kg: 3.2
+  inertia_kg_m2: [0.10, 0.10, 0.18]
+  cg_m: [0.0, 0.0, 0.0]
+
+# Hexa-X: arms at +/-30, +/-90, +/-150 deg from forward, spins alternating.
+rotors:
+  - {name: front_left,  position_m: [ 0.3637,  0.2100, 0.06], spin: ccw}
+  - {name: left,        position_m: [ 0.0000,  0.4200, 0.06], spin: cw}
+  - {name: rear_left,   position_m: [-0.3637,  0.2100, 0.06], spin: ccw}
+  - {name: rear_right,  position_m: [-0.3637, -0.2100, 0.06], spin: cw}
+  - {name: right,       position_m: [ 0.0000, -0.4200, 0.06], spin: ccw}
+  - {name: front_right, position_m: [ 0.3637, -0.2100, 0.06], spin: cw}
+
+propulsion:
+  max_thrust_n: 25.0           # TWR ~4.8
+  motor_tau_s: 0.05
+  yaw_torque_coeff_m: 0.016
+  min_thrust_frac: 0.0
+  # rpm: throttle -> motor speed (lag on speed), thrust ~ speed^2, available
+  # speed scales with pack voltage (battery below). lagged_thrust: thrust
+  # follows the command through a first-order lag (the ActuatorPlant model).
+  model: rpm
+  ground_effect: true          # Cheeseman-Bennett, by rotor hub height
+
+prop:
+  diameter_m: 0.381            # 15"
+  blades: 2
+  root_pitch_deg: 24.0
+  tip_pitch_deg: 9.0
+  max_chord_m: 0.034
+  tip_chord_m: 0.016
+  thickness_m: 0.004
+  hub_radius_m: 0.016
+
+rotor:
+  mass_kg: 0.09
+  physical_inertia_kg_m2: 4.0e-4
+  physical_max_speed_rad_s: 900.0
+  visual_max_speed_rad_s: 80.0
+  preserve_angular_momentum: false
+  bearing_damping_nms: 1.0e-6
+
+aero:
+  linear_drag_n_per_mps: [0.35, 0.35, 0.50]
+
+control:
+  k_att: 3.5
+  k_rate: 9.0
+  max_tilt_deg: 30.0
+  velocity_kp: 1.6
+  max_accel_mps2: 4.0
+  max_speed_mps: 10.0
+  max_climb_mps: 3.0
+  max_yaw_rate_deg_s: 90.0
+  manual:
+    max_angle_deg: 25.0
+    acro_rate_deg_s: 150.0
+    yaw_rate_deg_s: 90.0
+    throttle_expo_hover: 0.5
+
+geometry:
+  hub: {radius_m: 0.115, height_m: 0.065}
+  arm: {radius_m: 0.011, z_m: 0.03}
+  motor: {stator_radius_m: 0.026, height_m: 0.030}
+  landing_gear: {width_m: 0.36, length_m: 0.42, height_m: 0.24, tube_radius_m: 0.008}
+  gps_mast: {height_m: 0.16, puck_radius_m: 0.04}
+  payload: {size_m: [0.12, 0.10, 0.07], position_m: [0.04, 0.0, -0.10]}
+  battery: {size_m: [0.16, 0.07, 0.045], position_m: [0.0, 0.0, 0.065]}
+
+camera:
+  name: payload_cam
+  position_m: [0.10, 0.0, -0.11]
+  uptilt_deg: -20.0
+  fovy_deg: 80.0
+
+battery:
+  # 6S 10000 mAh LiPo. Research defaults: linear OCV between cell_empty_v and
+  # cell_full_v, lumped internal resistance, momentum-theory rotor power.
+  # max_thrust_n above is the thrust at full-charge open-circuit voltage.
+  cells: 6
+  capacity_mah: 10000
+  internal_resistance_ohm: 0.012
+  cell_full_v: 4.2
+  cell_empty_v: 3.5
+  figure_of_merit: 0.55
+  drive_efficiency: 0.72
+  avionics_w: 15.0
+
+materials:
+  hub: [0.86, 0.87, 0.88, 1.0]
+  carbon: [0.16, 0.16, 0.17, 1.0]
+  front_arm: [0.85, 0.15, 0.12, 1.0]
+  motor_bell: [0.25, 0.27, 0.30, 1.0]
+  stator: [0.55, 0.55, 0.58, 1.0]
+  prop_front: [0.12, 0.12, 0.13, 1.0]
+  prop_rear: [0.12, 0.12, 0.13, 1.0]
+  prop_tip_front: [0.95, 0.25, 0.15, 1.0]
+  prop_tip_rear: [0.92, 0.92, 0.92, 1.0]
+  gear: [0.35, 0.36, 0.38, 1.0]
+  gps: [0.10, 0.10, 0.11, 1.0]
+  payload: [0.20, 0.22, 0.25, 1.0]
+  lens: [0.02, 0.02, 0.03, 1.0]
+  battery: [0.30, 0.32, 0.20, 1.0]
+
+collision:
+  hub_cylinder: {radius_m: 0.12, half_height_m: 0.035}

@@ -1,6 +1,8 @@
 #ifndef AK_CORE_AK_MAIN_H
 #define AK_CORE_AK_MAIN_H
 
+#include <stdint.h>
+
 /*
  * The firmware's entry point, named rather than being `main`.
  *

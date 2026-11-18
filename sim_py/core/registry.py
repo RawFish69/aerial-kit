@@ -49,9 +49,13 @@ def register_builtin_components() -> None:
     from sim_py.backends.actuator_backend import ActuatorBackend
     from sim_py.backends.fixedwing_backend import FixedWingBackend
     from sim_py.backends.mujoco_backend import MujocoBackend
+    from sim_py.backends.mujoco_fixedwing_backend import MujocoFixedWingBackend
+    from sim_py.backends.mujoco_multirotor_backend import MujocoMultirotorBackend
+    from sim_py.backends.mujoco_single_wing_backend import MujocoSingleWingBackend
     from sim_py.backends.multirotor_backend import MultirotorBackend
     from sim_py.backends.pointmass_backend import PointMassBackend
     from sim_py.backends.rotorpy_backend import RotorPyBackend
+    from sim_py.backends.single_wing_backend import SingleWingBackend
     from sim_py.planners.basic import AStarPlanner, RRTPlanner, RRTStarPlanner, StraightPlanner
     from sim_py.planners.dubins import DubinsPlanner
 
@@ -63,10 +67,14 @@ def register_builtin_components() -> None:
 
     register_backend("pointmass", PointMassBackend)
     register_backend("mujoco", MujocoBackend)
+    register_backend("mujoco_fixedwing", MujocoFixedWingBackend)
+    register_backend("mujoco_multirotor", MujocoMultirotorBackend)
     register_backend("multirotor", MultirotorBackend)
     register_backend("rotorpy", RotorPyBackend)
     register_backend("fixedwing", FixedWingBackend)
     register_backend("actuator", ActuatorBackend)
+    register_backend("singlewing", SingleWingBackend)
+    register_backend("mujoco_singlewing", MujocoSingleWingBackend)
 
     _SIM_PY_BUILTINS_REGISTERED = True
 

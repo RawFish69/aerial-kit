@@ -1,0 +1,18 @@
+{
+  "samples": 2661,
+  "armed_samples": 2395,
+  "nan_samples": 0,
+  "flight_time_s": 23.94,
+  "altitude_min_m": 53.28,
+  "altitude_max_m": 54.48,
+  "altitude_max_abs_error_m": 1.72,
+  "airspeed_min_mps": 14.67,
+  "airspeed_max_mps": 15.31,
+  "final_position_m": [
+    257.26,
+    -28.35,
+    54.48
+  ],
+  "final_horizontal_error_m": 11.97,
+  "final_waypoint_reached": true
+}

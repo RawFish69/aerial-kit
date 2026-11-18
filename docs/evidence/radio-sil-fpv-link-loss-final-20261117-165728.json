@@ -1,0 +1,11 @@
+{
+ "success": true,
+ "reason": "plant disabled and landed after link cut",
+ "cut_published": true,
+ "altitude_at_cut_m": 2.02,
+ "max_altitude_after_cut_m": 3.11,
+ "final_altitude_m": 0.38,
+ "receiver_disable_seen": true,
+ "final_receiver_enable": false,
+ "plant_samples": 6175
+}

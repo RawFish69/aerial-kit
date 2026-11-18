@@ -90,7 +90,8 @@ def test_dubins_waypoint_loop_bounded_cross_track_error():
         delta_pitch = float(np.clip(pitch_m, -max_elevon, max_elevon))
         delta_roll = float(np.clip(roll_m, -(max_elevon - abs(delta_pitch)), max_elevon - abs(delta_pitch)))
         actuator_cmd = np.array(
-            [throttle, throttle, delta_pitch + delta_roll, delta_pitch - delta_roll], dtype=float
+            [throttle, throttle, delta_pitch - delta_roll,
+             delta_pitch + delta_roll], dtype=float
         )
         dyn.step(actuator_cmd, dt)
 

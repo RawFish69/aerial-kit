@@ -1,0 +1,129 @@
+Twin-wing airframe refinement: shared spec, articulated MuJoCo model, Gazebo parity
+Measured 2026-11-15. MuJoCo 4.0.1, ROS 2 Jazzy, Gazebo Sim 8.10.0.
+
+See docs/TWIN_WING_AIRFRAME.md for the design and the integrated / articulated
+/ visual / approximate breakdown.
+
+1. Single source of truth
+
+  aerial_kit/airframes/twin_wing/twin_wing.yaml
+    -> MuJoCo MJCF (runtime, aerial_kit/airframes/twin_wing/mjcf.py)
+    -> Gazebo model (scripts/generate_twin_wing_assets.py, SDF + 29 OBJ + MTL)
+    -> FixedWingParams mass/inertia/area/span/chord/motor separation
+
+  Planform check: S = 1.4 * (0.345 + 0.155) / 2 = 0.350 m^2, S/b = 0.250 m
+  MAC 0.262 m at y = 0.306 m; geometric static margin 10.7 % MAC
+
+  Mass split (body FRD, origin = reference CG):
+    root body      1.390 kg   COM [+0.00315, 0, 0] m
+    left_elevon    0.025 kg   COM [-0.224, -0.43, 0] m
+    right_elevon   0.025 kg   COM [-0.224, +0.43, 0] m
+    left_prop      0.030 kg   COM [+0.113, -0.30, 0] m
+    right_prop     0.030 kg   COM [+0.113, +0.30, 0] m
+  MuJoCo composite (tested): 1.500 kg, CG at origin (< 1e-7 m),
+    inertia about CG = diag(0.05, 0.03, 0.06) kg m^2 (< 1e-7)
+
+2. Articulation measurement (MuJoCo backend, closed loop, 3/1 m/s wind,
+   +30 deg bank 3-10 s, -30 deg bank 10-15 s)
+
+  elevon hinge - command, RMS: right 1.578 deg, left 1.569 deg
+  max |err| 21.21 deg (servo 8 rad/s slew during bank-entry steps)
+
+  t= 2.50s bank  +0  cmd[eL,eR]=[+1.81,+1.79]deg hinge R/L(TE-up+)=[+1.82,+1.79]deg thrust L/R=[1.02,1.02]N prop L/R=[-48.0,+47.9]rad/s
+  t= 7.00s bank +30  cmd[eL,eR]=[+2.73,+3.21]deg hinge R/L(TE-up+)=[+2.73,+3.20]deg thrust L/R=[1.00,0.69]N prop L/R=[-47.4,+39.3]rad/s
+  t=12.50s bank -30  cmd[eL,eR]=[+3.54,+2.75]deg hinge R/L(TE-up+)=[+3.53,+2.70]deg thrust L/R=[0.73,1.11]N prop L/R=[-40.6,+49.9]rad/s
+  t=19.00s bank  +0  cmd[eL,eR]=[+1.50,+1.51]deg hinge R/L(TE-up+)=[+1.49,+1.50]deg thrust L/R=[0.97,0.97]N prop L/R=[-46.7,+46.7]rad/s
+
+  Command index 2 drives the physical left hinge, index 3 the right (see the sign
+  convention section of docs/TWIN_WING_AIRFRAME.md). Left prop turns
+  negative about +x (CCW from behind), right prop positive; shaft speed
+  follows sqrt(thrust). Speeds are visual-rate (150 rad/s at full thrust).
+
+3. Physics preserved
+
+  Python example (examples/fixed_wing/mujoco.yaml):
+    before  final [96.384, 92.273, 35.437] m, goal error 5.949 m
+    after   final [96.53, 92.39, 35.42] m,    goal error 5.86 m
+
+  Closed-loop MuJoCo vs analytic plant, 12 s with a 25 deg turn:
+    altitude difference < 1 m, horizontal < 2 m (test_twin_wing_model.py)
+
+4. ROS missions (telemetry recorded by scripts/fixed_wing_mission_monitor.py;
+   altitude band excludes the first 2 s after arming; "monitor error" is the
+   first sample inside the 12 m acceptance radius, "demo final" is
+   fixed_wing_demo_node's own completion report)
+
+  a) ros2 launch sim_fast fixed_wing_demo.launch.py start_delay_sec:=2.0
+       backend analytic, estimator truth
+       waypoints  [97.5, 48.3, 54.3] [208.4, 62.2, 54.4] [257.3, -28.5, 54.5]
+       demo final 10.20 m; monitor error 11.99 m
+       altitude 53.39 .. 54.49 m (max |z - 55| 1.61 m); airspeed 14.70 .. 15.33
+       NaN samples 0
+       log: twin-wing-analytic-mission.{log,json}
+
+  b) ros2 launch sim_fast fixed_wing_mujoco_demo.launch.py start_delay_sec:=2.0 \
+       wind_x_mps:=3.0 wind_y_mps:=1.0 estimator_mode:=ekf estimator_seed:=7
+       backend mujoco, estimator ekf
+       waypoints  [101.8, 48.4, 53.7] [210.0, 66.0, 54.1] [257.2, -28.5, 54.4]
+       demo final 5.47 m; monitor error 11.94 m        (criterion < 15 m)
+       altitude 52.54 .. 54.51 m (max |z - 55| 2.46 m) (criterion < 5 m)
+       airspeed 14.41 .. 14.94 m/s; NaN samples 0
+       log: twin-wing-mujoco-ekf-wind-mission.{log,json}
+
+  c) ros2 launch sim_gazebo fixed_wing_gazebo_demo.launch.py headless:=true \
+       start_delay_sec:=2.0
+       "Gazebo twin-wing pose stream established"; no OBJ/material warnings
+       demo final 11.22 m; altitude 53.28 .. 54.48 m; NaN samples 0
+       log: twin-wing-gazebo-headless-mission.{log,json}
+
+  d) ros2 launch sim_fast fixed_wing_mujoco_demo.launch.py viewer:=true \
+       estimator_mode:=ekf   (X display :1, NVIDIA)
+       "MuJoCo viewer open (chase camera on the airframe)"
+       demo final 7.63 m; altitude 53.53 .. 54.64 m
+       screenshots: twin-wing-renders/mujoco_live_viewer_{chase,turn}.png
+       (cropped to the viewer window)
+       log: twin-wing-mujoco-viewer-mission.{log,json}
+
+  e) Same as (d) with DISPLAY and WAYLAND_DISPLAY unset
+       "MuJoCo viewer disabled, continuing headless: no DISPLAY or
+        WAYLAND_DISPLAY is set"; mission completes, demo final 6.70 m
+       log: twin-wing-mujoco-viewer-no-display.{log,json}
+
+  f) viewer:=true estimator_mode:=ek
+       adapter exits with "ValueError: estimator_mode must be 'truth' or
+       'ekf', got 'ek'" before any plant or viewer is created
+       log: twin-wing-invalid-estimator.log
+
+  Process teardown in the logs shows rclpy ExternalShutdownException /
+  RCLError tracebacks from SIGINT at the end of each run. They predate this
+  change (all three nodes print them) and occur after the mission completes.
+
+5. Tests
+
+  sim_py/.venv/bin/python -m pytest -q sim_py/tests
+    456 passed, 41 subtests passed
+
+  ./scripts/test_ros2.sh
+    114 passed                          (adapter validation/viewer-probe, asset
+                                         drift/parity, launch argument tests added)
+
+6. Images (docs/evidence/twin-wing-renders/)
+
+  mujoco_neutral_*            six static views
+  mujoco_pitch_up_*           both trailing edges up
+  mujoco_roll_right_*         right TE up, left TE down, incl. close-ups
+  mujoco_flight_chase_*       physics-driven frames in a 30 deg turn
+  mujoco_live_viewer_*        interactive viewer during the ROS mission
+  gazebo_*                    generated Gazebo model, ogre2
+
+7. Still approximate / open
+
+  - Aero coefficients remain research defaults, not fitted to this geometry.
+  - Visual meshes produce no forces; no hinge-moment or prop-torque aero.
+  - Prop shaft speed is display-scaled (angular momentum preserved).
+  - Gazebo is a kinematic visual: elevons neutral, props static.
+  - The elevon convention was resolved after the handoff: simulator indices
+    2/3 are now physically left/right everywhere, matching the firmware
+    document. The allocator, aero differential and teleop signs were changed
+    together so the physical response is unchanged.
+  - No hardware readiness or real-aircraft validation is claimed.

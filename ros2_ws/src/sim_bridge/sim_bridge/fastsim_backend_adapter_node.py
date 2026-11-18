@@ -11,9 +11,14 @@ from std_msgs.msg import Bool
 
 
 def _ensure_repo_root_on_path() -> None:
-    repo_root = Path(__file__).resolve().parents[5]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
+    # Walk up to the repository root (the directory holding aerial_kit/ and
+    # pyproject.toml). A fixed parents[N] breaks between the source tree and
+    # colcon's build/ copy, which sit at different depths.
+    for parent in Path(__file__).resolve().parents:
+        if (parent / 'aerial_kit').is_dir() and (parent / 'pyproject.toml').is_file():
+            if str(parent) not in sys.path:
+                sys.path.insert(0, str(parent))
+            return
 
 
 _ensure_repo_root_on_path()
