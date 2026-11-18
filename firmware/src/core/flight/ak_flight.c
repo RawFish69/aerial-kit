@@ -1463,6 +1463,33 @@ void ak_flight_step(ak_flight_t *flight, const ak_imu_sample_t *imu,
         }
 
         /*
+         * A multirotor in the air is supported by thrust, so its accelerometer
+         * measures specific force along the body axis rather than gravity.
+         * Feeding that vector to the attitude filter treats "up" as "wherever
+         * the rotors point": a sustained bank is then pulled back toward level
+         * and angle mode keeps increasing the bank it is told it has not made.
+         * Keep accelerometer levelling for a multirotor while disarmed, where
+         * the aircraft really is resting in gravity and the pre-arm estimate
+         * needs it, and while the estimated tilt is still small enough that
+         * the error from treating body-z thrust as vertical is negligible.
+         * Beyond seven degrees the gyro carries attitude: the accelerometer
+         * can no longer tell the difference between a bank and rotor thrust.
+         *
+         * A fixed wing keeps the accelerometer correction in flight. Its
+         * specific force is also lift/thrust, but its attitude and navigation
+         * contracts were built around the existing gravity aid, and changing
+         * that is a separate airframe decision.
+         */
+        const int fixed_wing = flight->mixer != 0 && flight->mixer->fixed_wing;
+        flight->est.tau =
+            (fixed_wing || flight->state == AK_FLIGHT_DISARMED) ? 0.5f : 0.2f;
+        flight->est.accel_enabled =
+            fixed_wing ||
+            flight->state == AK_FLIGHT_DISARMED ||
+            (ak_absf(flight->est.roll) < ak_deg2rad(7.0f) &&
+             ak_absf(flight->est.pitch) < ak_deg2rad(7.0f));
+
+        /*
          * The pieces are the estimator's, and only the estimator's: each is at
          * most `max_dt_ms`, so no single propagation is large enough to alias a
          * fast rotation into a slow one, while the whole of the elapsed time
