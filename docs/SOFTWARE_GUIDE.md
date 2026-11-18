@@ -60,6 +60,7 @@ from it.
 | 3" micro long-range quad `micro_lr_quad` | `.../micro_lr_quad.yaml` (reads the `lr_drone` CAD) | [MULTIROTOR_MUJOCO.md](MULTIROTOR_MUJOCO.md) |
 | Research hexacopter `research_hex` | `.../research_hex.yaml` | [MULTIROTOR_MUJOCO.md](MULTIROTOR_MUJOCO.md) |
 | Research octocopter `research_octo` | `.../research_octo.yaml` | [MULTIROTOR_MUJOCO.md](MULTIROTOR_MUJOCO.md) |
+| Swarm quad `swarm_quad`, N in one scene | `.../swarm_quad.yaml` | [MULTIROTOR_MUJOCO.md](MULTIROTOR_MUJOCO.md#swarm-n-drones-in-one-scene) |
 | Twin-motor flying wing | `aerial_kit/airframes/twin_wing/twin_wing.yaml` | [TWIN_WING_AIRFRAME.md](TWIN_WING_AIRFRAME.md), [TWIN_WING_TELEOP.md](TWIN_WING_TELEOP.md) |
 | Single-motor flying wing | `aerial_kit/airframes/single_wing/single_wing.yaml` | [SINGLE_WING.md](SINGLE_WING.md) |
 
@@ -98,6 +99,9 @@ ros2 launch sim_gazebo fixed_wing_gazebo_demo.launch.py [headless:=true]   # twi
 ros2 launch sim_fast bringup.launch.py start_demo:=true               # original point mass
 ros2 launch sim_fast bringup.launch.py start_demo:=true sim_backend:=mujoco \
     airframe:=research_hex [viewer:=true] [mission_tracker:=mpc|mppi] [wind_x_mps:=...]
+
+# Swarm: N drones in one MuJoCo scene, formation demo (takeoff, circle, line, grid, land)
+ros2 launch sim_fast swarm_mujoco.launch.py n:=12 demo:=true [viewer:=true]
 
 # Keyboard flying (click the small teleop window, Enter to arm)
 ros2 launch sim_fast fixed_wing_mujoco_teleop.launch.py [airframe:=single_wing] [start_z_m:=150.0]
@@ -161,12 +165,13 @@ flight_controller:=firmware start_demo:=true` (or `FLIGHT_CONTROLLER=firmware sc
 The host radio backend arms the firmware through CRSF, the simulated ELRS link carries the frames, and the
 adapter feeds the receiver bytes to the firmware at their arrival times; the firmware alone handles
 failsafe. The host closes velocity and altitude over telemetry with gains from
-`sim_py.fc_sil.radio_stick_settings`. It flies stably but does **not** finish the demo mission yet;
-see `docs/evidence/radio-firmware-e2e-2026-11-18.md` for why (telemetry lag, the estimator gap) and the fix
-(hold altitude and velocity on the FC).
+`sim_py.fc_sil.radio_stick_settings`. It flies without flipping but does **not** finish the demo
+mission yet: the host's altitude loop runs through ~4 s of telemetry/EKF delay and oscillates.
+See `docs/evidence/radio-firmware-e2e-2026-11-18.md`; the fix is altitude (and velocity) hold on the FC.
 
-Known firmware gap (found this way, 2026-11-17): angle mode over-banks in sustained tilts,
-because the estimator under-reads the tilt; see `docs/evidence/fc-sil-estimator-finding-2026-11-17.md`.
+Found this way and fixed (2026-11-17/18): angle mode used to over-bank in sustained tilts because
+the estimator under-read the tilt (`docs/evidence/fc-sil-estimator-finding-2026-11-17.md`);
+`test_fc_sil` now holds that as a regression test.
 
 ### Regenerating models and review images
 

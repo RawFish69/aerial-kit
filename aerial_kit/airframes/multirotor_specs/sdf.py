@@ -24,6 +24,17 @@ from .spec import MultirotorSpec
 MESH_DIR = "meshes"
 
 
+
+def _display_source(spec) -> str:
+    """The spec path relative to the repository (no machine-specific prefix)."""
+    from pathlib import Path
+
+    src = Path(str(spec.source))
+    for parent in src.parents:
+        if (parent / "aerial_kit").is_dir() and (parent / "pyproject.toml").is_file():
+            return src.relative_to(parent).as_posix()
+    return src.name
+
 def _f(value: float) -> str:
     return f"{float(value):.9g}"
 
@@ -159,7 +170,7 @@ def multirotor_gazebo_files(spec: MultirotorSpec) -> dict[str, str]:
 <?xml version="1.0"?>
 <sdf version="1.8">
   <!--
-    GENERATED from {spec.source} by scripts/generate_multirotor_assets.py.
+    GENERATED from {_display_source(spec)} by scripts/generate_multirotor_assets.py.
     Edit the YAML and regenerate; check mode fails on drift.
 
     Kinematic visual only. gazebo_multirotor_pose_node drives this static
@@ -184,7 +195,7 @@ def multirotor_gazebo_files(spec: MultirotorSpec) -> dict[str, str]:
   </author>
   <description>
     Kinematic Gazebo visual for the Aerial Kit multirotor {spec.name}.
-    Generated from {spec.source}; posed from /uav/backend/odom.
+    Generated from {_display_source(spec)}; posed from /uav/backend/odom.
   </description>
 </model>
 """

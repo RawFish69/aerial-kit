@@ -1,0 +1,110 @@
+# Swarm quad (~0.4 kg, 180 mm wheelbase, 4" props) -- single source of truth.
+# A small research quad flown in numbers (formation, multi-agent), not an FPV
+# racer: modest thrust-to-weight, gentle limits, landing gear, a forward camera.
+# Frame: body FLU (x forward, y left, z up), origin at the composite CG.
+# Research defaults; nothing here is measured.
+
+schema_version: 1
+name: swarm_quad
+role: swarm
+style: research_hub
+
+mass_properties:
+  total_mass_kg: 0.40          # with a 3S 1300 mAh pack
+  inertia_kg_m2: [0.00065, 0.00065, 0.0012]
+  cg_m: [0.0, 0.0, 0.0]
+
+# Firmware quad-X order and spin, like the FPV quad, so the AK firmware can fly it.
+rotors:
+  - {name: rear_right,  position_m: [-0.0636, -0.0636, 0.020], spin: cw}
+  - {name: front_right, position_m: [ 0.0636, -0.0636, 0.020], spin: ccw}
+  - {name: rear_left,   position_m: [-0.0636,  0.0636, 0.020], spin: ccw}
+  - {name: front_left,  position_m: [ 0.0636,  0.0636, 0.020], spin: cw}
+
+propulsion:
+  max_thrust_n: 3.6            # TWR ~3.7
+  motor_tau_s: 0.03
+  yaw_torque_coeff_m: 0.010
+  min_thrust_frac: 0.0
+  model: rpm
+  ground_effect: true
+
+prop:
+  diameter_m: 0.102            # 4"
+  blades: 2
+  root_pitch_deg: 26.0
+  tip_pitch_deg: 11.0
+  max_chord_m: 0.013
+  tip_chord_m: 0.007
+  thickness_m: 0.0018
+  hub_radius_m: 0.005
+
+rotor:
+  mass_kg: 0.008
+  physical_inertia_kg_m2: 3.0e-6
+  physical_max_speed_rad_s: 3000.0
+  visual_max_speed_rad_s: 100.0
+  preserve_angular_momentum: false
+  bearing_damping_nms: 1.0e-7
+
+aero:
+  linear_drag_n_per_mps: [0.10, 0.10, 0.14]
+
+control:
+  k_att: 6.0
+  k_rate: 16.0
+  max_tilt_deg: 30.0
+  velocity_kp: 2.0
+  max_accel_mps2: 5.0
+  max_speed_mps: 6.0
+  max_climb_mps: 2.5
+  max_yaw_rate_deg_s: 120.0
+  manual:
+    max_angle_deg: 25.0
+    acro_rate_deg_s: 300.0
+    yaw_rate_deg_s: 120.0
+    throttle_expo_hover: 0.5
+
+geometry:
+  hub: {radius_m: 0.036, height_m: 0.026}
+  arm: {radius_m: 0.0042, z_m: 0.012}
+  motor: {stator_radius_m: 0.0105, height_m: 0.012}
+  landing_gear: {width_m: 0.11, length_m: 0.13, height_m: 0.055, tube_radius_m: 0.0028}
+  gps_mast: {height_m: 0.045, puck_radius_m: 0.014}
+  payload: {size_m: [0.035, 0.030, 0.020], position_m: [0.030, 0.0, -0.022]}
+  battery: {size_m: [0.070, 0.034, 0.024], position_m: [0.0, 0.0, 0.026]}
+
+camera:
+  name: nav_cam
+  position_m: [0.045, 0.0, -0.020]
+  uptilt_deg: -10.0
+  fovy_deg: 87.0
+
+battery:
+  cells: 3
+  capacity_mah: 1300
+  internal_resistance_ohm: 0.03
+  cell_full_v: 4.2
+  cell_empty_v: 3.5
+  figure_of_merit: 0.55
+  drive_efficiency: 0.72
+  avionics_w: 3.0
+
+materials:
+  hub: [0.93, 0.93, 0.95, 1.0]
+  carbon: [0.16, 0.16, 0.17, 1.0]
+  front_arm: [0.10, 0.55, 0.85, 1.0]
+  motor_bell: [0.25, 0.27, 0.30, 1.0]
+  stator: [0.55, 0.55, 0.58, 1.0]
+  prop_front: [0.12, 0.12, 0.13, 1.0]
+  prop_rear: [0.12, 0.12, 0.13, 1.0]
+  prop_tip_front: [0.15, 0.60, 0.95, 1.0]
+  prop_tip_rear: [0.92, 0.92, 0.92, 1.0]
+  gear: [0.35, 0.36, 0.38, 1.0]
+  gps: [0.10, 0.10, 0.11, 1.0]
+  payload: [0.20, 0.22, 0.25, 1.0]
+  lens: [0.02, 0.02, 0.03, 1.0]
+  battery: [0.30, 0.32, 0.20, 1.0]
+
+collision:
+  hub_cylinder: {radius_m: 0.045, half_height_m: 0.014}
