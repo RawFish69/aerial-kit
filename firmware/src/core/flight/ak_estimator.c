@@ -322,6 +322,7 @@ void ak_estimator_init(ak_estimator_t *est, float tau)
     est->q[2] = 0.0f;
     est->q[3] = 0.0f;
     est->tau = tau;
+    est->accel_enabled = 1;
     est->converged = 0;
     est->accel_used = 0;
     est->track_aligned_s = 0.0f;
@@ -397,7 +398,8 @@ void ak_estimator_update(ak_estimator_t *est, const ak_imu_sample_t *imu, float 
     az = imu->accel[2];
     magnitude = ak_sqrtf(ax * ax + ay * ay + az * az);
 
-    if (magnitude > AK_ACCEL_TRUST_LOW && magnitude < AK_ACCEL_TRUST_HIGH) {
+    if (est->accel_enabled &&
+        magnitude > AK_ACCEL_TRUST_LOW && magnitude < AK_ACCEL_TRUST_HIGH) {
         float inv = 1.0f / magnitude;
 
         /* The accel weight of the complementary filter, unchanged: the old
