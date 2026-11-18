@@ -10,7 +10,6 @@ from hw_bridge.crsf_radio_mapping import (
     velocity_to_manual_sticks,
 )
 from hw_bridge.rc_mapping import RcMapParams, RcSticks, params_from_airframe, velocity_to_rc
-from hw_bridge.sim_elrs_link_node import delivery_enabled_for_cut
 
 
 def params() -> RcMapParams:
@@ -45,6 +44,7 @@ def test_aetr_frame_maps_arm_and_neutral_channels():
 
 
 def test_decode_round_trip_and_disarmed_state():
+    pytest.importorskip('geometry_msgs')
     channel_map = CrsfChannelMap()
     p = params()
     encoded = channel_map.encode(RcSticks(0.2, -0.3, 0.1, 0.65), enabled=True)
@@ -67,6 +67,9 @@ def test_multirotor_spec_supplies_bank_limit():
 
 
 def test_link_cut_topic_inverts_to_delivery_state():
+    pytest.importorskip('rclpy')
+    from hw_bridge.sim_elrs_link_node import delivery_enabled_for_cut
+
     assert delivery_enabled_for_cut(False)
     assert not delivery_enabled_for_cut(True)
 
@@ -143,6 +146,7 @@ def test_reconnect_reset_requires_a_fresh_arm_hold():
 
 
 def test_serial_reconnect_reopens_and_resets_arm_sequence(monkeypatch):
+    pytest.importorskip('rclpy')
     import rclpy
 
     from hw_bridge import crsf_radio_backend_node as backend_module
