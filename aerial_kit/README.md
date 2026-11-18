@@ -37,13 +37,31 @@ For firmware, hardware integration, and the full ROS 2 / simulation stack, visit
 ## Quick start
 
 ```python
-from aerial_kit.registry import register_builtin_components, create_airframe, create_controller
+import numpy as np
+
+from aerial_kit import (
+    SimState,
+    Waypoint,
+    create_airframe,
+    create_controller,
+    register_builtin_components,
+)
 
 register_builtin_components()
 airframe = create_airframe("quad")
 controller = create_controller("pid")
-print(airframe.capabilities)
+state = SimState(position=np.zeros(3), velocity=np.zeros(3))
+waypoint = Waypoint(position=np.array([1.0, 0.0, 1.0]))
+target = controller.compute(state, waypoint, {})
+assert target.accel_cmd.shape == (3,)
+print(airframe.capabilities.command_kind, target.accel_cmd)
 ```
+
+The top-level exports, `aerial_kit.interfaces`, `aerial_kit.types` and
+`aerial_kit.registry` are the typed public contract and are checked in CI with
+strict function signatures. The distribution ships a PEP 561 `partial` marker:
+specialized numerical internals remain importable but are not claimed as a
+fully typed API surface.
 
 `register_builtin_components()` here registers only what lives inside `aerial_kit`
 itself (airframes, controllers) - it has no ROS or matplotlib dependency and does not

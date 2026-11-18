@@ -12,6 +12,18 @@ ControllerFactory = Callable[[], Controller]
 BackendFactory = Callable[[], DynamicsBackend]
 AirframeFactory = Callable[[], Airframe]
 
+__all__ = [
+    "create_airframe",
+    "create_backend",
+    "create_controller",
+    "create_planner",
+    "register_airframe",
+    "register_backend",
+    "register_builtin_components",
+    "register_controller",
+    "register_planner",
+]
+
 PLANNERS: dict[str, PlannerFactory] = {}
 CONTROLLERS: dict[str, ControllerFactory] = {}
 BACKENDS: dict[str, BackendFactory] = {}
@@ -32,22 +44,27 @@ def _normalize_name(name: str) -> str:
 
 
 def register_planner(name: str, factory: PlannerFactory) -> None:
+    """Register or replace a planner factory under a case-insensitive name."""
     PLANNERS[_normalize_planner_name(name)] = factory
 
 
 def register_controller(name: str, factory: ControllerFactory) -> None:
+    """Register or replace a controller factory under a case-insensitive name."""
     CONTROLLERS[_normalize_name(name)] = factory
 
 
 def register_backend(name: str, factory: BackendFactory) -> None:
+    """Register or replace a dynamics-backend factory."""
     BACKENDS[_normalize_name(name)] = factory
 
 
 def register_airframe(name: str, factory: AirframeFactory) -> None:
+    """Register or replace an airframe factory."""
     AIRFRAMES[_normalize_name(name)] = factory
 
 
 def create_planner(name: str) -> Planner:
+    """Construct a registered planner or raise ``ValueError`` with the choices."""
     key = _normalize_planner_name(name)
     if key not in PLANNERS:
         available = ", ".join(sorted(PLANNERS)) or "none"
@@ -56,6 +73,7 @@ def create_planner(name: str) -> Planner:
 
 
 def create_controller(name: str) -> Controller:
+    """Construct a registered controller or raise ``ValueError`` with the choices."""
     key = _normalize_name(name)
     if key not in CONTROLLERS:
         available = ", ".join(sorted(CONTROLLERS)) or "none"
@@ -64,6 +82,7 @@ def create_controller(name: str) -> Controller:
 
 
 def create_backend(name: str) -> DynamicsBackend:
+    """Construct a registered backend or raise ``ValueError`` with the choices."""
     key = _normalize_name(name)
     if key not in BACKENDS:
         available = ", ".join(sorted(BACKENDS)) or "none"
@@ -72,6 +91,7 @@ def create_backend(name: str) -> DynamicsBackend:
 
 
 def create_airframe(name: str) -> Airframe:
+    """Construct a registered airframe or raise ``ValueError`` with the choices."""
     key = _normalize_name(name)
     if key not in AIRFRAMES:
         available = ", ".join(sorted(AIRFRAMES)) or "none"
