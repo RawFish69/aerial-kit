@@ -60,6 +60,7 @@ from it.
 | 3" micro long-range quad `micro_lr_quad` | `.../micro_lr_quad.yaml` (reads the `lr_drone` CAD) | [MULTIROTOR_MUJOCO.md](MULTIROTOR_MUJOCO.md) |
 | Research hexacopter `research_hex` | `.../research_hex.yaml` | [MULTIROTOR_MUJOCO.md](MULTIROTOR_MUJOCO.md) |
 | Research octocopter `research_octo` | `.../research_octo.yaml` | [MULTIROTOR_MUJOCO.md](MULTIROTOR_MUJOCO.md) |
+| Swarm quad `swarm_quad`, N in one scene | `.../swarm_quad.yaml` | [MULTIROTOR_MUJOCO.md](MULTIROTOR_MUJOCO.md#swarm-n-drones-in-one-scene) |
 | Twin-motor flying wing | `aerial_kit/airframes/twin_wing/twin_wing.yaml` | [TWIN_WING_AIRFRAME.md](TWIN_WING_AIRFRAME.md), [TWIN_WING_TELEOP.md](TWIN_WING_TELEOP.md) |
 | Single-motor flying wing | `aerial_kit/airframes/single_wing/single_wing.yaml` | [SINGLE_WING.md](SINGLE_WING.md) |
 
@@ -98,6 +99,9 @@ ros2 launch sim_gazebo fixed_wing_gazebo_demo.launch.py [headless:=true]   # twi
 ros2 launch sim_fast bringup.launch.py start_demo:=true               # original point mass
 ros2 launch sim_fast bringup.launch.py start_demo:=true sim_backend:=mujoco \
     airframe:=research_hex [viewer:=true] [mission_tracker:=mpc|mppi] [wind_x_mps:=...]
+
+# Swarm: N drones in one MuJoCo scene, formation demo (takeoff, circle, line, grid, land)
+ros2 launch sim_fast swarm_mujoco.launch.py n:=12 demo:=true [viewer:=true]
 
 # Keyboard flying (click the small teleop window, Enter to arm)
 ros2 launch sim_fast fixed_wing_mujoco_teleop.launch.py [airframe:=single_wing] [start_z_m:=150.0]
@@ -156,8 +160,25 @@ receiver times out and the firmware's quad failsafe **cuts the motors and latche
 aircraft falls, as the real one would. Tests: `sim_py/tests/test_fc_sil.py`,
 `ros2_ws/src/sim_bridge/test/test_multirotor_adapter.py -k firmware`.
 
-Known firmware gap (found this way, 2026-11-17): angle mode over-banks in sustained tilts,
-because the estimator under-reads the tilt; see `docs/evidence/fc-sil-estimator-finding-2026-11-17.md`.
+The wings too (Python): `WingFirmwareInTheLoop("twin_wing" | "single_wing")` runs the firmware's
+elevon-wing mixers (airframes 1 and 7) against the MuJoCo wings. Like the real aircraft it is
+armed in the hand and then thrown (`launch()`). Stick signs, arming and the lost-link
+"circling down" failsafe pass, and with a gravity-only accelerometer it flies level. With the
+physical accelerometer it dives: launch thrust tilts the measured gravity about 27 deg, and the
+fixed-wing estimator trusts it (`docs/evidence/fc-sil-wing-estimator-finding-2026-11-18.md`).
+
+Through the radio, end to end: `ros2 launch sim_fast bringup.launch.py sim_backend:=mujoco radio_sim:=true
+flight_controller:=firmware start_demo:=true` (or `FLIGHT_CONTROLLER=firmware scripts/run_radio_sil_mission.sh`).
+The host radio backend arms the firmware through CRSF, the simulated ELRS link carries the frames, and the
+adapter feeds the receiver bytes to the firmware at their arrival times; the firmware alone handles
+failsafe. The host closes velocity and altitude over telemetry with gains from
+`sim_py.fc_sil.radio_stick_settings`. It flies without flipping but does **not** finish the demo
+mission yet: the host's altitude loop runs through ~4 s of telemetry/EKF delay and oscillates.
+See `docs/evidence/radio-firmware-e2e-2026-11-18.md`; the fix is altitude (and velocity) hold on the FC.
+
+Found this way and fixed (2026-11-17/18): angle mode used to over-bank in sustained tilts because
+the estimator under-read the tilt (`docs/evidence/fc-sil-estimator-finding-2026-11-17.md`);
+`test_fc_sil` now holds that as a regression test.
 
 ### Regenerating models and review images
 

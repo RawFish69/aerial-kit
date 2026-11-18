@@ -48,9 +48,10 @@ def _load():
     lib.akfc_state_name.restype = ctypes.c_char_p
     lib.akfc_attitude.argtypes = [ctypes.c_void_p, f32p]
     lib.akfc_command.argtypes = [ctypes.c_void_p, f32p]
+    lib.akfc_config.argtypes = [ctypes.c_void_p, f32p]
     for name in ("akfc_rc_channels", "akfc_max_motors", "akfc_max_servos"):
         getattr(lib, name).restype = ctypes.c_uint
-    if lib.akfc_abi_version() != 1:
+    if lib.akfc_abi_version() != 2:
         raise RuntimeError("akfc shim ABI mismatch; rebuild with build.py --force")
     _lib = lib
     return lib
@@ -72,7 +73,7 @@ class RcLayout:
 class AkFlightCore:
     """One instance of the firmware's flight state machine."""
 
-    QUAD_X, ELEVON_WING = 0, 1
+    QUAD_X, ELEVON_WING, ELEVON_WING_SINGLE = 0, 1, 7
 
     def __init__(self, airframe: int = 0, motors: int = 4, servos: int = 2, loop_period_us: int = 1000):
         self._lib = _load()
@@ -83,7 +84,7 @@ class AkFlightCore:
             raise ValueError(f"the AK firmware drives at most {self.n_motors} motors")
         self._h = self._lib.akfc_create(int(airframe), motors, servos, loop_period_us)
         if not self._h:
-            raise MemoryError("akfc_create failed")
+            raise ValueError(f"the AK firmware has no airframe {airframe} (or out of memory)")
         raw = (ctypes.c_uint * 9)()
         self._lib.akfc_rc_layout(self._h, raw)
         self.layout = RcLayout(*[int(v) for v in raw])
@@ -123,6 +124,13 @@ class AkFlightCore:
         out = (ctypes.c_float * 3)()
         self._lib.akfc_attitude(self._h, out)
         return np.array(out[:], dtype=float)
+
+    def config(self) -> dict:
+        """The firmware's own limits, read from its config struct."""
+        out = (ctypes.c_float * 6)()
+        self._lib.akfc_config(self._h, out)
+        return dict(max_tilt_deg=out[0], max_rate_dps=out[1], throttle_low=out[2],
+                    arm_hold_s=out[3] / 1000.0, arm_threshold=int(out[4]), mode_threshold=int(out[5]))
 
     def command(self) -> dict:
         out = (ctypes.c_float * 6)()
@@ -194,6 +202,7 @@ class FirmwareInTheLoop:
         self.sticks = dict(roll=0.0, pitch=0.0, yaw=0.0, throttle=0.0, arm=False, angle_mode=True)
         self.rc_alive = True
         self._last_rc_ms = 0
+        self._raw_channels: list[int] | None = None   # set by receive_frame()
         self._v_prev = np.asarray(self.backend.state().velocity, dtype=float).copy()
         self.motors = np.zeros(4)
         if on_ground:   # settle on the gear before the estimator starts trusting it
@@ -222,14 +231,32 @@ class FirmwareInTheLoop:
             self._v_prev = v
             now_us = int(round(self.t * 1e6))
             now_ms = now_us // 1000
-            if self.rc_alive:
-                self._last_rc_ms = now_ms
-            ch = self.fc.channels_from_sticks(**self.sticks)
+            if self._raw_channels is not None:
+                # Receiver mode: the channels and their arrival time come from
+                # CRSF frames; the firmware decides on its own when they are stale.
+                ch = self._raw_channels
+            else:
+                if self.rc_alive:
+                    self._last_rc_ms = now_ms
+                ch = self.fc.channels_from_sticks(**self.sticks)
             self.motors, _ = self.fc.step(gyro, accel, ch, self.rc_alive, self._last_rc_ms, now_us, now_ms)
             thrust = t_max * np.clip(self.motors[:4], 0.0, 1.0) ** 2   # throttle -> speed -> thrust
             self.backend.step(ControlTarget(accel_cmd=np.zeros(3),
                                             metadata={"rotor_thrust_n": thrust}), self.dt)
             self.t += self.dt
+
+    def receive_frame(self, channels) -> None:
+        """An RC frame arrived from the receiver now (CRSF channel counts).
+
+        Switches this loop to receiver mode for good: from now on only frames
+        feed the firmware, as on a real FC wired to an ELRS receiver.
+        """
+        ch = [int(c) for c in list(channels)[:self.fc.n_channels]]
+        if len(ch) < self.fc.n_channels:
+            raise ValueError(f"need {self.fc.n_channels} channels, got {len(ch)}")
+        self._raw_channels = ch
+        self.rc_alive = True
+        self._last_rc_ms = int(round(self.t * 1e6)) // 1000
 
     @property
     def state(self) -> SimState:
@@ -291,3 +318,170 @@ class FirmwareRadio:
 def hover_throttle(spec) -> float:
     """Throttle (0..1) that hovers this airframe: thrust = T_max * u^2."""
     return float(math.sqrt(float(np.mean(spec.hover_thrusts())) / spec.max_thrust_n))
+
+
+def radio_stick_settings(spec, fc: AkFlightCore | None = None, climb_gain_per_s: float = 4.0,
+                         speed_gain_per_s: float = 0.2, thrust_range=(0.3, 2.0)) -> dict:
+    """Host radio settings that fly this airframe on the AK firmware in angle mode.
+
+    The host's vertical loop sends throttle = hover + kz * (vz_demand - vz).
+    With thrust = T_max u^2 a throttle step du gives about 2 du / hover g
+    of vertical acceleration, so ``kz = hover / (2 g) * climb_gain_per_s``
+    makes the loop a first-order climb-rate controller with that bandwidth.
+    The throttle range is clipped to ``thrust_range`` x hover thrust so up
+    and down authority stay comparable (a 9:1 quad otherwise has +8 g / -1 g
+    and any lag in the velocity estimate ratchets it upward).
+
+    Horizontally, a tilt theta gives g tan(theta) of acceleration, so
+    ``kv_xy = speed_gain_per_s / g`` rad per m/s of error. The defaults
+    (4 /s climb, 0.2 /s speed; re-tuned 2026-11-18 on the fixed firmware
+    estimator) stay within 16 deg tilt and +/-0.7 m altitude with a 1-2 s
+    lag on the host's velocity estimate, about what CRSF telemetry plus the
+    EKF give. The simulator-mode gains (kz 0.2, kv_xy 0.5) saturate the
+    FC's 35 deg limit there and, on the earlier estimator, flipped the quad.
+    """
+    own = fc is None
+    fc = fc or AkFlightCore()
+    try:
+        cfg = fc.config()
+    finally:
+        if own:
+            fc.close()
+    hover = hover_throttle(spec)
+    lo, hi = thrust_range
+    return {
+        "stick_mapping": "angle",
+        "max_tilt_deg": float(cfg["max_tilt_deg"]),
+        "hover_throttle": hover,
+        "kz": hover / (2.0 * GRAVITY) * float(climb_gain_per_s),
+        "kv_xy": float(speed_gain_per_s) / GRAVITY,
+        "tilt_compensation": True,
+        "throttle_min": max(float(cfg["throttle_low"]) + 0.01, hover * math.sqrt(lo)),
+        "throttle_max": min(0.95, hover * math.sqrt(hi)),
+    }
+
+
+def frd_to_firmware_imu(rates_frd, accel_world, rot_body_to_world):
+    """IMU for a body that is already FRD (the wings): gyro as is, accel = -f_body / g."""
+    f_world = np.asarray(accel_world, dtype=float) - np.array([0.0, 0.0, -GRAVITY])
+    return (np.asarray(rates_frd, dtype=float).copy(),
+            -(np.asarray(rot_body_to_world, dtype=float).T @ f_world) / GRAVITY)
+
+
+#: Wing airframes the firmware can fly, with their firmware airframe id.
+WING_AIRFRAMES = {"twin_wing": AkFlightCore.ELEVON_WING, "single_wing": AkFlightCore.ELEVON_WING_SINGLE}
+
+
+class WingFirmwareInTheLoop:
+    """The AK firmware flying a MuJoCo flying wing (twin or single motor) at 1 kHz.
+
+    Like the real thing, it starts **in the hand**: until :meth:`launch` the
+    firmware runs on a still, level IMU and the aircraft does not move, so
+    it can be armed (the firmware refuses to start its arm hold while the
+    accelerometer disagrees with its attitude, as it does in a glide).
+    ``launch()`` throws it level at ``start_speed`` from ``start_z``.
+    Firmware motor outputs map to thrust = T_max u^2; servo outputs (-1..1,
+    trailing edge up positive, the backend's convention) to +/- the spec's
+    elevon travel.
+    """
+
+    def __init__(self, airframe: str = "twin_wing", start_z: float = 60.0, start_speed: float = 15.0,
+                 heading_rad: float = 0.0, wind_mps=(0.0, 0.0, 0.0), loop_hz: float = 1000.0,
+                 accel_model: str = "physical"):
+        from aerial_kit.dynamics.fixed_wing import level_attitude_quat
+        from aerial_kit.dynamics.rotations import quat_to_rotmat
+
+        if accel_model not in ("physical", "gravity"):
+            raise ValueError("accel_model must be 'physical' (the real specific force) or 'gravity' "
+                             "(a test instrument: reads gravity only, isolates the estimator)")
+        self.accel_model = accel_model
+        if airframe not in WING_AIRFRAMES:
+            raise ValueError(f"unknown wing {airframe!r}; expected one of {sorted(WING_AIRFRAMES)}")
+        self.airframe = airframe
+        self._rotmat = quat_to_rotmat
+        state = SimState(position=np.array([0.0, 0.0, float(start_z)]),
+                         velocity=float(start_speed) * np.array([math.cos(heading_rad), math.sin(heading_rad), 0.0]),
+                         t=0.0, attitude_quat=level_attitude_quat(heading_rad), body_rates=np.zeros(3))
+        wind = [float(w) for w in wind_mps]
+        if airframe == "single_wing":
+            from aerial_kit.airframes.single_wing import load_single_wing_spec
+            from sim_py.backends.mujoco_single_wing_backend import MujocoSingleWingBackend
+
+            self.spec = load_single_wing_spec()
+            self.backend = MujocoSingleWingBackend()
+            self.backend.reset(state, {}, {"simulation": {"singlewing": {"wind_mps": wind}, "mujoco": {}}})
+            self.n_motors = 1
+        else:
+            from aerial_kit.airframes.twin_wing import load_twin_wing_spec
+            from sim_py.backends.mujoco_fixedwing_backend import MujocoFixedWingBackend
+
+            self.spec = load_twin_wing_spec()
+            self.backend = MujocoFixedWingBackend()
+            self.backend.reset(state, {}, {"simulation": {
+                "fixedwing": {"wind_mps": wind, **self.spec.fixed_wing_param_overrides(),
+                              "max_thrust_n": float(self.spec.propulsion["max_thrust_n"])},
+                "mujoco": {}}})
+            self.n_motors = 2
+        self.max_thrust_n = float(self.spec.propulsion["max_thrust_n"])
+        self.travel_rad = float(self.spec.max_elevon_rad)
+        self.fc = AkFlightCore(WING_AIRFRAMES[airframe], motors=self.n_motors, servos=2,
+                               loop_period_us=int(round(1e6 / loop_hz)))
+        self.dt = 1.0 / loop_hz
+        self.t = 0.0
+        self.sticks = dict(roll=0.0, pitch=0.0, yaw=0.0, throttle=0.0, arm=False, angle_mode=True)
+        self.rc_alive = True
+        self._last_rc_ms = 0
+        self._v_prev = np.asarray(self.backend.state().velocity, dtype=float).copy()
+        self.motors = np.zeros(self.n_motors)
+        self.servos = np.zeros(2)
+        self.launched = False
+
+    def launch(self) -> None:
+        """Let go: from now on the aircraft flies and the IMU is the real one."""
+        self.launched = True
+        self._v_prev = np.asarray(self.backend.state().velocity, dtype=float).copy()
+
+    def set_sticks(self, **kwargs) -> None:
+        unknown = set(kwargs) - set(self.sticks)
+        if unknown:
+            raise ValueError(f"unknown stick(s): {sorted(unknown)}")
+        self.sticks.update(kwargs)
+
+    def actuator_command(self) -> np.ndarray:
+        thrust = self.max_thrust_n * np.clip(self.motors, 0.0, 1.0) ** 2
+        elevons = np.clip(self.servos, -1.0, 1.0) * self.travel_rad
+        return np.concatenate([thrust, elevons])
+
+    def step(self, seconds: float) -> None:
+        from aerial_kit.types import ControlTarget as _CT
+
+        for _ in range(max(1, int(round(seconds / self.dt)))):
+            if self.launched:
+                s = self.backend.state()
+                v = np.asarray(s.velocity, dtype=float)
+                rot = self._rotmat(s.attitude_quat)
+                if self.accel_model == "gravity":
+                    gyro, accel = frd_to_firmware_imu(s.body_rates, np.zeros(3), rot)
+                else:
+                    gyro, accel = frd_to_firmware_imu(s.body_rates, (v - self._v_prev) / self.dt, rot)
+                self._v_prev = v
+            else:   # in the hand: still and level
+                gyro, accel = np.zeros(3), np.array([0.0, 0.0, 1.0])
+            now_us = int(round(self.t * 1e6))
+            now_ms = now_us // 1000
+            if self.rc_alive:
+                self._last_rc_ms = now_ms
+            ch = self.fc.channels_from_sticks(**self.sticks)
+            motors, servos = self.fc.step(gyro, accel, ch, self.rc_alive, self._last_rc_ms, now_us, now_ms)
+            self.motors, self.servos = motors[:self.n_motors], servos[:2]
+            if self.launched:
+                self.backend.step(_CT(accel_cmd=np.zeros(3),
+                                      metadata={"actuator_cmd": self.actuator_command()}), self.dt)
+            self.t += self.dt
+
+    @property
+    def state(self) -> SimState:
+        return self.backend.state()
+
+    def close(self) -> None:
+        self.fc.close()

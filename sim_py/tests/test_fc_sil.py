@@ -141,26 +141,47 @@ class TestFirmwareFliesMujoco(unittest.TestCase):
         self.assertAlmostEqual(true_roll, math.degrees(sim.fc.attitude()[0]), delta=1.0)
         self.assertAlmostEqual(true_roll, 17.5, delta=2.0)
 
-    @unittest.expectedFailure
-    def test_known_gap_estimator_tracks_sustained_tilt_with_a_physical_accelerometer(self) -> None:
-        # KNOWN GAP (2026-11-17): ak_estimator trusts the accelerometer with a
-        # 0.5 s time constant whenever |a| ~ 1 g. On a multirotor the
-        # accelerometer sees thrust, not gravity, so a sustained tilt is
-        # under-read (truth 37 deg vs estimate 13 deg after 1 s) and angle
-        # mode keeps rolling. This sim has no rotor drag, which would make the
-        # real error smaller but not remove it. Remove expectedFailure when
-        # the firmware estimator is fixed.
+    def test_estimator_tracks_sustained_tilt_with_a_physical_accelerometer(self) -> None:
+        # Was a known gap (2026-11-17): with tau 0.5 s accelerometer trust the
+        # estimate stayed near 13 deg while the quad rolled to 64 deg. Fixed in
+        # the firmware estimator (lib/estimator-and-api); now the bank holds.
         sim = _armed_and_airborne()
         sim.set_sticks(roll=0.5, throttle=0.36)
         sim.step(1.0)
-        true_roll = _roll_pitch_yaw_deg(sim.state.attitude_quat)[0]
-        self.assertAlmostEqual(true_roll, math.degrees(sim.fc.attitude()[0]), delta=5.0)
+        roll_1s = _roll_pitch_yaw_deg(sim.state.attitude_quat)[0]
+        self.assertAlmostEqual(roll_1s, math.degrees(sim.fc.attitude()[0]), delta=5.0)
+        sim.step(1.0)
+        roll_2s = _roll_pitch_yaw_deg(sim.state.attitude_quat)[0]
+        self.assertAlmostEqual(roll_2s, roll_1s, delta=2.0)          # holds, does not keep rolling
+        self.assertAlmostEqual(roll_2s, 17.5, delta=5.0)              # half of the 35 deg limit (20.3 measured)
+        # Codex's acceptance figure (change-requests.md, 2026-11-18): within 3 deg (2.78 measured).
+        self.assertAlmostEqual(roll_2s, math.degrees(sim.fc.attitude()[0]), delta=3.0)
 
     def test_refuses_airframes_the_firmware_cannot_drive(self) -> None:
         from sim_py.fc_sil import FirmwareInTheLoop
 
         with self.assertRaises(ValueError):
             FirmwareInTheLoop("research_hex")
+
+
+class TestPackagedWithoutFirmware(unittest.TestCase):
+    def test_missing_firmware_sources_raise_a_clear_error(self) -> None:
+        # An installed wheel has sim_py but not firmware/: say so, do not hand
+        # the compiler a missing file (clean-install CI checks the same).
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        import importlib
+
+        fc_build = importlib.import_module("sim_py.fc_sil.build")
+
+        with tempfile.TemporaryDirectory() as empty, mock.patch.object(fc_build, "CORE", Path(empty) / "core"):
+            with self.assertRaises(RuntimeError) as ctx:
+                fc_build.build()
+        message = str(ctx.exception).lower()
+        self.assertIn("firmware", message)
+        self.assertIn("source", message)
 
 
 class TestFirmwareRadio(unittest.TestCase):
@@ -191,6 +212,110 @@ class TestFirmwareRadio(unittest.TestCase):
         self.assertEqual(FirmwareRadio(0.8, max_thrust_ratio=4.0).firmware_throttle(1.0), 1.0)
         self.assertFalse(radio.sticks(0.0, arm=True, mode="acro")["angle_mode"])
         self.assertTrue(radio.sticks(0.0, arm=True, mode="velocity")["angle_mode"])
+
+
+def _wing_eul(quat):
+    """(roll right-wing-down +, pitch nose-up +, heading) in degrees for a body-FRD wing."""
+    r = quat_to_rotmat(quat)
+    x, y, z = r[:, 0], r[:, 1], r[:, 2]
+    return (math.degrees(math.atan2(-y[2], -z[2])), math.degrees(math.asin(max(-1.0, min(1.0, x[2])))),
+            math.degrees(math.atan2(x[1], x[0])))
+
+
+def _launched_wing(airframe, accel_model="physical", throttle=0.6):
+    from sim_py.fc_sil import WingFirmwareInTheLoop
+
+    w = WingFirmwareInTheLoop(airframe, accel_model=accel_model)
+    w.set_sticks(arm=False, throttle=0.0)
+    w.step(0.5)
+    w.set_sticks(arm=True)
+    w.step(1.0)
+    assert w.fc.state == "armed", w.fc.state
+    w.set_sticks(throttle=throttle)
+    w.step(0.3)
+    w.launch()
+    return w
+
+
+@requires
+class TestFirmwareFliesTheWings(unittest.TestCase):
+    WINGS = ("twin_wing", "single_wing")
+
+    def test_arms_in_the_hand_and_not_before_the_switch_cycles(self) -> None:
+        from sim_py.fc_sil import WingFirmwareInTheLoop
+
+        for airframe in self.WINGS:
+            with self.subTest(airframe=airframe):
+                w = WingFirmwareInTheLoop(airframe)
+                w.set_sticks(arm=True)
+                w.step(1.0)
+                self.assertEqual(w.fc.state, "disarmed")       # switch on at power-up
+                self.assertEqual(w.state.position[2], 60.0)      # still in the hand
+                w.set_sticks(arm=False)
+                w.step(0.3)
+                w.set_sticks(arm=True)
+                w.step(1.0)
+                self.assertEqual(w.fc.state, "armed")
+
+    def test_angle_mode_holds_level_with_a_gravity_only_accelerometer(self) -> None:
+        # Isolates the bridge (IMU frames, mixer rows, servo and thrust scaling)
+        # from the estimator: with an accelerometer that reads gravity only the
+        # firmware flies both wings level.
+        for airframe in self.WINGS:
+            with self.subTest(airframe=airframe):
+                w = _launched_wing(airframe, "gravity")
+                w.step(6.0)
+                roll, pitch, _ = _wing_eul(w.state.attitude_quat)
+                self.assertLess(abs(roll), 2.0)
+                self.assertLess(abs(pitch), 3.0)
+                self.assertAlmostEqual(w.state.position[2], 60.0, delta=4.0)
+                self.assertAlmostEqual(pitch, math.degrees(w.fc.attitude()[1]), delta=1.0)
+
+    def test_stick_signs(self) -> None:
+        # RC convention, as on the quads: roll right -> right wing down; pitch
+        # stick forward (positive) -> nose down.
+        for airframe in self.WINGS:
+            for stick, check in (("roll", lambda r, p: r > 10.0), ("pitch", lambda r, p: p < -5.0)):
+                with self.subTest(airframe=airframe, stick=stick):
+                    w = _launched_wing(airframe, "gravity")
+                    w.step(1.0)
+                    w.set_sticks(**{stick: 0.5})
+                    w.step(1.0)
+                    roll, pitch, _ = _wing_eul(w.state.attitude_quat)
+                    self.assertTrue(check(roll, pitch), (airframe, stick, roll, pitch))
+
+    def test_radio_loss_flies_the_descending_circle_not_a_motor_cut(self) -> None:
+        # The firmware's wing failsafe: bank ~30 deg, low throttle, circle down.
+        w = _launched_wing("twin_wing", "gravity")
+        w.step(2.0)
+        w.rc_alive = False
+        w.step(1.0)
+        self.assertEqual(w.fc.state, "circling down")      # AK_FLIGHT_DESCEND, the wing's failsafe
+        headings = []
+        for _ in range(8):
+            w.step(1.0)
+            headings.append(_wing_eul(w.state.attitude_quat)[2])
+        roll = _wing_eul(w.state.attitude_quat)[0]
+        self.assertGreater(abs(roll), 15.0)
+        self.assertGreater(float(w.motors.sum()), 0.1)                # still powered: a wing must keep flying
+        self.assertAlmostEqual(abs(roll), 30.0, delta=5.0)            # wing_descend_bank_deg
+        turned = np.unwrap(np.radians(headings))
+        self.assertGreater(abs(math.degrees(turned[-1] - turned[0])), 90.0)
+
+    @unittest.expectedFailure
+    def test_known_gap_wing_holds_level_with_a_physical_accelerometer(self) -> None:
+        # KNOWN GAP (2026-11-18): the fixed-wing estimator trusts the
+        # accelerometer in flight (tau 0.5 s). Launch thrust (~5 m/s^2 along
+        # the body) tilts the measured specific force ~27 deg from gravity, the
+        # estimate reads nose-up while the wing is nose-down, and angle mode
+        # flies it into the ground (truth -29 deg, estimate +1 deg). Needs
+        # acceleration compensation (airspeed/GPS) or lower trust. See
+        # docs/evidence/fc-sil-wing-estimator-finding-2026-11-18.md.
+        w = _launched_wing("twin_wing", "physical")
+        w.step(6.0)
+        _, pitch, _ = _wing_eul(w.state.attitude_quat)
+        self.assertLess(abs(pitch), 5.0)
+        self.assertGreater(w.state.position[2], 50.0)
 
 
 if __name__ == "__main__":

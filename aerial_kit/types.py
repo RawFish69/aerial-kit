@@ -8,6 +8,17 @@ from typing import Any
 
 import numpy as np
 
+__all__ = [
+    "Capabilities",
+    "CommandKind",
+    "ControlMode",
+    "ControlTarget",
+    "SimState",
+    "TrajectoryLog",
+    "Waypoint",
+    "Wrench",
+]
+
 
 class CommandKind(Enum):
     """What kind of control target an airframe's inner loop accepts."""

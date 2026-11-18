@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <sdf version="1.8">
   <!--
-    GENERATED from /home/cy/Projects/aerial-kit/aerial_kit/airframes/multirotor_specs/fpv_quad_5in.yaml by scripts/generate_multirotor_assets.py.
+    GENERATED from aerial_kit/airframes/multirotor_specs/fpv_quad_5in.yaml by scripts/generate_multirotor_assets.py.
     Edit the YAML and regenerate; check mode fails on drift.
 
     Kinematic visual only. gazebo_multirotor_pose_node drives this static

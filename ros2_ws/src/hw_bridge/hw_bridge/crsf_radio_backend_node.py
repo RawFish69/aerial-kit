@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import json
 import math
 import time
@@ -78,6 +80,11 @@ class CrsfRadioBackendNode(Node):
             'throttle_min': 0.05,
             'throttle_max': 0.95,
             'max_yaw_rate_rps': 1.5,
+            # Full roll/pitch stick = this tilt; 0 takes the airframe spec's.
+            # Set it to the FC's own angle limit (AK firmware: 35 deg).
+            'max_tilt_deg': 0.0,
+            # Angle sticks only: add hover throttle for the commanded tilt.
+            'tilt_compensation': False,
             'roll_channel': 1,
             'pitch_channel': 2,
             'throttle_channel': 3,
@@ -116,6 +123,9 @@ class CrsfRadioBackendNode(Node):
             throttle_max=float(g('throttle_max').value),
             max_yaw_rate_rps=float(g('max_yaw_rate_rps').value),
         )
+        if float(g('max_tilt_deg').value) > 0.0:
+            self.params = dataclasses.replace(self.params, max_tilt_deg=float(g('max_tilt_deg').value))
+        self.params = dataclasses.replace(self.params, tilt_compensation=bool(g('tilt_compensation').value))
         self.channel_map = CrsfChannelMap(
             roll=int(g('roll_channel').value),
             pitch=int(g('pitch_channel').value),
