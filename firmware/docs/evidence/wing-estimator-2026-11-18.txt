@@ -1,0 +1,33 @@
+Powered-flight accelerometer policy and vertical telemetry
+Date: 2026-11-18
+Origin: docs/evidence/fc-sil-wing-estimator-finding-2026-11-18.md
+
+Wing estimator:
+  - Accelerometer levelling remains enabled before launch/disarmed, where the
+    aircraft is actually resting in gravity.
+  - Powered flight uses gyro-carried attitude for wings. The portable core has
+    no airspeed/GPS acceleration input with which to subtract longitudinal or
+    centripetal specific force.
+  - Multirotors retain the existing small-angle correction and gyro-carried
+    attitude beyond seven degrees.
+
+Verification:
+  - Physical-accelerometer wing regression now XPASSes: both wings remain
+    within 5 degrees of level and above 50 m after 6 s.
+  - Gravity-only wing control still passes.
+  - Physical-accelerometer quad sustained-tilt regression still passes.
+  - Host flight-core self-test: 22/22.
+  - ARM build and binary image check pass.
+
+Vertical radio telemetry:
+  - CRSF type 0x09 BARO_ALTITUDE/VARIO codec added with big-endian altitude and
+    vertical speed.
+  - Independent wire fixture: altitude 123.4 m, vario -2.5 m/s.
+  - ROS receiver/backend integration is requested in
+    docs/evidence/change-requests.md so the EKF can use /uav/hw/baro.
+
+Known hardware limitation:
+  - Gyro-carried attitude is exact in the bias-free simulator but will drift
+    on hardware. A thrust-model specific-force compensation or a carefully
+    gated slow re-levelling policy remains required before claiming long-flight
+    attitude accuracy. No flight-readiness claim is made.

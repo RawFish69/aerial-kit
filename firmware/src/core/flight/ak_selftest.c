@@ -259,8 +259,8 @@ int ak_flight_selftest(ak_printf_fn out)
         ak_flight_step(&wing, &imu, &rc, t_ms * 1000u, t_ms);
     }
     check(&ctx, "a wing arms the same way", wing.state == AK_FLIGHT_ARMED, "");
-    check(&ctx, "an armed wing keeps its accelerometer attitude aid",
-          wing.est.accel_enabled == 1, "");
+    check(&ctx, "an armed wing uses gyro-carried attitude",
+          wing.est.accel_enabled == 0, "");
 
     for (int i = 0; i < 300; i++) { /* the receiver goes quiet */
         t_ms += 1;

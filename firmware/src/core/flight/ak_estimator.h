@@ -44,10 +44,10 @@ typedef struct {
     float tau;       /* filter time constant, s */
     /*
      * Whether this sample's accelerometer direction is allowed to correct
-     * attitude. Wings normally leave it on. The flight core turns it off for
-     * a tilted multirotor in flight: its accelerometer measures thrust along
-     * the body axis, not gravity, so using it as an up vector pulls a
-     * sustained bank back toward level and makes angle mode keep rolling.
+     * attitude. The flight core leaves it on for pre-arm convergence and turns
+     * it off in powered flight, where lift and thrust dominate the measured
+     * specific force. A tilted multirotor also uses gyro attitude; a small
+     * near-level correction remains for its established control response.
      */
     int   accel_enabled;
     int   converged; /* set once the accelerometer has been used enough times */
