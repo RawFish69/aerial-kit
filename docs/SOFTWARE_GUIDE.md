@@ -156,6 +156,15 @@ receiver times out and the firmware's quad failsafe **cuts the motors and latche
 aircraft falls, as the real one would. Tests: `sim_py/tests/test_fc_sil.py`,
 `ros2_ws/src/sim_bridge/test/test_multirotor_adapter.py -k firmware`.
 
+Through the radio, end to end: `ros2 launch sim_fast bringup.launch.py sim_backend:=mujoco radio_sim:=true
+flight_controller:=firmware start_demo:=true` (or `FLIGHT_CONTROLLER=firmware scripts/run_radio_sil_mission.sh`).
+The host radio backend arms the firmware through CRSF, the simulated ELRS link carries the frames, and the
+adapter feeds the receiver bytes to the firmware at their arrival times; the firmware alone handles
+failsafe. The host closes velocity and altitude over telemetry with gains from
+`sim_py.fc_sil.radio_stick_settings`. It flies stably but does **not** finish the demo mission yet;
+see `docs/evidence/radio-firmware-e2e-2026-11-18.md` for why (telemetry lag, the estimator gap) and the fix
+(hold altitude and velocity on the FC).
+
 Known firmware gap (found this way, 2026-11-17): angle mode over-banks in sustained tilts,
 because the estimator under-reads the tilt; see `docs/evidence/fc-sil-estimator-finding-2026-11-17.md`.
 

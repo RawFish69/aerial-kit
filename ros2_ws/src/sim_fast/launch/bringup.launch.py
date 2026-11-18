@@ -16,14 +16,7 @@ _FAST_SIM_FRAME = {'command_frame': 'world', 'heading_control_enabled': False}
 _FAST_SIM_VELOCITY_TAU_S = 1.0 / 1.5
 
 
-def velocity_loop_tau_s(sim_backend, airframe):
-    """The plant's velocity-loop time constant, for the predictive trackers.
-
-    pointmass: a = 1.5 (v_sp - v). mujoco: the multirotor adapter's velocity
-    law a = velocity_kp (v_sp - v), with velocity_kp from the airframe spec.
-    """
-    if str(sim_backend) != 'mujoco':
-        return _FAST_SIM_VELOCITY_TAU_S
+def _import_repo():
     import sys
     from pathlib import Path
 
@@ -32,6 +25,63 @@ def velocity_loop_tau_s(sim_backend, airframe):
             if str(parent) not in sys.path:
                 sys.path.insert(0, str(parent))
             break
+
+
+def firmware_radio_settings(airframe):
+    """Radio backend settings for flying the real AK firmware over the radio.
+
+    The host sends *angle* sticks (the firmware has no velocity mode), scaled
+    to the firmware's own tilt limit, around this airframe's hover throttle,
+    and closes the velocity loop itself on telemetry.
+    """
+    _import_repo()
+    from aerial_kit.airframes.multirotor_specs import load_multirotor_spec
+    from sim_py.fc_sil import radio_stick_settings
+
+    return {**radio_stick_settings(load_multirotor_spec(str(airframe))),
+            'vxy_feedback': True, 'vz_feedback': True}
+
+
+def _radio_backend(context):
+    firmware = LaunchConfiguration('flight_controller').perform(context).strip().lower() == 'firmware'
+    radio = LaunchConfiguration('radio_sim').perform(context).strip().lower() == 'true'
+    backend = LaunchConfiguration('sim_backend').perform(context)
+    airframe = LaunchConfiguration('airframe').perform(context)
+    if firmware and (not radio or backend != 'mujoco'):
+        raise RuntimeError('flight_controller:=firmware needs sim_backend:=mujoco radio_sim:=true: '
+                           'the AK firmware is flown through the simulated ELRS radio')
+    if not radio:
+        return []
+    overrides = {
+        'transport': 'ros',
+        'send_rate_hz': float(LaunchConfiguration('radio_rate_hz').perform(context)),
+        'airframe_name': airframe,
+        'vz_feedback': True,
+        'vxy_feedback': False,
+        'command_frame': 'world',
+        'stick_mapping': 'velocity',
+    }
+    if firmware:
+        overrides.update(firmware_radio_settings(airframe))
+    radio_config = PathJoinSubstitution([FindPackageShare('hw_bridge'), 'config', 'crsf_radio.yaml'])
+    return [Node(
+        package='hw_bridge',
+        executable='crsf_radio_backend_node',
+        name='crsf_radio_backend_node',
+        output='screen',
+        parameters=[radio_config, overrides],
+    )]
+
+
+def velocity_loop_tau_s(sim_backend, airframe):
+    """The plant's velocity-loop time constant, for the predictive trackers.
+
+    pointmass: a = 1.5 (v_sp - v). mujoco: the multirotor adapter's velocity
+    law a = velocity_kp (v_sp - v), with velocity_kp from the airframe spec.
+    """
+    if str(sim_backend) != 'mujoco':
+        return _FAST_SIM_VELOCITY_TAU_S
+    _import_repo()
     from aerial_kit.airframes.multirotor_specs import load_multirotor_spec
 
     return 1.0 / float(load_multirotor_spec(str(airframe)).control['velocity_kp'])
@@ -98,6 +148,12 @@ def generate_launch_description():
         'radio_sim', default_value='false',
         description='route commands and telemetry through the simulated ELRS/CRSF radio',
     )
+    flight_controller_arg = DeclareLaunchArgument(
+        'flight_controller', default_value='sim',
+        description="sim | firmware: the unmodified AK flight core flies the MuJoCo quad, "
+                    "commanded over the simulated ELRS radio (needs sim_backend:=mujoco radio_sim:=true, "
+                    "quad-X airframes)",
+    )
     radio_latency_arg = DeclareLaunchArgument('radio_latency_ms', default_value='8.0')
     radio_loss_arg = DeclareLaunchArgument('radio_packet_loss_percent', default_value='0.0')
     radio_rate_arg = DeclareLaunchArgument('radio_rate_hz', default_value='150.0')
@@ -132,6 +188,7 @@ def generate_launch_description():
         demo_planning_mode_arg,
         mission_tracker_arg,
         radio_sim_arg,
+        flight_controller_arg,
         radio_latency_arg,
         radio_loss_arg,
         radio_rate_arg,
@@ -170,27 +227,12 @@ def generate_launch_description():
                     '/uav/radio/plant_odom', '/uav/backend/odom'),
                 'manual_topic': _topic_when_radio(
                     '/uav/radio/decoded_manual', '/uav/backend/manual'),
+                'flight_controller': LaunchConfiguration('flight_controller'),
+                # With the firmware, RC comes from the receiver bytes as on a real FC.
+                'firmware_rc_input': 'crsf',
             }],
         ),
-        Node(
-            package='hw_bridge',
-            executable='crsf_radio_backend_node',
-            name='crsf_radio_backend_node',
-            output='screen',
-            condition=IfCondition(LaunchConfiguration('radio_sim')),
-            parameters=[
-                radio_config,
-                {
-                    'transport': 'ros',
-                    'send_rate_hz': _launch_float('radio_rate_hz'),
-                    'airframe_name': LaunchConfiguration('airframe'),
-                    'vz_feedback': True,
-                    'vxy_feedback': False,
-                    'command_frame': 'world',
-                    'stick_mapping': 'velocity',
-                },
-            ],
-        ),
+        OpaqueFunction(function=_radio_backend),
         Node(
             package='hw_bridge',
             executable='sim_elrs_link_node',

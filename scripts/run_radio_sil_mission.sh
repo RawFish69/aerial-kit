@@ -35,6 +35,7 @@ setsid ros2 launch sim_fast bringup.launch.py \
     radio_rate_hz:="$rate_hz" \
     radio_latency_ms:="$latency_ms" \
     radio_packet_loss_percent:="$loss_pct" \
+    flight_controller:="${FLIGHT_CONTROLLER:-sim}" \
     >"$log" 2>&1 &
 launch_pid=$!
 

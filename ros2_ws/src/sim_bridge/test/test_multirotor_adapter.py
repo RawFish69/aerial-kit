@@ -328,3 +328,49 @@ def test_firmware_mode_refuses_non_quad_airframes():
             adapter.MultirotorBackendAdapterNode()
     finally:
         rclpy.shutdown()
+
+
+def test_firmware_reads_crsf_receiver_bytes_and_fails_safe_when_they_stop(monkeypatch):
+    import shutil
+
+    import rclpy
+    from std_msgs.msg import UInt8MultiArray
+
+    from aerial_kit.comms.crsf import make_rc_channels_frame
+
+    if not (shutil.which('cc') or shutil.which('gcc')):
+        pytest.skip('needs a C compiler to build the AK flight core')
+    clock = {'t': 1000.0}
+    monkeypatch.setattr(adapter.time, 'monotonic', lambda: clock['t'])
+    rclpy.init(args=['--ros-args', '-p', 'airframe:=fpv_quad_5in', '-p', 'flight_controller:=firmware',
+                     '-p', 'firmware_rc_input:=crsf'])
+    node = adapter.MultirotorBackendAdapterNode()
+    try:
+        def channels(throttle, arm):
+            ch = [992] * 16
+            ch[2], ch[4], ch[5] = throttle, 1811, (1811 if arm else 172)
+            return ch
+
+        def run(seconds, throttle=None, arm=False):
+            for _ in range(int(seconds / 0.01)):
+                if throttle is not None:          # two frames per 10 ms tick, like 150-200 Hz
+                    for _ in range(2):
+                        clock['t'] += 0.005
+                        node._on_crsf_bytes(UInt8MultiArray(data=list(make_rc_channels_frame(channels(throttle, arm)))))
+                else:
+                    clock['t'] += 0.01
+                node._tick()
+
+        run(0.5, 172, arm=False)
+        assert node.firmware.fc.state == 'disarmed'
+        run(1.0, 172, arm=True)
+        assert node.firmware.fc.state == 'armed'
+        assert node.source == 'firmware_crsf'
+        run(1.5, 900, arm=True)                     # ~0.44 throttle: climbs
+        assert node.backend.state().position[2] > 0.5
+        run(0.6)                                    # receiver goes quiet
+        assert node.firmware.fc.state == 'failsafe'
+        assert np.all(node.firmware.motors == 0.0)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
