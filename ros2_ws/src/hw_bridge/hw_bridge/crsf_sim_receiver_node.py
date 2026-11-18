@@ -14,6 +14,8 @@ from std_msgs.msg import Bool, UInt8MultiArray
 from uav_msgs.msg import MultirotorManualCommand
 
 from aerial_kit.comms.crsf import (
+    BarometerTelemetry,
+    make_barometer_frame,
     AttitudeTelemetry,
     BatteryTelemetry,
     CrsfParser,
@@ -60,6 +62,9 @@ class CrsfSimReceiverNode(Node):
             'disabled_mode_count': 172,
             'output_rate_hz': 150.0,
             'telemetry_rate_hz': 50.0,
+            # Barometric altitude + vertical speed (CRSF 0x09): the host's fast
+            # vertical channel. Off reproduces the GPS-altitude-only downlink.
+            'send_barometer': True,
             'receiver_timeout_sec': 0.35,
             'arm_hold_sec': 0.5,
             'throttle_low': 0.05,
@@ -223,6 +228,10 @@ class CrsfSimReceiverNode(Node):
                 altitude_m=self.origin_alt + float(position.z),
                 satellites=12,
             )),
+            *([make_barometer_frame(BarometerTelemetry(
+                altitude_m=self.origin_alt + float(position.z),
+                vertical_speed_mps=float(velocity.z),
+            ))] if bool(self.get_parameter('send_barometer').value) else []),
             make_battery_frame(BatteryTelemetry(
                 voltage_v=12.6,
                 current_a=5.0,
