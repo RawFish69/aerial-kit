@@ -166,6 +166,12 @@ armed in the hand and then thrown (`launch()`). Stick signs, arming and the lost
 "circling down" failsafe pass, and with a gravity-only accelerometer it flies level. With the
 physical accelerometer it dives: launch thrust tilts the measured gravity about 27 deg, and the
 fixed-wing estimator trusts it (`docs/evidence/fc-sil-wing-estimator-finding-2026-11-18.md`).
+Keyboard: `ros2 launch sim_fast fixed_wing_mujoco_teleop.launch.py [airframe:=single_wing]
+flight_controller:=firmware [firmware_accel_model:=gravity]`. Enter arms it in the hand; cruise
+throttle or more throws it. The keys' surface commands are turned back into angle-mode sticks.
+If teleop stops, the firmware circles down. With `gravity` it flies cleanly
+(`docs/evidence/fc-sil-wing-teleop-session.json`); with `physical` it dives until the
+estimator gap is fixed.
 
 Through the radio, end to end: `ros2 launch sim_fast bringup.launch.py sim_backend:=mujoco radio_sim:=true
 flight_controller:=firmware start_demo:=true` (or `FLIGHT_CONTROLLER=firmware scripts/run_radio_sil_mission.sh`).

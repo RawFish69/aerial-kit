@@ -373,3 +373,56 @@ def test_single_wing_node_flies_manual_commands_on_mujoco():
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+
+@pytest.mark.parametrize('airframe', ['twin_wing', 'single_wing'])
+def test_firmware_flies_the_wing_from_teleop_commands(monkeypatch, airframe):
+    import shutil
+
+    import rclpy
+    from std_msgs.msg import Bool
+
+    if not (shutil.which('cc') or shutil.which('gcc')):
+        pytest.skip('needs a C compiler to build the AK flight core')
+    clock = {'t': 100.0}
+    monkeypatch.setattr(adapter.time, 'monotonic', lambda: clock['t'])
+    rclpy.init(args=['--ros-args', '-p', 'backend:=mujoco', '-p', f'airframe:={airframe}',
+                     '-p', 'start_z_m:=60.0', '-p', 'flight_controller:=firmware',
+                     '-p', 'firmware_accel_model:=gravity'])
+    node = adapter.FixedWingBackendAdapterNode()
+    try:
+        assert node.firmware is not None and node.backend is node.firmware.backend
+
+        def msg(thrust, active=True):
+            m = ActuatorCommand()
+            if airframe == 'single_wing':
+                m.thrust_left_n, m.thrust_right_n = thrust, 0.0
+            else:
+                m.thrust_left_n = m.thrust_right_n = thrust / 2.0
+            m.elevon_left_rad = m.elevon_right_rad = 0.0
+            m.active = active
+            return m
+
+        def run(seconds, m=None):
+            for _ in range(int(seconds / node.period)):
+                clock['t'] += node.period
+                if m is not None:
+                    node._on_manual(m)
+                node._tick()
+
+        run(0.5, msg(0.0, active=False))
+        assert node.firmware.fc.state == 'disarmed'
+        node._on_enable(Bool(data=True))
+        run(1.5, msg(0.0))                      # arm in the hand, throttle low
+        assert node.firmware.fc.state == 'armed' and not node.firmware.launched
+        assert node.backend.state().position[2] == pytest.approx(60.0)
+        run(4.0, msg(0.5 * node.firmware.max_thrust_n * node.firmware.n_motors))   # throttle up: thrown
+        assert node.firmware.launched
+        s = node.backend.state()
+        assert abs(s.position[2] - 60.0) < 5.0 and np.linalg.norm(s.velocity) > 10.0
+        run(1.0)                                # teleop stops: the firmware's lost-link circle
+        assert node.source == 'firmware_rc_lost'
+        assert node.firmware.fc.state == 'circling down'
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()

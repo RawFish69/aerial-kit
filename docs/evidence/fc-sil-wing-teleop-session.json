@@ -1,0 +1,620 @@
+{
+ "disarmed_start": {
+  "cmd_samples": 144,
+  "active_fraction": 0.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "z_end": 60.0,
+  "airspeed_end": 15.0
+ },
+ "arm": {
+  "cmd_samples": 48,
+  "active_fraction": 0.9792,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0,
+   0.0,
+   -0.0
+  ],
+  "z_end": 59.95,
+  "airspeed_end": 15.01
+ },
+ "trim_hold": {
+  "cmd_samples": 72,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.0,
+   0.0121,
+   0.0
+  ],
+  "z_end": 59.51,
+  "airspeed_end": 15.27
+ },
+ "bank_right_D": {
+  "cmd_samples": 19,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   -0.151,
+   0.198
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.3821,
+   0.0108,
+   0.0142
+  ],
+  "z_end": 59.46,
+  "airspeed_end": 15.28
+ },
+ "counter_A": {
+  "cmd_samples": 20,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.1893,
+   -0.1423
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.6019,
+   0.0085,
+   0.0457
+  ],
+  "z_end": 59.42,
+  "airspeed_end": 15.29
+ },
+ "recentre_X": {
+  "cmd_samples": 72,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0616,
+   0.0051,
+   -0.0149
+  ],
+  "z_end": 59.45,
+  "airspeed_end": 15.23
+ },
+ "bank_left_A": {
+  "cmd_samples": 21,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.1814,
+   -0.1344
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.3794,
+   0.0021,
+   -0.0141
+  ],
+  "z_end": 59.47,
+  "airspeed_end": 15.21
+ },
+ "counter_D": {
+  "cmd_samples": 20,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   -0.1423,
+   0.1893
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.6045,
+   0.0021,
+   -0.0458
+  ],
+  "z_end": 59.48,
+  "airspeed_end": 15.19
+ },
+ "recentre_X2": {
+  "cmd_samples": 72,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.0618,
+   0.002,
+   0.0147
+  ],
+  "z_end": 59.57,
+  "airspeed_end": 15.11
+ },
+ "nose_up_S": {
+  "cmd_samples": 17,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.1878,
+   0.1878
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.0005,
+   0.3836,
+   -0.0001
+  ],
+  "z_end": 59.8,
+  "airspeed_end": 14.88
+ },
+ "counter_W": {
+  "cmd_samples": 18,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   -0.1413,
+   -0.1413
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0011,
+   -0.5649,
+   -0.0009
+  ],
+  "z_end": 60.23,
+  "airspeed_end": 14.64
+ },
+ "recentre_X3": {
+  "cmd_samples": 72,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0008,
+   0.0416,
+   -0.0008
+  ],
+  "z_end": 59.63,
+  "airspeed_end": 15.02
+ },
+ "nose_down_W": {
+  "cmd_samples": 17,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   -0.151,
+   -0.151
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0004,
+   -0.3789,
+   -0.0004
+  ],
+  "z_end": 59.45,
+  "airspeed_end": 15.18
+ },
+ "counter_S": {
+  "cmd_samples": 18,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.198,
+   0.198
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0003,
+   0.5068,
+   -0.0004
+  ],
+  "z_end": 58.98,
+  "airspeed_end": 15.36
+ },
+ "recentre_X4": {
+  "cmd_samples": 72,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0002,
+   -0.0393,
+   -0.0002
+  ],
+  "z_end": 59.64,
+  "airspeed_end": 14.92
+ },
+ "throttle_up_Space": {
+  "cmd_samples": 76,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   3.8042,
+   3.8042
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0001,
+   0.0125,
+   0.0001
+  ],
+  "z_end": 60.32,
+  "airspeed_end": 20.11
+ },
+ "throttle_down_Shift": {
+  "cmd_samples": 42,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.021,
+   0.021
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.0002,
+   -0.0086,
+   -0.0008
+  ],
+  "z_end": 61.02,
+  "airspeed_end": 18.39
+ },
+ "trim_after_throttle": {
+  "cmd_samples": 48,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0002,
+   -0.0088,
+   0.0003
+  ],
+  "z_end": 61.51,
+  "airspeed_end": 17.74
+ },
+ "yaw_Q": {
+  "cmd_samples": 51,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.2831,
+   1.4831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.0707,
+   -0.0017,
+   -0.2253
+  ],
+  "z_end": 62.15,
+  "airspeed_end": 18.23
+ },
+ "yaw_E": {
+  "cmd_samples": 52,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   1.46,
+   0.3062
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.178,
+   -0.0371,
+   0.4353
+  ],
+  "z_end": 63.19,
+  "airspeed_end": 18.52
+ },
+ "pause_P": {
+  "cmd_samples": 2,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.0453,
+   -0.0034,
+   -0.6182
+  ],
+  "z_end": 63.24,
+  "airspeed_end": 18.52
+ },
+ "paused_D_held": {
+  "cmd_samples": 52,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.1143,
+   -0.0166,
+   -0.119
+  ],
+  "z_end": 63.88,
+  "airspeed_end": 18.0
+ },
+ "unpause_P": {
+  "cmd_samples": 48,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.0003,
+   -0.0022,
+   -0.0044
+  ],
+  "z_end": 64.18,
+  "airspeed_end": 17.56
+ },
+ "disarm_Backspace": {
+  "cmd_samples": 145,
+  "active_fraction": 0.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.0007,
+   -0.0894,
+   -0.0185
+  ],
+  "z_end": 58.67,
+  "airspeed_end": 16.97
+ },
+ "rearm": {
+  "cmd_samples": 48,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0047,
+   0.1753,
+   -0.0027
+  ],
+  "z_end": 54.52,
+  "airspeed_end": 17.9
+ },
+ "focus_loss": {
+  "cmd_samples": 192,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0003,
+   0.0242,
+   0.0001
+  ],
+  "z_end": 55.52,
+  "airspeed_end": 16.28
+ },
+ "refocus_rearm": {
+  "cmd_samples": 88,
+  "active_fraction": 1.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   -0.0,
+   -0.0008,
+   0.0
+  ],
+  "z_end": 55.81,
+  "airspeed_end": 15.9
+ },
+ "exit_Esc": {
+  "cmd_samples": 3,
+  "active_fraction": 0.0,
+  "thrust_L_R": [
+   0.8831,
+   0.8831
+  ],
+  "elevon_L_R_rad": [
+   0.0235,
+   0.0235
+  ],
+  "sources": [
+   "firmware_manual"
+  ],
+  "mean_pqr": [
+   0.0,
+   -0.0536,
+   -0.0003
+  ],
+  "z_end": 55.83,
+  "airspeed_end": 15.73
+ },
+ "_all_telemetry_finite": true,
+ "_telemetry_samples": 4434
+}
