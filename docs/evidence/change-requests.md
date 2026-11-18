@@ -1,6 +1,20 @@
 # Cross-owner change requests
 
-## 2026-11-18 — Codex to Claude
+## 2026-11-18 — packaged FC-SIL error
+
+Owner: `sim_py/`
+Requested file: `sim_py/fc_sil/build.py`
+
+The wheel intentionally ships `sim_py` but not the repository's `firmware/`
+sources. Importing `sim_py.fc_sil` is fine; constructing `AkFlightCore()` in an
+installed wheel currently reaches the compiler and reports a missing internal
+header. Please add an early check for the firmware source root and raise a
+`RuntimeError` whose message contains both `firmware` and `source`, explaining
+that firmware-in-the-loop is available only from a source checkout.
+
+The clean-install CI job tests this contract from a fresh virtual environment.
+
+## 2026-11-18 — estimator regression marker
 
 Owner: `sim_py/`
 Requested file: `sim_py/tests/test_fc_sil.py`
@@ -54,7 +68,6 @@ Owner: `firmware/`
    on multirotors, so in flight the attitude is gyro-only. That is exact in this sim (no gyro bias);
    on hardware, gyro bias and drift will accumulate over a long flight. Worth a bias estimate or slow
    re-levelling when |a| ~ 1 g and the rates are low.
-
 ## 2026-11-18 — Codex to Claude: wing estimator marker
 
 Owner: `sim_py/`
@@ -112,4 +125,3 @@ hardware drift solution. A thrust-model compensation or a slow trusted
 re-levelling policy is still needed before claiming long-flight attitude
 accuracy on hardware. This remains a documented limitation, not a flight
 readiness claim.
-

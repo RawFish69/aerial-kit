@@ -43,6 +43,14 @@ def generate_launch_description():
             'wind_y_mps', default_value='0.0',
             description='World-frame north wind component.'),
         DeclareLaunchArgument(
+            'flight_controller', default_value='sim',
+            description="sim | firmware: the AK flight core flies it (angle mode). Enter arms "
+                        "it in the hand, throttle up throws it from start_z_m."),
+        DeclareLaunchArgument(
+            'firmware_accel_model', default_value='physical',
+            description="firmware only: physical | gravity (test instrument; see "
+                        "docs/evidence/fc-sil-wing-estimator-finding-2026-11-18.md)"),
+        DeclareLaunchArgument(
             'manual_timeout_sec', default_value='0.30',
             description='Manual commands older than this fall back to the '
                         'safe cruise circle.'),
@@ -65,6 +73,8 @@ def generate_launch_description():
             'mujoco_viewer': LaunchConfiguration('viewer'),
             'airframe_spec': LaunchConfiguration('airframe_spec'),
             'airframe': LaunchConfiguration('airframe'),
+            'flight_controller': LaunchConfiguration('flight_controller'),
+            'firmware_accel_model': LaunchConfiguration('firmware_accel_model'),
             'manual_command_topic': '/uav/backend/cmd_actuators',
             'manual_timeout_sec': LaunchConfiguration('manual_timeout_sec'),
             'estimator_mode': 'truth',

@@ -164,6 +164,26 @@ class TestFirmwareFliesMujoco(unittest.TestCase):
             FirmwareInTheLoop("research_hex")
 
 
+class TestPackagedWithoutFirmware(unittest.TestCase):
+    def test_missing_firmware_sources_raise_a_clear_error(self) -> None:
+        # An installed wheel has sim_py but not firmware/: say so, do not hand
+        # the compiler a missing file (clean-install CI checks the same).
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        import importlib
+
+        fc_build = importlib.import_module("sim_py.fc_sil.build")
+
+        with tempfile.TemporaryDirectory() as empty, mock.patch.object(fc_build, "CORE", Path(empty) / "core"):
+            with self.assertRaises(RuntimeError) as ctx:
+                fc_build.build()
+        message = str(ctx.exception).lower()
+        self.assertIn("firmware", message)
+        self.assertIn("source", message)
+
+
 class TestFirmwareRadio(unittest.TestCase):
     def test_arm_sequence_holds_throttle_low_then_passes_sticks(self) -> None:
         from sim_py.fc_sil import FirmwareRadio
@@ -296,6 +316,23 @@ class TestFirmwareFliesTheWings(unittest.TestCase):
         _, pitch, _ = _wing_eul(w.state.attitude_quat)
         self.assertLess(abs(pitch), 5.0)
         self.assertGreater(w.state.position[2], 50.0)
+
+
+class TestWingStickInversion(unittest.TestCase):
+    def test_mix_round_trip(self) -> None:
+        from sim_py.fc_sil import wing_sticks_from_actuators
+
+        t = 0.4                                           # rad travel
+        # Firmware mix: left = -roll + pitch_cmd, right = roll + pitch_cmd (servo units).
+        roll, pitch_cmd = 0.3, 0.2                        # pitch_cmd + = nose up = stick back
+        left, right = (-roll + pitch_cmd) * t, (roll + pitch_cmd) * t
+        s = wing_sticks_from_actuators([4.0, 2.0, left, right], 2, 10.0, t)
+        self.assertAlmostEqual(s["roll"], roll)
+        self.assertAlmostEqual(s["pitch"], -pitch_cmd)    # RC stick: forward positive
+        self.assertAlmostEqual(s["yaw"], (4.0 - 2.0) / 6.0)
+        self.assertAlmostEqual(s["throttle"], math.sqrt(6.0 / 20.0))
+        single = wing_sticks_from_actuators([8.0, 0.0, 0.0], 1, 8.0, t)
+        self.assertEqual((single["throttle"], single["yaw"]), (1.0, 0.0))
 
 
 if __name__ == "__main__":

@@ -89,6 +89,108 @@ jobs:
         working-directory: ros2_ws/src/uav_algorithms
         run: python -m pytest test -q
 
+  distribution:
+    name: clean install and wheel contents
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Build distributions
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Base install has no ROS, MuJoCo or development code
+        run: |
+          python -m venv /tmp/aerial-kit-base
+          /tmp/aerial-kit-base/bin/python -m pip install --upgrade pip
+          /tmp/aerial-kit-base/bin/python -m pip install "${GITHUB_WORKSPACE}"
+          cd /tmp
+          /tmp/aerial-kit-base/bin/python - <<'PY'
+          import importlib.util
+          import aerial_kit
+          import sim_py
+
+          assert importlib.util.find_spec("rclpy") is None
+          assert importlib.util.find_spec("mujoco") is None
+          assert importlib.util.find_spec("matplotlib") is None
+          assert importlib.util.find_spec("yaml") is None
+          assert importlib.util.find_spec("sim_py.tests") is None
+          print("base import:", aerial_kit.__name__, sim_py.__name__)
+          PY
+
+      - name: Simulator extra installs only its declared dependencies
+        run: |
+          python -m venv /tmp/aerial-kit-sim
+          /tmp/aerial-kit-sim/bin/python -m pip install --upgrade pip
+          /tmp/aerial-kit-sim/bin/python -m pip install "${GITHUB_WORKSPACE}[sim]"
+          cd /tmp
+          /tmp/aerial-kit-sim/bin/python - <<'PY'
+          import importlib.util
+          import aerial_kit
+          import matplotlib
+          import sim_py
+          import yaml
+
+          assert importlib.util.find_spec("rclpy") is None
+          assert importlib.util.find_spec("mujoco") is None
+          assert importlib.util.find_spec("sim_py.tests") is None
+          print("sim import:", aerial_kit.__name__, sim_py.__name__, yaml.__version__)
+          PY
+
+      - name: Packaged FC-SIL explains that firmware sources are absent
+        run: |
+          cd /tmp
+          /tmp/aerial-kit-base/bin/python - <<'PY'
+          from sim_py.fc_sil import AkFlightCore
+
+          try:
+              AkFlightCore()
+          except RuntimeError as exc:
+              message = str(exc).lower()
+              assert "firmware" in message and "source" in message, message
+              print(message)
+          else:
+              raise SystemExit("packaged FC-SIL unexpectedly built without firmware sources")
+          PY
+
+      - name: Wheel and sdist contain only runtime packages
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import tarfile
+          import zipfile
+
+          required_wheel = {
+              "aerial_kit/__init__.py",
+              "sim_py/__init__.py",
+              "sim_py/fc_sil/__init__.py",
+              "sim_py/fc_sil/build.py",
+          }
+          forbidden = {"firmware", "ros2_ws", "tools", "docker", "scripts", "plans", "assets", "docs"}
+
+          wheels = list(Path("dist").glob("*.whl"))
+          sdists = list(Path("dist").glob("*.tar.gz"))
+          assert len(wheels) == 1 and len(sdists) == 1
+
+          with zipfile.ZipFile(wheels[0]) as archive:
+              names = set(archive.namelist())
+          assert required_wheel <= names
+          assert not {name.split("/", 1)[0] for name in names} & forbidden
+          assert not any("/tests/" in name for name in names)
+
+          with tarfile.open(sdists[0]) as archive:
+              top = {name.split("/", 1)[0] for name in archive.getnames()}
+          assert len(top) == 1
+          assert not next(iter(top)).split("-", 1)[0] in forbidden
+          print("distribution contents: OK")
+          PY
+
   public-api:
     name: public API and typing
     runs-on: ubuntu-latest
