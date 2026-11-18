@@ -17,8 +17,9 @@ is made.
 
 - **1, baseline:** complete. Asset checks pass for FPV, micro LR, research hex,
   research octo and twin wing; 12 ROS packages build.
-- **2, ELRS host link:** complete. UART0, full-duplex, 420000 baud 8N1,
-  non-inverted; stock native USB-CDC is not the autonomous CRSF path.
+- **2, ELRS host link:** complete. UART0, full-duplex, 400000 baud 8N1,
+  non-inverted for the host/TX handset link; 420000 remains the RX-to-FC rate.
+  Stock native USB-CDC is not the autonomous CRSF path.
 - **3, CRSF library:** complete. RC packing/unpacking, DVB-S2 CRC, five telemetry
   frames, serial/memory transports and malformed-stream recovery are tested.
 - **4, ROS backend:** complete for software/SIL. AETR + arm + mode mapping,
@@ -46,6 +47,7 @@ is made.
 | Initial baseline | 514 passed, 84 subtests | 204 passed |
 | Concurrent MuJoCo tree at baseline | 517 passed, 84 subtests | 205 passed |
 | Final radio tree | **526 passed, 86 subtests** | **209 passed** |
+| Radio review remediation, combined tree | **541 passed, 1 xfailed, 89 subtests** | **216 passed** |
 
 The ROS suite retains three non-failing warnings: two deprecated Python
 `sre_*` imports in dependencies and an unregistered `slow` marker.
@@ -169,8 +171,8 @@ Decision:
 - Host CRSF uses UART0: host TX to J3.4/GPIO44 and host RX from J3.3/GPIO43,
   plus ground.
 - The link is full duplex because ESP32-S3 UART0 RX and TX have distinct pins.
-- Normal rate is 420000 baud, 8N1, non-inverted. ExpressLRS TX searches common
-  handset rates when no valid stream is present.
+- Normal host/handset rate is 400000 baud, 8N1, non-inverted. ExpressLRS TX
+  cycles its documented handset baud table when no valid stream is present.
 - Stock ESP32-S3 USB-CDC is the TxUSB/configuration stream, not the CRSF
   handset receiver. Autonomous RC input needs a 3.3 V USB-UART adapter.
 - TX and RX are separate firmware images; SW2 does not change roles at runtime.
@@ -202,10 +204,11 @@ Commit: `f8310cd` — `crsf: add pure Python codec and transports`.
 
 Status: complete for software-in-the-loop.
 
-`crsf_radio_backend_node` maps AETR on channels 1-4, arm on channel 5 and mode
-on channel 6. It asserts arm only while `/uav/backend/enable` is true. Disabled
-output is disarmed with minimum throttle; a stale command while enabled becomes
-neutral hover. Attitude, GPS and battery feed the existing
+`crsf_radio_backend_node` maps AETR on channels 1-4, mode on channel 5 and arm
+on channel 6, matching AerialKit firmware's zero-based `AK_RC_MODE=4` and
+`AK_RC_ARM=5`. It asserts arm only while `/uav/backend/enable` is true.
+Disabled output is disarmed with minimum throttle; a stale command while
+enabled becomes neutral hover. Attitude, GPS and battery feed the existing
 `hw_state_estimator_node`; RSSI, LQ and SNR are additive JSON on
 `/uav/radio/link_stats`.
 
@@ -271,3 +274,20 @@ antenna/load and lowest-power order, exact image/flash commands, binding, host
 UART testing, the blocked HIL stage, and a props-off real-FC arm/stick/failsafe
 test. Radio and SIL usage was added to `docs/HARDWARE.md`,
 `docs/SOFTWARE_GUIDE.md` and `docs/STACK-GUIDE.md`.
+
+### Radio review remediation
+
+The review findings B1-B4 and S1-S4 were confirmed against ExpressLRS 4.1.0
+and the AerialKit firmware. None was disputed. The final SIL rerun used
+`ROS_DOMAIN_ID=61`, the firmware's CH5 mode/CH6 arm defaults, a 400000-baud host
+default, and the CRSF receiver-to-FC rate retained at 420000.
+
+- FPV, 0% loss: `Demo: disarm`, closest approach 0.41 m, 6,241 samples.
+- FPV, 10% loss: `Demo: disarm`, closest approach 0.04 m, 7,699 samples.
+- Mid-flight link cut at 2.02 m: receiver disabled and plant returned to
+  0.38 m with enable false.
+
+The SIL exercises decoded manual sticks in the plant's velocity mode. It does
+not claim to validate a real FC's Angle-mode response; that remains a props-off
+bench item. Full finding-by-finding evidence and source references are in
+`radio-defect-fixes-2026-11-17.md`.

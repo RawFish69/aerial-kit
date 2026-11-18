@@ -119,15 +119,27 @@ source ros2_ws/install/setup.bash
 ros2 run hw_bridge crsf_radio_backend_node --ros-args \
   -p transport:=serial \
   -p serial_port:=/dev/ttyUSB0 \
-  -p serial_baud:=420000 \
+  -p serial_baud:=400000 \
   -p airframe_name:=fpv_quad_5in
 ```
 
 Keep `/uav/backend/enable` false and inspect the bytes on the UART or a protocol
 analyzer. Expected result: valid 26-byte `RC_CHANNELS_PACKED` frames at the
-configured rate, disarmed channel 5, minimum channel 3 throttle, and no serial
+configured rate, disarmed channel 6, minimum channel 3 throttle, and no serial
 open/write errors. `/uav/radio/status` should report a stale telemetry link when
 no receiver telemetry is connected.
+
+Then drive an enable rising edge through the command stack. Expected result:
+channel 6 (arm) goes high while channel 5 (mode) is high and channel 3 remains
+at 172 for `arm_hold_sec` (1.0 s by default), followed by normal AETR sticks.
+Force throttle above `throttle_low` before the hold completes and confirm the
+FC/receiver does not arm. Disable must drive channel 6 and throttle low
+immediately.
+
+Unplug the USB-UART adapter while frames are running. Expected result:
+`/uav/radio/status` reports the disconnect, the node retries without exiting, and
+a reconnect begins another full arm hold at low throttle. It must not resume an
+armed handover from the previous connection.
 
 ## 7. Restore the firmware HIL harness before FC-in-the-loop
 
@@ -154,26 +166,32 @@ that test.
 ## 8. FC bench test with props off
 
 1. Configure the FC receiver UART for CRSF at 420000 baud, 8N1, non-inverted.
-2. Confirm AETR on channels 1-4, arm on channel 5 and the intended mode on
-   channel 6. Match the channel order to the actual firmware profile.
+2. Confirm AETR on channels 1-4, mode on channel 5 and arm on channel 6.
+   AerialKit uses a 1300-count threshold. A Betaflight setup needs its AUX
+   mapping changed to this order.
 3. Connect the receiver's CRSF output to the FC and keep the FC outputs
    disconnected from ESCs if the board permits it; otherwise keep props removed
    and the aircraft restrained.
 4. Arm and disarm repeatedly. Expected result: the FC changes armed state only
-   while channel 5 requests arm and its own arming gates pass.
+   while channel 6 requests arm and its own arming gates pass.
 5. Move roll, pitch, yaw and throttle one at a time. Expected result: only the
    corresponding output or commanded attitude changes, with the documented
-   sign. Confirm mode changes on channel 6.
-6. Configure the FC failsafe before testing it. It must not hold the last command.
+   sign. Confirm mode changes on channel 5. At yaw 90 degrees (nose north),
+   command a world-north velocity demand and confirm it appears as
+   body-forward motion, not body-right.
+6. Compare handset/FC telemetry with independent instruments. Pitch must not be
+   swapped with roll; battery volts/current and GPS latitude/longitude/speed
+   must match their real magnitudes rather than byte-swapped nonsense.
+7. Configure the FC failsafe before testing it. It must not hold the last command.
    For the AerialKit firmware, a quadrotor stops its motors and latches failsafe;
    a fixed wing circles down as documented in `docs/04-flight-core.md`. For
    another FC, use its controlled-land or motor-stop policy and record the exact
    settings.
-7. While armed with outputs at a safe low level, remove transmitter RF or
+8. While armed with outputs at a safe low level, remove transmitter RF or
    disconnect the CRSF signal. Expected result at the FC: a stale receiver/link
    indication followed by the configured failsafe action. The aircraft must not
    re-arm when the link returns; cycle the arm switch through off and on.
-8. Repeat the link-loss test from a fresh arm cycle. Copy the FC console, UART
+9. Repeat the link-loss test from a fresh arm cycle. Copy the FC console, UART
    counters, failsafe state and output/ESC signal evidence into a dated record.
 
 Stop after the props-off FC and failsafe checks. This checklist does not

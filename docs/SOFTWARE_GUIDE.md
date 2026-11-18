@@ -489,9 +489,10 @@ setup is in [mavlink_bridge/README.md](../ros2_ws/src/mavlink_bridge/README.md).
 
 `hw_bridge` notes:
 
-- `crsf_radio_backend_node` sends real CRSF RC frames over a 420000-baud serial
+- `crsf_radio_backend_node` sends real CRSF RC frames over a 400000-baud serial
   transport. Its `transport:=ros` mode feeds the SIL radio below. Channel mapping,
-  telemetry topics and failsafe behavior are in [HARDWARE.md](HARDWARE.md).
+  arming sequence, command-frame conversion, reconnect behavior, telemetry topics
+  and failsafe behavior are in [HARDWARE.md](HARDWARE.md).
 - `hw_state_estimator_node` runs an **INS EKF** by default (`estimator: ekf`, from
   `aerial_kit.estimation`). It estimates position, velocity, accelerometer bias and baro
   offset, rejects GPS outliers with a chi-square gate, and publishes covariances. Set
@@ -525,6 +526,18 @@ The path is command manager -> `crsf_radio_backend_node` -> simulated ELRS link
 back through the same link into the unchanged hardware estimator. Publish
 `std_msgs/Bool` true on `/uav/radio/link_cut` to cut the link and false to restore
 it.
+
+The simulated receiver models the FC's arming rule: arm high with throttle below
+`throttle_low` for `arm_hold_sec`. It then publishes decoded AETR sticks as
+`uav_msgs/MultirotorManualCommand` on `/uav/radio/decoded_manual`.
+
+The SIL launch uses the manual controller's VELOCITY mode and `command_frame:
+world`, rotating demand into body right/forward before channel encoding. This
+proves CRSF stick transport, arming and loss behavior with a closed velocity
+loop; it does **not** prove the plant's ANGLE-mode response or a real FC's
+Angle-mode tuning. A direct angle-stick path exists for hardware
+(`stick_mapping: angle`) and must be validated with props removed. Hardware
+`vxy_feedback` remains off by default until checked per vehicle.
 
 Recorded campaign commands:
 
