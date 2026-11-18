@@ -51,6 +51,8 @@ jobs:
       - name: Firmware example tests
         working-directory: examples/firmware
         run: python -m pytest test_examples.py -q
+      - name: Controller benchmark harness
+        run: python -m pytest test_benchmarks.py -q
 
   ros-packages:
     name: ROS 2 package logic (no ROS)
