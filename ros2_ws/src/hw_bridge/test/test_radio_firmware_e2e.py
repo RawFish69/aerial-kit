@@ -192,19 +192,21 @@ def _fly_with_lagging_estimate(loop, seconds=8.0):
 def test_survives_a_one_second_lag_in_the_velocity_estimate():
     # Regression (2026-11-18, bringup flight_controller:=firmware): the
     # simulator-mode gains (kz 0.2, kv_xy 0.5) first ran away upward to 1.5 km,
-    # then, with kz fixed, flipped the quad on the first horizontal leg.
+    # then flipped the quad on the first horizontal leg (original estimator).
     loop = RadioFirmwareLoop()
     try:
         worst, z_min = _fly_with_lagging_estimate(loop)
-        assert worst < 30.0, worst
-        assert z_min > 1.0, z_min
+        assert worst < 25.0, worst            # observed ~12 deg
+        assert z_min > 1.5, z_min             # climbed to ~3 m; observed >= 2.5 m
         assert loop.sim.fc.state == 'armed'
     finally:
         loop.close()
 
 
-def test_the_old_gains_do_flip_it():
-    # Shows the regression test above is sensitive: same loop, old gains.
+def test_the_old_gains_saturate_the_tilt_limit():
+    # Shows the test above is sensitive: same loop, simulator-mode gains. On the
+    # original firmware estimator they flipped the quad; on the fixed one they
+    # still bank it into the FC's 35 deg limit.
     import dataclasses
 
     loop = RadioFirmwareLoop()
@@ -212,6 +214,6 @@ def test_the_old_gains_do_flip_it():
                                       throttle_max=0.95, tilt_compensation=False)
     try:
         worst, _ = _fly_with_lagging_estimate(loop)
-        assert worst > 90.0, worst
+        assert worst > 35.0, worst
     finally:
         loop.close()
