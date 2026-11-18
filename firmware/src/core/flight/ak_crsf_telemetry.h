@@ -31,6 +31,7 @@
  *   0x1E attitude     10 Hz   the estimator's roll, pitch and yaw
  *   0x08 battery       5 Hz   pack volts, and the percentage the thresholds imply
  *   0x02 gps           2 Hz   position, ground speed, course, altitude, sats
+ *   0x09 baro altitude 10 Hz   fused height and vertical speed
  *   0x21 flight mode   1 Hz   "ANGLE", "ACRO", "RTH", "!FS!" ...
  *   0x29 device info   on     what a device ping (0x28) asks for
  *
@@ -57,6 +58,7 @@
 
 #define AK_CRSF_TYPE_GPS         0x02u
 #define AK_CRSF_TYPE_BATTERY     0x08u
+#define AK_CRSF_TYPE_BARO        0x09u
 #define AK_CRSF_TYPE_ATTITUDE    0x1Eu
 #define AK_CRSF_TYPE_FLIGHT_MODE 0x21u
 #define AK_CRSF_TYPE_DEVICE_PING 0x28u
@@ -83,14 +85,18 @@ typedef struct {
     float    speed_mm_s;
     float    course_deg;
     unsigned satellites;
+    int      baro_valid;
+    float    baro_alt_m;          /* metres relative to the take-off point */
+    float    vertical_speed_m_s;  /* positive is climbing */
     const char *flight_mode; /* null while there is nothing to say */
 } ak_crsf_telemetry_t;
 
 typedef struct {
     uint32_t frames;
-    uint32_t attitude_frames, battery_frames, gps_frames, mode_frames;
+    uint32_t attitude_frames, battery_frames, gps_frames, baro_frames;
+    uint32_t mode_frames;
     uint32_t device_infos;
-    uint32_t next_ms[4];
+    uint32_t next_ms[5];
     int      started;
 } ak_crsf_tlm_t;
 

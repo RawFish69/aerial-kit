@@ -16,13 +16,17 @@ Verification:
     within 5 degrees of level and above 50 m after 6 s.
   - Gravity-only wing control still passes.
   - Physical-accelerometer quad sustained-tilt regression still passes.
-  - Host flight-core self-test: 22/22.
+  - Host flight-core self-test: 23/23.
   - ARM build and binary image check pass.
 
 Vertical radio telemetry:
   - CRSF type 0x09 BARO_ALTITUDE/VARIO codec added with big-endian altitude and
     vertical speed.
-  - Independent wire fixture: altitude 123.4 m, vario -2.5 m/s.
+  - The firmware now sends the frame at 10 Hz from the fused height estimate.
+    Vertical speed is a 0.35 s filtered derivative, which keeps the frame fast
+    enough for the host loop while rejecting the 32 Hz barometer's 1 Pa steps.
+  - Independent wire fixture c806092be2ff0688: altitude 123.4 m,
+    vario -2.5 m/s, accepted by the Python parser and decoder.
   - ROS receiver/backend integration is requested in
     docs/evidence/change-requests.md so the EKF can use /uav/hw/baro.
 

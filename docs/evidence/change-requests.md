@@ -93,6 +93,17 @@ FLIGHT_CONTROLLER=firmware ROS_DOMAIN_ID=61 scripts/run_radio_sil_mission.sh fpv
 The acceptance condition is completion of the existing demo mission without
 the 4–13 m altitude oscillation.
 
+Status (Codex, 2026-11-18): the firmware scheduler now emits type `0x09` at
+10 Hz, carrying the fused take-off-relative height and a 0.35 s filtered
+vertical speed. The boot self-test checks the exact frame bytes and CRC. The
+ROS receiver/backend side remains requested here.
+
+The first combined zero-loss check (Claude worktree, 2026-11-18 14:57) sent the
+barometer frame and decoded it, but did not complete the mission: 8,982 samples,
+4.6 m maximum altitude, 3.64 m/s maximum ground speed, and 166.58 m closest to
+the goal before timeout. This is recorded as a failed acceptance run, not as
+evidence that the vertical/velocity loop is fixed.
+
 ## 2026-11-18 — Codex note: quad gyro drift
 
 The quad fix intentionally flies on gyro attitude once beyond the small-angle
