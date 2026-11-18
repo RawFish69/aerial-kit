@@ -53,6 +53,16 @@ from .mujoco_guard import SimulationDiverged, step_guarded  # noqa: F401  (re-ex
 from aerial_kit.types import CommandKind, ControlTarget, SimState
 
 
+def _import_mujoco():
+    try:
+        import mujoco
+    except Exception as exc:  # pragma: no cover - optional dependency
+        raise RuntimeError(
+            "MuJoCo is required for the 'mujoco_multirotor' backend. "
+            "Install it with `pip install -r sim_py/requirements-mujoco.txt`.") from exc
+    return mujoco
+
+
 class MujocoMultirotorBackend(DynamicsBackend):
     command_kind = CommandKind.ACCEL
     consumes_wrench = True
@@ -79,6 +89,13 @@ class MujocoMultirotorBackend(DynamicsBackend):
         self._site = []
         self._battery = None
         self._vcomp = True
+        # Where this vehicle lives in the MuJoCo model: a name prefix and the
+        # freejoint's qpos/qvel addresses. A single vehicle owns the model
+        # ("" / 0 / 0); a swarm attaches several to one shared scene.
+        self._prefix = ""
+        self._qa = 0
+        self._va = 0
+        self._start = "hover"
 
     # ------------------------------------------------------------- setup
     @staticmethod
@@ -88,13 +105,15 @@ class MujocoMultirotorBackend(DynamicsBackend):
 
     def reset(self, initial_state: SimState, world: Mapping[str, Any], cfg: Mapping[str, Any]) -> None:
         del world
-        try:
-            import mujoco
-        except Exception as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "MuJoCo is required for the 'mujoco_multirotor' backend. "
-                "Install it with `pip install -r sim_py/requirements-mujoco.txt`.") from exc
+        mujoco = _import_mujoco()
         s = self.settings(cfg)
+        self.configure(s)
+        model = mujoco.MjModel.from_xml_string(multirotor_mjcf(self._spec, self._timestep))
+        self.bind(mujoco, model, mujoco.MjData(model))
+        self.init_state(initial_state)
+
+    def configure(self, s: Mapping[str, Any]) -> None:
+        """Load the spec and per-vehicle settings (no model yet)."""
         self._spec = load_multirotor_spec(s.get("airframe", "fpv_quad_5in"))
         if "propulsion_model" in s or "ground_effect" in s:
             # Experiment override without editing the spec file.
@@ -115,11 +134,7 @@ class MujocoMultirotorBackend(DynamicsBackend):
         start = str(s.get("start_motors", "hover")).lower()
         if start not in ("hover", "idle"):
             raise ValueError("simulation.mujoco_multirotor.start_motors must be 'hover' or 'idle'")
-
-        self._mujoco = mujoco
-        self._model = mujoco.MjModel.from_xml_string(multirotor_mjcf(self._spec, self._timestep))
-        self._data = mujoco.MjData(self._model)
-        self._body_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, "body")
+        self._start = start
         self._rpm = self._spec.propulsion_model == "rpm"
         self._ground_effect = self._spec.ground_effect
         self._battery = self._spec.battery_model() if self._rpm else None
@@ -129,6 +144,14 @@ class MujocoMultirotorBackend(DynamicsBackend):
         self._vcomp = bool(s.get("voltage_compensation", True))
         if self._battery is not None and "battery_soc" in s:
             self._battery.reset(float(s["battery_soc"]))
+
+    def bind(self, mujoco, model, data, prefix: str = "") -> None:
+        """Attach to a compiled model holding this vehicle under ``prefix``."""
+        self._mujoco, self._model, self._data, self._prefix = mujoco, model, data, prefix
+        self._body_id = self._id(mujoco.mjtObj.mjOBJ_BODY, "body")
+        root = self._id(mujoco.mjtObj.mjOBJ_JOINT, "root")
+        self._qa = int(model.jnt_qposadr[root])
+        self._va = int(model.jnt_dofadr[root])
         self._site = [self._id(mujoco.mjtObj.mjOBJ_SITE, f"{r.name}_thrust_site") for r in self._spec.rotors]
         self._thrust_act, self._spin_act, self._spin_dof = [], [], []
         for rotor in self._spec.rotors:
@@ -137,15 +160,17 @@ class MujocoMultirotorBackend(DynamicsBackend):
             jid = self._id(mujoco.mjtObj.mjOBJ_JOINT, f"{rotor.name}_rotor_joint")
             self._spin_dof.append(int(self._model.jnt_dofadr[jid]))
 
-        d = self._data
-        d.qpos[:3] = np.asarray(initial_state.position, dtype=float).reshape(3)
+    def init_state(self, initial_state: SimState) -> None:
+        """Place the vehicle and spin its motors up (hover) or leave them idle."""
+        mujoco, d, qa, va = self._mujoco, self._data, self._qa, self._va
+        d.qpos[qa:qa + 3] = np.asarray(initial_state.position, dtype=float).reshape(3)
         quat = (np.asarray(initial_state.attitude_quat, dtype=float).reshape(4)
                 if initial_state.attitude_quat is not None else np.array([1.0, 0.0, 0.0, 0.0]))
-        d.qpos[3:7] = quat / np.linalg.norm(quat)
-        d.qvel[:3] = np.asarray(initial_state.velocity, dtype=float).reshape(3)
+        d.qpos[qa + 3:qa + 7] = quat / np.linalg.norm(quat)
+        d.qvel[va:va + 3] = np.asarray(initial_state.velocity, dtype=float).reshape(3)
         if initial_state.body_rates is not None:
-            d.qvel[3:6] = np.asarray(initial_state.body_rates, dtype=float).reshape(3)
-        thrusts = self._spec.hover_thrusts() if start == "hover" else np.zeros(self._spec.n_rotors)
+            d.qvel[va + 3:va + 6] = np.asarray(initial_state.body_rates, dtype=float).reshape(3)
+        thrusts = self._spec.hover_thrusts() if self._start == "hover" else np.zeros(self._spec.n_rotors)
         mujoco.mj_forward(self._model, d)
         if self._rpm:
             v_ratio = self._voltage_ratio(thrusts)
@@ -169,9 +194,9 @@ class MujocoMultirotorBackend(DynamicsBackend):
         mujoco.mj_forward(self._model, d)
 
     def _id(self, kind, name: str) -> int:
-        idx = self._mujoco.mj_name2id(self._model, kind, name)
+        idx = self._mujoco.mj_name2id(self._model, kind, self._prefix + name)
         if idx < 0:
-            raise ValueError(f"multirotor MJCF is missing {name!r}")
+            raise ValueError(f"multirotor MJCF is missing {self._prefix + name!r}")
         return int(idx)
 
     # ------------------------------------------------------------ commands
@@ -246,18 +271,22 @@ class MujocoMultirotorBackend(DynamicsBackend):
         n = max(1, int(math.ceil(dt / self._timestep - 1e-12)))
         self._model.opt.timestep = dt / n
         for _ in range(n):
-            self._apply_drag()
-            if self._rpm:
-                self._rpm_substep(dt / n)
-            elif self._ground_effect:
-                self._apply_thrusts(self.last_command)
+            self.pre_substep(dt / n)
             step_guarded(self._mujoco, self._model, self._data)
         self._t += dt
+
+    def pre_substep(self, h: float) -> None:
+        """Everything this vehicle does before one MuJoCo substep of length ``h``."""
+        self._apply_drag()
+        if self._rpm:
+            self._rpm_substep(h)
+        elif self._ground_effect:
+            self._apply_thrusts(self.last_command)
 
     def _apply_drag(self) -> None:
         d = self._data
         rot = d.xmat[self._body_id].reshape(3, 3)
-        v_air_body = rot.T @ (d.qvel[:3] - self._wind)
+        v_air_body = rot.T @ (d.qvel[self._va:self._va + 3] - self._wind)
         force_world = rot @ (-self._drag * v_air_body)
         d.xfrc_applied[self._body_id, :3] = force_world
         # xfrc acts at the root body's COM; the composite CG is the origin.
@@ -269,15 +298,16 @@ class MujocoMultirotorBackend(DynamicsBackend):
         if self._data is None:
             raise RuntimeError("MujocoMultirotorBackend.reset() must be called before state().")
         d = self._data
-        quat = np.asarray(d.qpos[3:7], dtype=float).copy()
+        qa, va = self._qa, self._va
+        quat = np.asarray(d.qpos[qa + 3:qa + 7], dtype=float).copy()
         quat /= np.linalg.norm(quat)
-        velocity = np.asarray(d.qvel[:3], dtype=float).copy()
+        velocity = np.asarray(d.qvel[va:va + 3], dtype=float).copy()
         return SimState(
-            position=np.asarray(d.qpos[:3], dtype=float).copy(),
+            position=np.asarray(d.qpos[qa:qa + 3], dtype=float).copy(),
             velocity=velocity,
             t=self._t,
             attitude_quat=quat,
-            body_rates=np.asarray(d.qvel[3:6], dtype=float).copy(),
+            body_rates=np.asarray(d.qvel[va + 3:va + 6], dtype=float).copy(),
             airspeed_mps=float(np.linalg.norm(velocity - self._wind)),
         )
 
@@ -310,7 +340,7 @@ class MujocoMultirotorBackend(DynamicsBackend):
             if 0 in bodies and self._body_id in bodies:
                 touching = True
                 break
-        return touching and float(np.linalg.norm(d.qvel[:3])) < speed_tol
+        return touching and float(np.linalg.norm(d.qvel[self._va:self._va + 3])) < speed_tol
 
     def mass_kg(self) -> float:
         return self._spec.total_mass_kg if self._spec is not None else 1.0
@@ -342,7 +372,8 @@ class MujocoMultirotorBackend(DynamicsBackend):
     def apply_constraints(self, min_bounds, max_bounds, terrain, terrain_clearance) -> None:
         if self._data is None:
             raise RuntimeError("MujocoMultirotorBackend.reset() must be called before constraints.")
-        d = self._data
-        d.qpos[:2] = np.clip(d.qpos[:2], np.asarray(min_bounds, float)[:2], np.asarray(max_bounds, float)[:2])
-        d.qpos[2] = min(float(d.qpos[2]), float(np.asarray(max_bounds, float)[2]))
+        d, qa = self._data, self._qa
+        d.qpos[qa:qa + 2] = np.clip(d.qpos[qa:qa + 2], np.asarray(min_bounds, float)[:2],
+                                    np.asarray(max_bounds, float)[:2])
+        d.qpos[qa + 2] = min(float(d.qpos[qa + 2]), float(np.asarray(max_bounds, float)[2]))
         self._mujoco.mj_forward(self._model, d)

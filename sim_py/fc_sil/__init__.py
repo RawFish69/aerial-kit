@@ -320,8 +320,8 @@ def hover_throttle(spec) -> float:
     return float(math.sqrt(float(np.mean(spec.hover_thrusts())) / spec.max_thrust_n))
 
 
-def radio_stick_settings(spec, fc: AkFlightCore | None = None, climb_gain_per_s: float = 2.0,
-                         speed_gain_per_s: float = 0.4, thrust_range=(0.3, 2.0)) -> dict:
+def radio_stick_settings(spec, fc: AkFlightCore | None = None, climb_gain_per_s: float = 4.0,
+                         speed_gain_per_s: float = 0.2, thrust_range=(0.3, 2.0)) -> dict:
     """Host radio settings that fly this airframe on the AK firmware in angle mode.
 
     The host's vertical loop sends throttle = hover + kz * (vz_demand - vz).
@@ -334,9 +334,11 @@ def radio_stick_settings(spec, fc: AkFlightCore | None = None, climb_gain_per_s:
 
     Horizontally, a tilt theta gives g tan(theta) of acceleration, so
     ``kv_xy = speed_gain_per_s / g`` rad per m/s of error. The defaults
-    (2 /s climb, 0.4 /s speed) stay stable with a 1 s lag on the host's
-    velocity estimate, about what CRSF telemetry plus the 1 Hz baro/GPS
-    filter give; the original kv_xy = 0.5 rad/(m/s) flips the quad there.
+    (4 /s climb, 0.2 /s speed; re-tuned 2026-11-18 on the fixed firmware
+    estimator) stay within 16 deg tilt and +/-0.7 m altitude with a 1-2 s
+    lag on the host's velocity estimate, about what CRSF telemetry plus the
+    EKF give. The simulator-mode gains (kz 0.2, kv_xy 0.5) saturate the
+    FC's 35 deg limit there and, on the earlier estimator, flipped the quad.
     """
     own = fc is None
     fc = fc or AkFlightCore()

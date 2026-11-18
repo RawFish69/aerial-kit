@@ -1,0 +1,14 @@
+{
+ "samples": 8982,
+ "all_finite": true,
+ "demo_disarmed": false,
+ "max_altitude_m": 14.44,
+ "max_ground_speed_mps": 1.97,
+ "max_tilt_deg": 6.2,
+ "final_position_m": [
+  15.1,
+  5.43,
+  5.26
+ ],
+ "closest_to_goal_xy_m": 192.67
+}

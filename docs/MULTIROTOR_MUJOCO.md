@@ -9,6 +9,7 @@ airframes:
 | `micro_lr_quad` | FPV micro long-range | 4, 3" tri-blade | 0.38 kg | 3.0 | the `lr_drone` CAD (URDF + STLs) |
 | `research_hex` | research | 6, hexa-X, 15" | 3.2 kg | 4.8 | research defaults |
 | `research_octo` | research | 8, octo-X, 15" | 5.5 kg | 3.3 | research defaults |
+| `swarm_quad` | swarm (formation, multi-agent) | 4, quad-X, 4" | 0.40 kg | 3.7 | research defaults |
 
 The swarm quad is planned and not built yet. It will be one more YAML in
 `aerial_kit/airframes/multirotor_specs/`, with no code change needed.
@@ -193,6 +194,31 @@ Non-finite twists or sticks are refused, and they cancel the previous
 command rather than waiting out the timeout. All three manual modes, and
 `cmd_twist`, end in a z-up wrench that goes through the airframe's
 allocator. MuJoCo integrates the rotor actuators; nothing sets the pose.
+
+## Swarm: N drones in one scene
+
+`sim_py/backends/mujoco_swarm.py` attaches N copies of any multirotor spec to one MuJoCo
+world (prefixes `d0_`, `d1_`, ...; MuJoCo's model-attach API), each with its own propulsion,
+battery, ground effect and drag through a `MujocoMultirotorBackend` bound to its slice of the
+shared state. All advance together, one `mj_step` per substep, and collide with each other.
+Each drone gets its own accent colour. Speed in Python: 16 drones about 1.9x real time,
+12 about 2.5x.
+
+`sim_py/swarm.py` flies formations: per drone the same velocity law as the single vehicle,
+a slot P-loop, short-range separation applied after the speed cap, nearest-slot assignment, and
+altitude-layered transits (drone i in layer i % 3, +/-0.6 m) so reshuffles cross at different
+heights. Closest approach in the line -> grid swap: 0.54 m (prop tips touch at 0.28 m).
+
+```bash
+python3 scripts/swarm_demo.py --n 16 --out docs/evidence/swarm-demo-16     # Python, stills + summary
+ros2 launch sim_fast swarm_mujoco.launch.py n:=12 demo:=true [viewer:=true] [airframe:=swarm_quad]
+ros2 topic pub --once /swarm/formation std_msgs/String "data: 'circle 3.0'"  # takeoff|grid|circle|line [z] | land
+```
+
+ROS: drone i is served on `/uav<i>/backend/{cmd_twist,enable,odom}`, the single-vehicle
+contract, with the single adapter's rules (fresh twist flies, stale holds, disarmed lands then
+idles). `swarm_formation_node` reports on `/swarm/status`. Tests: `sim_py/tests/test_mujoco_swarm.py`,
+`ros2_ws/src/sim_bridge/test/test_swarm_nodes.py`.
 
 ## Limitations / sim-to-real gaps
 

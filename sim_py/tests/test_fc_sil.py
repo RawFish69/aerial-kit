@@ -141,20 +141,19 @@ class TestFirmwareFliesMujoco(unittest.TestCase):
         self.assertAlmostEqual(true_roll, math.degrees(sim.fc.attitude()[0]), delta=1.0)
         self.assertAlmostEqual(true_roll, 17.5, delta=2.0)
 
-    @unittest.expectedFailure
-    def test_known_gap_estimator_tracks_sustained_tilt_with_a_physical_accelerometer(self) -> None:
-        # KNOWN GAP (2026-11-17): ak_estimator trusts the accelerometer with a
-        # 0.5 s time constant whenever |a| ~ 1 g. On a multirotor the
-        # accelerometer sees thrust, not gravity, so a sustained tilt is
-        # under-read (truth 37 deg vs estimate 13 deg after 1 s) and angle
-        # mode keeps rolling. This sim has no rotor drag, which would make the
-        # real error smaller but not remove it. Remove expectedFailure when
-        # the firmware estimator is fixed.
+    def test_estimator_tracks_sustained_tilt_with_a_physical_accelerometer(self) -> None:
+        # Was a known gap (2026-11-17): with tau 0.5 s accelerometer trust the
+        # estimate stayed near 13 deg while the quad rolled to 64 deg. Fixed in
+        # the firmware estimator (lib/estimator-and-api); now the bank holds.
         sim = _armed_and_airborne()
         sim.set_sticks(roll=0.5, throttle=0.36)
         sim.step(1.0)
-        true_roll = _roll_pitch_yaw_deg(sim.state.attitude_quat)[0]
-        self.assertAlmostEqual(true_roll, math.degrees(sim.fc.attitude()[0]), delta=5.0)
+        roll_1s = _roll_pitch_yaw_deg(sim.state.attitude_quat)[0]
+        self.assertAlmostEqual(roll_1s, math.degrees(sim.fc.attitude()[0]), delta=5.0)
+        sim.step(1.0)
+        roll_2s = _roll_pitch_yaw_deg(sim.state.attitude_quat)[0]
+        self.assertAlmostEqual(roll_2s, roll_1s, delta=2.0)          # holds, does not keep rolling
+        self.assertAlmostEqual(roll_2s, 17.5, delta=5.0)              # half of the 35 deg limit
 
     def test_refuses_airframes_the_firmware_cannot_drive(self) -> None:
         from sim_py.fc_sil import FirmwareInTheLoop

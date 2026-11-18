@@ -47,3 +47,20 @@ Autonomous flight over this link needs **altitude and velocity hold on the FC**,
 AK core already has a navigator hook (`ak_flight_set_guidance`, `AK_FLIGHT_MANAGED`). Then the host sends
 velocity setpoints (or an alt-hold throttle) instead of closing loops through a 1-2 s telemetry lag.
 Alternatively add accelerometer data to the downlink. Fix the estimator first; re-run this mission after.
+
+## Update: after the firmware estimator fix (PR #17), same day
+The estimator gap is fixed (`test_fc_sil` known-gap test now passes and is a regression test:
+true 20.3 deg vs estimate 17.5 deg, holding). Gains re-tuned on the fixed firmware: speed 0.2 /s,
+climb 4 /s (`radio_stick_settings` defaults). Bench loop (no ROS): tilt <= 16 deg, altitude within
++/-0.7 m with a 1-2 s velocity-estimate lag.
+
+ROS mission (`radio-sil-fpv-firmware-fixed-loss0.0-*.json`): horizontal flight is now calm
+(max tilt 6.2 deg, max 2 m/s) but **altitude oscillates 4-13 m with a ~9 s period** and the
+mission still ends ~190 m short. The host's vertical-speed estimate is close to half a cycle
+out of phase with the truth (truth -6.9 m/s while the estimate reads -0.8), i.e. ~4 s of
+effective delay: over CRSF the EKF has no baro or accelerometer, so its vertical channel leans on
+GPS altitude. A softer climb gain (1 /s) sank into the ground and flipped; no host gain both holds
+altitude and stays stable through that delay.
+
+So the remaining blocker is architectural, as above: **altitude hold on the FC** (it has the
+baro/IMU at 1 kHz), or put a baro/vario frame in the downlink so the host estimate is usable.

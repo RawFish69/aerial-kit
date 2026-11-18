@@ -265,7 +265,7 @@ _VIEWER_THREADS = {}
 
 VIEWER_CAMERA_TOPIC = '/uav/sim/viewer_camera'
 #: On-board cameras, by preference: FPV nose/front camera, else a payload camera.
-ONBOARD_CAMERAS = ('fpv', 'payload_cam')
+ONBOARD_CAMERAS = ('fpv', 'payload_cam', 'nav_cam')
 VIEWS = ('chase', 'onboard')
 
 

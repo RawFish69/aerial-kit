@@ -1,0 +1,23 @@
+  2.2 takeoff  armed=True err=1.93 sep=1.50 seen=1.50
+  4.0 takeoff  armed=True err=0.32 sep=1.50 seen=1.50
+  8.0 takeoff  armed=True err=0.00 sep=1.50 seen=1.50
+ 12.0 circle   armed=True err=3.65 sep=2.05 seen=1.50
+ 16.0 circle   armed=True err=0.13 sep=3.11 seen=1.50
+ 20.0 circle   armed=True err=0.00 sep=3.11 seen=1.50
+ 24.0 line     armed=True err=10.20 sep=3.11 seen=1.50
+ 28.0 line     armed=True err=3.85 sep=1.47 seen=1.46
+ 32.0 line     armed=True err=0.15 sep=1.50 seen=1.07
+ 36.0 line     armed=True err=0.00 sep=1.50 seen=1.07
+ 40.0 grid     armed=True err=5.76 sep=1.46 seen=1.06
+ 44.0 grid     armed=True err=0.76 sep=1.31 seen=0.54
+ 48.0 grid     armed=True err=0.01 sep=1.50 seen=0.54
+ 52.0 land     armed=True err=- sep=1.50 seen=0.54
+ 56.0 land     armed=False err=- sep=1.50 seen=0.54
+ 60.0 land     armed=False err=- sep=1.50 seen=0.54
+ 64.0 land     armed=False err=- sep=1.50 seen=0.54
+ 68.0 land     armed=False err=- sep=1.50 seen=0.54
+ 72.0 land     armed=False err=- sep=1.50 seen=0.54
+ 76.0 land     armed=False err=- sep=1.50 seen=0.54
+ 80.0 land     armed=False err=- sep=1.50 seen=0.54
+ 84.0 land     armed=False err=- sep=1.50 seen=0.54
+PHASES ['takeoff', 'circle', 'line', 'grid', 'land'] FINAL {"phase": "land", "armed": false, "max_slot_error_m": null, "min_separation_m": 1.49927492017571, "min_separation_seen_m": 0.5386781021695717, "demo_remaining": []}
