@@ -3,6 +3,8 @@ import math
 import pytest
 
 from aerial_kit.comms.crsf import (
+    CRSF_BAUD,
+    CRSF_RX_FC_BAUD,
     AttitudeTelemetry,
     BatteryTelemetry,
     CrsfFrame,
@@ -23,6 +25,14 @@ from aerial_kit.comms.crsf import (
     pack_channels,
     unpack_channels,
 )
+
+# Independent wire fixtures. The attitude frame was emitted by compiling
+# firmware/src/core/flight/ak_crsf_telemetry.c and calling its scheduler with
+# pitch=0.10, roll=-0.50, yaw=1.20. The battery and GPS literals are the ELRS
+# packed-struct layouts serialized big-endian with a separately calculated CRC.
+AK_ATTITUDE_FRAME = bytes.fromhex("c8081e03e8ec782ee084")
+BATTERY_FRAME = bytes.fromhex("ea0a0800a8007b0005dc58d1")
+GPS_FRAME = bytes.fromhex("ea11021c4050a80517b6000168232805aa0cbd")
 
 
 def test_pack_unpack_known_channel_sequence():
@@ -109,6 +119,47 @@ def test_telemetry_round_trips():
             assert decoded.satellites == value.satellites
         else:
             assert decoded == value
+
+
+def test_ak_firmware_attitude_literal_decodes_pitch_roll_yaw():
+    frames = CrsfParser().feed(AK_ATTITUDE_FRAME)
+    assert len(frames) == 1
+    decoded = decode_telemetry(frames[0])
+    assert isinstance(decoded, AttitudeTelemetry)
+    assert decoded.pitch_rad == pytest.approx(0.10, abs=1e-4)
+    assert decoded.roll_rad == pytest.approx(-0.50, abs=1e-4)
+    assert decoded.yaw_rad == pytest.approx(1.20, abs=1e-4)
+
+
+def test_elrs_battery_literal_decodes_big_endian_layout():
+    frames = CrsfParser().feed(BATTERY_FRAME)
+    assert len(frames) == 1
+    decoded = decode_telemetry(frames[0])
+    assert isinstance(decoded, BatteryTelemetry)
+    assert decoded.voltage_v == pytest.approx(16.8)
+    assert decoded.current_a == pytest.approx(12.3)
+    assert decoded.capacity_mah == 1500
+    assert decoded.remaining_percent == 88
+    assert make_battery_frame(decoded) == BATTERY_FRAME
+
+
+def test_elrs_gps_literal_decodes_big_endian_layout():
+    frames = CrsfParser().feed(GPS_FRAME)
+    assert len(frames) == 1
+    decoded = decode_telemetry(frames[0])
+    assert isinstance(decoded, GpsTelemetry)
+    assert decoded.latitude_deg == pytest.approx(47.3977)
+    assert decoded.longitude_deg == pytest.approx(8.5440)
+    assert decoded.groundspeed_mps == pytest.approx(10.0)
+    assert decoded.heading_deg == pytest.approx(90.0)
+    assert decoded.altitude_m == pytest.approx(450.0)
+    assert decoded.satellites == 12
+    assert make_gps_frame(decoded) == GPS_FRAME
+
+
+def test_host_and_receiver_bauds_are_distinct():
+    assert CRSF_BAUD == 400_000
+    assert CRSF_RX_FC_BAUD == 420_000
 
 
 def test_memory_link_round_trip():

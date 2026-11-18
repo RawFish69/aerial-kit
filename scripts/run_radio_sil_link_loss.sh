@@ -42,6 +42,11 @@ cleanup() {
         sleep 1
     done
     kill -TERM -- -"$launch_pid" 2>/dev/null || true
+    for _ in $(seq 1 5); do
+        kill -0 "$launch_pid" 2>/dev/null || break
+        sleep 1
+    done
+    kill -KILL -- -"$launch_pid" 2>/dev/null || true
     wait "$launch_pid" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM

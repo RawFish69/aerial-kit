@@ -11,6 +11,7 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from std_msgs.msg import Bool, UInt8MultiArray
+from uav_msgs.msg import MultirotorManualCommand
 
 from aerial_kit.comms.crsf import (
     AttitudeTelemetry,
@@ -24,7 +25,7 @@ from aerial_kit.comms.crsf import (
     make_gps_frame,
     unpack_channels,
 )
-from hw_bridge.crsf_radio_mapping import CrsfChannelMap
+from hw_bridge.crsf_radio_mapping import CrsfChannelMap, ReceiverArmingGate
 from hw_bridge.geo import GeoOrigin, enu_to_lla
 from hw_bridge.rc_mapping import params_from_airframe
 
@@ -52,18 +53,22 @@ class CrsfSimReceiverNode(Node):
             'pitch_channel': 2,
             'throttle_channel': 3,
             'yaw_channel': 4,
-            'arm_channel': 5,
-            'mode_channel': 6,
-            'arm_threshold': 1000,
-            'angle_mode_count': 992,
+            'arm_channel': 6,
+            'mode_channel': 5,
+            'arm_threshold': 1300,
+            'angle_mode_count': 1811,
             'disabled_mode_count': 172,
             'output_rate_hz': 150.0,
             'telemetry_rate_hz': 50.0,
             'receiver_timeout_sec': 0.35,
+            'arm_hold_sec': 0.5,
+            'throttle_low': 0.05,
             'receiver_rx_topic': '/uav/radio/receiver_rx_bytes',
             'receiver_tx_topic': '/uav/radio/receiver_tx_bytes',
             'plant_odom_topic': '/uav/radio/plant_odom',
             'decoded_cmd_topic': '/uav/radio/decoded_cmd_twist',
+            'decoded_manual_topic': '/uav/radio/decoded_manual',
+            'decoded_manual_mode': 'angle',
             'decoded_enable_topic': '/uav/radio/decoded_enable',
             'origin_lat': 37.0,
             'origin_lon': -122.0,
@@ -96,6 +101,19 @@ class CrsfSimReceiverNode(Node):
         self.last_channels: Optional[tuple[int, ...]] = None
         self.last_rx_time = 0.0
         self.receiver_timeout = float(g('receiver_timeout_sec').value)
+        self.arming_gate = ReceiverArmingGate(
+            arm_hold_sec=max(float(g('arm_hold_sec').value), 0.0),
+            throttle_low=float(g('throttle_low').value),
+        )
+        manual_mode = str(g('decoded_manual_mode').value).strip().lower()
+        if manual_mode not in ('angle', 'velocity'):
+            raise ValueError("decoded_manual_mode must be 'angle' or 'velocity'")
+        self.manual_mode = {
+            'angle': MultirotorManualCommand.MODE_ANGLE,
+            'velocity': MultirotorManualCommand.MODE_VELOCITY,
+        }[manual_mode]
+        self._last_arm_request: Optional[bool] = None
+        self._last_gate_armed = False
         self.last_odom: Optional[Odometry] = None
         self.origin = GeoOrigin(
             lat=float(g('origin_lat').value),
@@ -105,6 +123,9 @@ class CrsfSimReceiverNode(Node):
         self.battery_percent = 100.0
 
         self.pub_cmd = self.create_publisher(Twist, str(g('decoded_cmd_topic').value), 20)
+        self.pub_manual = self.create_publisher(
+            MultirotorManualCommand, str(g('decoded_manual_topic').value), 20
+        )
         self.pub_enable = self.create_publisher(Bool, str(g('decoded_enable_topic').value), 20)
         self.pub_tx = self.create_publisher(UInt8MultiArray, str(g('receiver_tx_topic').value), 20)
         self.create_subscription(
@@ -131,19 +152,48 @@ class CrsfSimReceiverNode(Node):
         self.last_odom = msg
 
     def _tick_commands(self) -> None:
+        now = time.monotonic()
         fresh = (
             self.last_channels is not None
-            and time.monotonic() - self.last_rx_time <= self.receiver_timeout
+            and now - self.last_rx_time <= self.receiver_timeout
         )
+        decoded = None
         if fresh:
             try:
-                enabled, command = self.channel_map.decode(self.last_channels, self.params)
+                decoded = self.channel_map.decode_sticks(self.last_channels)
+                if decoded.arm_request != self._last_arm_request:
+                    self.get_logger().info(
+                        f'CRSF arm request={decoded.arm_request} '
+                        f'throttle={decoded.sticks.throttle:.3f}'
+                    )
+                    self._last_arm_request = decoded.arm_request
+                enabled = self.arming_gate.update(
+                    decoded.arm_request, decoded.sticks.throttle, now
+                )
+                if enabled != self._last_gate_armed:
+                    self.get_logger().info(f'CRSF receiver armed={enabled}')
+                    self._last_gate_armed = enabled
             except (ValueError, IndexError):
-                enabled, command = False, Twist()
+                enabled = False
         else:
-            enabled, command = False, Twist()
+            enabled = False
+            self.arming_gate.reset()
+            self._last_gate_armed = False
+        if not enabled:
+            command = Twist()
+        else:
+            _, command = self.channel_map.decode(self.last_channels, self.params)
         self.last_enabled = enabled
         self.pub_cmd.publish(command)
+        manual = MultirotorManualCommand()
+        manual.mode = self.manual_mode
+        manual.active = enabled and decoded is not None and decoded.angle_mode
+        if decoded is not None:
+            manual.roll = float(decoded.sticks.roll)
+            manual.pitch = float(decoded.sticks.pitch)
+            manual.yaw = float(decoded.sticks.yaw)
+            manual.throttle = float(decoded.sticks.throttle)
+        self.pub_manual.publish(manual)
         enable = Bool()
         enable.data = enabled
         self.pub_enable.publish(enable)

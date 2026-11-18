@@ -2,6 +2,7 @@
 
 from .crsf import (
     CRSF_BAUD,
+    CRSF_RX_FC_BAUD,
     CrsfFrame,
     CrsfLink,
     CrsfParser,
@@ -26,6 +27,7 @@ from .crsf import (
 
 __all__ = [
     "CRSF_BAUD",
+    "CRSF_RX_FC_BAUD",
     "CrsfFrame",
     "CrsfLink",
     "CrsfParser",

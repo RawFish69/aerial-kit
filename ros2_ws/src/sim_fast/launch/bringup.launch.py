@@ -168,6 +168,8 @@ def generate_launch_description():
                     '/uav/radio/decoded_enable', '/uav/backend/enable'),
                 'backend_odom_topic': _topic_when_radio(
                     '/uav/radio/plant_odom', '/uav/backend/odom'),
+                'manual_topic': _topic_when_radio(
+                    '/uav/radio/decoded_manual', '/uav/backend/manual'),
             }],
         ),
         Node(
@@ -183,7 +185,9 @@ def generate_launch_description():
                     'send_rate_hz': _launch_float('radio_rate_hz'),
                     'airframe_name': LaunchConfiguration('airframe'),
                     'vz_feedback': True,
-                    'vxy_feedback': True,
+                    'vxy_feedback': False,
+                    'command_frame': 'world',
+                    'stick_mapping': 'velocity',
                 },
             ],
         ),
@@ -210,6 +214,7 @@ def generate_launch_description():
                 {
                     'airframe_name': LaunchConfiguration('airframe'),
                     'output_rate_hz': _launch_float('radio_rate_hz'),
+                    'decoded_manual_mode': 'velocity',
                 },
             ],
         ),

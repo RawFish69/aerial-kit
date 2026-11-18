@@ -13,7 +13,8 @@ from typing import Iterable, Protocol, Sequence
 import math
 import struct
 
-CRSF_BAUD = 420_000
+CRSF_BAUD = 400_000
+CRSF_RX_FC_BAUD = 420_000
 CRSF_MAX_FRAME_LEN = 64
 CRSF_CHANNEL_COUNT = 16
 CRSF_CHANNEL_MIN = 172
@@ -232,9 +233,9 @@ def make_link_statistics_frame(stats: LinkStatisticsTelemetry) -> bytes:
 
 def make_attitude_frame(attitude: AttitudeTelemetry) -> bytes:
     payload = struct.pack(
-        "<hhh",
-        round(attitude.roll_rad * 10_000.0),
+        ">hhh",
         round(attitude.pitch_rad * 10_000.0),
+        round(attitude.roll_rad * 10_000.0),
         round(attitude.yaw_rad * 10_000.0),
     )
     return make_frame(CRSF_FRAMETYPE_ATTITUDE, payload, address=CRSF_ADDRESS_RADIO_TRANSMITTER)
@@ -243,18 +244,18 @@ def make_attitude_frame(attitude: AttitudeTelemetry) -> bytes:
 def make_battery_frame(battery: BatteryTelemetry) -> bytes:
     capacity = max(0, min(0xFFFFFF, int(battery.capacity_mah)))
     payload = struct.pack(
-        "<HHB",
+        ">HH",
         max(0, min(0xFFFF, round(battery.voltage_v * 10.0))),
         max(0, min(0xFFFF, round(battery.current_a * 10.0))),
-        capacity & 0xFF,
     )
-    payload += bytes(((capacity >> 8) & 0xFF, (capacity >> 16) & 0xFF, max(0, min(100, battery.remaining_percent))))
+    payload += capacity.to_bytes(3, "big")
+    payload += bytes((max(0, min(100, battery.remaining_percent)),))
     return make_frame(CRSF_FRAMETYPE_BATTERY_SENSOR, payload, address=CRSF_ADDRESS_RADIO_TRANSMITTER)
 
 
 def make_gps_frame(gps: GpsTelemetry) -> bytes:
     payload = struct.pack(
-        "<iiHHHB",
+        ">iiHHHB",
         round(gps.latitude_deg * 1e7),
         round(gps.longitude_deg * 1e7),
         max(0, min(0xFFFF, round(gps.groundspeed_mps * 36.0))),
@@ -298,14 +299,14 @@ def decode_telemetry(
     if frame.frame_type == CRSF_FRAMETYPE_ATTITUDE:
         if len(payload) < 6:
             raise ValueError("short CRSF attitude frame")
-        roll, pitch, yaw = struct.unpack("<hhh", payload[:6])
+        pitch, roll, yaw = struct.unpack(">hhh", payload[:6])
         return AttitudeTelemetry(roll / 10_000.0, pitch / 10_000.0, yaw / 10_000.0)
 
     if frame.frame_type == CRSF_FRAMETYPE_BATTERY_SENSOR:
         if len(payload) < 8:
             raise ValueError("short CRSF battery frame")
-        voltage_dv, current_da = struct.unpack("<HH", payload[:4])
-        capacity = payload[4] | (payload[5] << 8) | (payload[6] << 16)
+        voltage_dv, current_da = struct.unpack(">HH", payload[:4])
+        capacity = int.from_bytes(payload[4:7], "big")
         remaining = payload[7]
         return BatteryTelemetry(
             voltage_v=voltage_dv / 10.0,
@@ -318,7 +319,7 @@ def decode_telemetry(
         if len(payload) < 15:
             raise ValueError("short CRSF GPS frame")
         lat, lon, speed_kmh_x10, heading_x100, altitude_offset, satellites = struct.unpack(
-            "<iiHHHB", payload[:15]
+            ">iiHHHB", payload[:15]
         )
         return GpsTelemetry(
             latitude_deg=lat / 1e7,

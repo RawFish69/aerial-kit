@@ -1,9 +1,18 @@
 crsf_radio_backend_node:
   ros__parameters:
     transport: ros
+    serial_baud: 400000
+    reconnect_interval_sec: 1.0
     send_rate_hz: 150.0
     command_timeout_sec: 0.5
     link_timeout_sec: 0.75
+    arm_hold_sec: 1.0
+    arm_throttle: 0.0
+    throttle_low: 0.05
+    command_frame: world
+    stick_mapping: angle
+    manual_max_speed_mps: 8.0
+    manual_max_climb_mps: 3.0
     airframe_name: quad
     kv_xy: 0.5
     hover_throttle: 0.5
@@ -12,26 +21,29 @@ crsf_radio_backend_node:
     throttle_max: 0.95
     max_yaw_rate_rps: 1.5
     vz_feedback: true
-    vxy_feedback: true
+    vxy_feedback: false
     odom_timeout_sec: 0.5
     roll_channel: 1
     pitch_channel: 2
     throttle_channel: 3
     yaw_channel: 4
-    arm_channel: 5
-    mode_channel: 6
-    arm_threshold: 1000
-    angle_mode_count: 992
+    arm_channel: 6
+    mode_channel: 5
+    arm_threshold: 1300
+    angle_mode_count: 1811
     disabled_mode_count: 172
 
 crsf_sim_receiver_node:
   ros__parameters:
+    arm_hold_sec: 0.5
+    throttle_low: 0.05
+    decoded_manual_mode: angle
     roll_channel: 1
     pitch_channel: 2
     throttle_channel: 3
     yaw_channel: 4
-    arm_channel: 5
-    mode_channel: 6
-    arm_threshold: 1000
-    angle_mode_count: 992
+    arm_channel: 6
+    mode_channel: 5
+    arm_threshold: 1300
+    angle_mode_count: 1811
     disabled_mode_count: 172

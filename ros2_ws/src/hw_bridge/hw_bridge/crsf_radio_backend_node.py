@@ -27,7 +27,12 @@ from aerial_kit.comms.crsf import (
     decode_telemetry,
     make_rc_channels_frame,
 )
-from hw_bridge.crsf_radio_mapping import CrsfChannelMap
+from hw_bridge.crsf_radio_mapping import (
+    BackendArmSequencer,
+    CrsfChannelMap,
+    rotate_world_velocity_to_body,
+    velocity_to_manual_sticks,
+)
 from hw_bridge.rc_mapping import RcSticks, neutral_sticks, params_from_airframe, velocity_to_rc
 
 HOST_TX_TOPIC = '/uav/radio/host_tx_bytes'
@@ -54,10 +59,18 @@ class CrsfRadioBackendNode(Node):
         defaults = {
             'transport': 'serial',
             'serial_port': '/dev/ttyUSB0',
-            'serial_baud': 420000,
+            'serial_baud': 400000,
+            'reconnect_interval_sec': 1.0,
             'send_rate_hz': 150.0,
             'command_timeout_sec': 0.5,
             'link_timeout_sec': 0.75,
+            'arm_hold_sec': 1.0,
+            'arm_throttle': 0.0,
+            'throttle_low': 0.05,
+            'command_frame': 'world',
+            'stick_mapping': 'angle',
+            'manual_max_speed_mps': 8.0,
+            'manual_max_climb_mps': 3.0,
             'airframe_name': 'quad',
             'kv_xy': 0.5,
             'hover_throttle': 0.5,
@@ -69,10 +82,10 @@ class CrsfRadioBackendNode(Node):
             'pitch_channel': 2,
             'throttle_channel': 3,
             'yaw_channel': 4,
-            'arm_channel': 5,
-            'mode_channel': 6,
-            'arm_threshold': 1000,
-            'angle_mode_count': 992,
+            'arm_channel': 6,
+            'mode_channel': 5,
+            'arm_threshold': 1300,
+            'angle_mode_count': 1811,
             'disabled_mode_count': 172,
             'vz_feedback': True,
             'vxy_feedback': False,
@@ -114,6 +127,29 @@ class CrsfRadioBackendNode(Node):
             angle_mode_count=int(g('angle_mode_count').value),
             disabled_mode_count=int(g('disabled_mode_count').value),
         )
+        self.arm_sequencer = BackendArmSequencer(
+            arm_hold_sec=max(float(g('arm_hold_sec').value), 0.0),
+            throttle_min=float(g('arm_throttle').value),
+        )
+        throttle_low = float(g('throttle_low').value)
+        if self.arm_sequencer.throttle_min > throttle_low:
+            raise ValueError(
+                f'throttle_min {self.arm_sequencer.throttle_min} must not exceed '
+                f'throttle_low {throttle_low}'
+            )
+        self.command_frame = str(g('command_frame').value).strip().lower()
+        if self.command_frame not in ('body', 'world'):
+            raise ValueError("command_frame must be 'body' or 'world'")
+        self.stick_mapping = str(g('stick_mapping').value).strip().lower()
+        if self.stick_mapping not in ('angle', 'velocity'):
+            raise ValueError("stick_mapping must be 'angle' or 'velocity'")
+        self.manual_max_speed = max(float(g('manual_max_speed_mps').value), 1e-6)
+        self.manual_max_climb = max(float(g('manual_max_climb_mps').value), 1e-6)
+        self.reconnect_interval = max(float(g('reconnect_interval_sec').value), 0.05)
+        self._last_reconnect_attempt = -math.inf
+        self._last_status_text = ''
+        self._last_status_time = -math.inf
+        self._last_sequencer_armed = False
         self.enabled = False
         self.last_cmd = Twist()
         self.last_cmd_time = time.monotonic()
@@ -141,12 +177,9 @@ class CrsfRadioBackendNode(Node):
         self.parser = CrsfParser()
         self.pub_host_tx = None
         if self.transport_name == 'serial':
-            self.link = CrsfLink(
-                SerialTransport(
-                    str(g('serial_port').value),
-                    baudrate=int(g('serial_baud').value),
-                )
-            )
+            self.serial_port = str(g('serial_port').value)
+            self.serial_baud = int(g('serial_baud').value)
+            self._try_open_serial(initial=True)
         elif self.transport_name == 'ros':
             self.pub_host_tx = self.create_publisher(
                 UInt8MultiArray, str(g('host_tx_topic').value), 20
@@ -166,12 +199,44 @@ class CrsfRadioBackendNode(Node):
             f'CRSF radio backend transport={self.transport_name} rate={rate:.0f} Hz'
         )
 
+    def _try_open_serial(self, *, initial: bool = False) -> None:
+        now = time.monotonic()
+        if not initial and now - self._last_reconnect_attempt < self.reconnect_interval:
+            return
+        self._last_reconnect_attempt = now
+        try:
+            transport = SerialTransport(self.serial_port, baudrate=self.serial_baud)
+        except OSError as exc:
+            self._status(f'serial open failed on {self.serial_port}: {exc}')
+            return
+        self.link = CrsfLink(transport)
+        self.parser.reset()
+        self.last_rx_time = now
+        self.arm_sequencer.reset()
+        self._status(
+            f'serial connected on {self.serial_port} at {self.serial_baud} baud; '
+            'fresh arm sequence required'
+        )
+
+    def _drop_serial(self, reason: str) -> None:
+        if self.link is not None:
+            try:
+                self.link.close()
+            except OSError:
+                pass
+        self.link = None
+        self.parser.reset()
+        self.arm_sequencer.reset()
+        self._last_reconnect_attempt = time.monotonic()
+        self._status(f'serial disconnected: {reason}; reconnecting')
+
     def _on_cmd(self, msg: Twist) -> None:
         self.last_cmd = msg
         self.last_cmd_time = time.monotonic()
 
     def _on_enable(self, msg: Bool) -> None:
         self.enabled = bool(msg.data)
+        self.get_logger().info(f'CRSF backend enable={self.enabled}')
 
     def _on_odom(self, msg: Odometry) -> None:
         self.last_odom = msg
@@ -197,28 +262,63 @@ class CrsfRadioBackendNode(Node):
             )
             c, s = math.cos(yaw), math.sin(yaw)
             vxy = (
+                s * float(velocity.x) - c * float(velocity.y),
                 c * float(velocity.x) + s * float(velocity.y),
-                -s * float(velocity.x) + c * float(velocity.y),
             )
         return vxy, vz
 
+    def _fresh_yaw(self) -> Optional[float]:
+        if self.last_odom is None or self.last_odom_time is None:
+            return None
+        if time.monotonic() - self.last_odom_time > self.odom_timeout:
+            return None
+        q = self.last_odom.pose.pose.orientation
+        return math.atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+        )
+
     def _sticks(self) -> tuple[RcSticks, bool]:
         if not self.enabled:
-            return RcSticks(0.0, 0.0, 0.0, self.params.throttle_min), False
-        if time.monotonic() - self.last_cmd_time > self.command_timeout:
-            return neutral_sticks(self.params), True
-        measured_vxy, measured_vz = self._measured()
-        command = self.last_cmd
-        sticks = velocity_to_rc(
-            self.params,
-            vx=float(command.linear.x),
-            vy=float(command.linear.y),
-            vz=float(command.linear.z),
-            wz=float(command.angular.z),
-            measured_vxy=measured_vxy,
-            measured_vz=measured_vz,
-        )
-        return sticks, True
+            return self.arm_sequencer.update(False, RcSticks(0.0, 0.0, 0.0, self.params.throttle_min),
+                                             time.monotonic())
+        now = time.monotonic()
+        if now - self.last_cmd_time > self.command_timeout:
+            sticks = neutral_sticks(self.params)
+        else:
+            command = self.last_cmd
+            vx, vy = float(command.linear.x), float(command.linear.y)
+            if self.command_frame == 'world':
+                yaw = self._fresh_yaw()
+                if yaw is None:
+                    self._status_rate_limited(
+                        'world command frame needs fresh attitude; holding minimum throttle'
+                    )
+                    sticks = RcSticks(0.0, 0.0, 0.0, self.params.throttle_min)
+                    return self.arm_sequencer.update(True, sticks, now)
+                vx, vy = rotate_world_velocity_to_body(vx, vy, yaw)
+            if self.stick_mapping == 'velocity':
+                sticks = velocity_to_manual_sticks(
+                    right_mps=vx,
+                    forward_mps=vy,
+                    climb_mps=float(command.linear.z),
+                    yaw_rate_rps=float(command.angular.z),
+                    max_speed_mps=self.manual_max_speed,
+                    max_climb_mps=self.manual_max_climb,
+                    max_yaw_rate_rps=self.params.max_yaw_rate_rps,
+                )
+            else:
+                measured_vxy, measured_vz = self._measured()
+                sticks = velocity_to_rc(
+                    self.params,
+                    vx=vx,
+                    vy=vy,
+                    vz=float(command.linear.z),
+                    wz=float(command.angular.z),
+                    measured_vxy=measured_vxy,
+                    measured_vz=measured_vz,
+                )
+        return self.arm_sequencer.update(True, sticks, now)
 
     def _emit(self, frame: bytes) -> None:
         if self.link is not None:
@@ -229,20 +329,38 @@ class CrsfRadioBackendNode(Node):
             self.pub_host_tx.publish(msg)
 
     def _tick(self) -> None:
+        if self.transport_name == 'serial' and self.link is None:
+            self._try_open_serial()
+            if self.link is None:
+                return
         sticks, armed = self._sticks()
+        if self.arm_sequencer.armed != self._last_sequencer_armed:
+            self.get_logger().info(
+                f'CRSF arm sequence {"handover" if self.arm_sequencer.armed else "reset"}'
+            )
+            self._last_sequencer_armed = self.arm_sequencer.armed
         channels = self.channel_map.encode(sticks, enabled=armed)
-        self._emit(make_rc_channels_frame(channels))
-
-        if self.link is not None:
-            for frame in self.link.poll(1024):
-                self._telemetry_frame(frame)
-            if time.monotonic() - self.last_rx_time > self.link_timeout:
-                self._status('radio telemetry stale')
+        try:
+            self._emit(make_rc_channels_frame(channels))
+            if self.link is not None:
+                for frame in self.link.poll(1024):
+                    self._telemetry_frame(frame)
+                if time.monotonic() - self.last_rx_time > self.link_timeout:
+                    self._status_rate_limited('radio telemetry stale')
+        except OSError as exc:
+            self._drop_serial(str(exc))
 
     def _status(self, text: str) -> None:
         msg = String()
         msg.data = text
         self.pub_status.publish(msg)
+        self._last_status_text = text
+        self._last_status_time = time.monotonic()
+
+    def _status_rate_limited(self, text: str) -> None:
+        now = time.monotonic()
+        if text != self._last_status_text or now - self._last_status_time >= 1.0:
+            self._status(text)
 
     def _telemetry_frame(self, frame: CrsfFrame) -> None:
         self.last_rx_time = time.monotonic()
