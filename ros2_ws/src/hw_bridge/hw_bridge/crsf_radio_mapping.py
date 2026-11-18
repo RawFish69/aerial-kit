@@ -65,7 +65,7 @@ class BackendArmSequencer:
     """Hold arm high at minimum throttle before handing over controller sticks."""
 
     arm_hold_sec: float = 1.0
-    throttle_min: float = 0.05
+    throttle_min: float = 0.0
     armed: bool = False
     hold_started: float | None = None
 
