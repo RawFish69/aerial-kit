@@ -268,6 +268,7 @@ ros2_ws/src/sim_gazebo/models/fpv_quad_5in_visual/
 ros2_ws/src/sim_gazebo/models/micro_lr_quad_visual/
 ros2_ws/src/sim_gazebo/models/research_hex_visual/
 ros2_ws/src/sim_gazebo/models/research_octo_visual/
+ros2_ws/src/sim_gazebo/models/swarm_quad_visual/
 ```
 
 The models are generated from the same YAML specs and
