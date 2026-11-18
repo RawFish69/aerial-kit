@@ -27,6 +27,7 @@ CRSF_ADDRESS_RADIO_TRANSMITTER = 0xEA
 CRSF_ADDRESS_RECEIVER = 0xEC
 
 CRSF_FRAMETYPE_GPS = 0x02
+CRSF_FRAMETYPE_BARO_ALTITUDE = 0x09
 CRSF_FRAMETYPE_BATTERY_SENSOR = 0x08
 CRSF_FRAMETYPE_LINK_STATISTICS = 0x14
 CRSF_FRAMETYPE_RC_CHANNELS_PACKED = 0x16
@@ -199,6 +200,14 @@ class BatteryTelemetry:
 
 
 @dataclass(frozen=True)
+class BarometerTelemetry:
+    """Barometric altitude and vertical speed."""
+
+    altitude_m: float
+    vertical_speed_mps: float
+
+
+@dataclass(frozen=True)
 class GpsTelemetry:
     latitude_deg: float
     longitude_deg: float
@@ -253,6 +262,18 @@ def make_battery_frame(battery: BatteryTelemetry) -> bytes:
     return make_frame(CRSF_FRAMETYPE_BATTERY_SENSOR, payload, address=CRSF_ADDRESS_RADIO_TRANSMITTER)
 
 
+def make_barometer_frame(barometer: BarometerTelemetry) -> bytes:
+    """Encode altitude in decimetres and vertical speed in centimetres/second."""
+    altitude_dm = round(barometer.altitude_m * 10.0) + 10_000
+    if 0 <= altitude_dm <= 0xFFFF:
+        altitude = altitude_dm
+    else:
+        altitude = 0x8000 | max(0, min(0x7FFF, round(barometer.altitude_m)))
+    vertical_cms = max(-0x8000, min(0x7FFF, round(barometer.vertical_speed_mps * 100.0)))
+    payload = struct.pack(">Hh", altitude, vertical_cms)
+    return make_frame(CRSF_FRAMETYPE_BARO_ALTITUDE, payload, address=CRSF_ADDRESS_RADIO_TRANSMITTER)
+
+
 def make_gps_frame(gps: GpsTelemetry) -> bytes:
     payload = struct.pack(
         ">iiHHHB",
@@ -276,7 +297,15 @@ def make_flight_mode_frame(flight_mode: FlightModeTelemetry) -> bytes:
 
 def decode_telemetry(
     frame: CrsfFrame,
-) -> LinkStatisticsTelemetry | AttitudeTelemetry | BatteryTelemetry | GpsTelemetry | FlightModeTelemetry | None:
+) -> (
+    LinkStatisticsTelemetry
+    | AttitudeTelemetry
+    | BarometerTelemetry
+    | BatteryTelemetry
+    | GpsTelemetry
+    | FlightModeTelemetry
+    | None
+):
     """Decode a telemetry frame, returning ``None`` for unrelated frame types."""
     payload = frame.payload
 
@@ -313,6 +342,16 @@ def decode_telemetry(
             current_a=current_da / 10.0,
             capacity_mah=capacity,
             remaining_percent=remaining,
+        )
+
+    if frame.frame_type == CRSF_FRAMETYPE_BARO_ALTITUDE:
+        if len(payload) < 4:
+            raise ValueError("short CRSF barometer frame")
+        altitude, vertical_cms = struct.unpack(">Hh", payload[:4])
+        altitude_m = float(altitude & 0x7FFF) if altitude & 0x8000 else (altitude - 10_000) / 10.0
+        return BarometerTelemetry(
+            altitude_m=altitude_m,
+            vertical_speed_mps=vertical_cms / 100.0,
         )
 
     if frame.frame_type == CRSF_FRAMETYPE_GPS:
