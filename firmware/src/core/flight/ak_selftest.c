@@ -1,5 +1,7 @@
 #include "ak_selftest.h"
 
+#include "ak_crsf.h"
+#include "ak_crsf_telemetry.h"
 #include "ak_flight.h"
 #include "ak_math.h"
 #include "ak_mixer.h"
@@ -73,6 +75,31 @@ int ak_flight_selftest(ak_printf_fn out)
     check(&ctx, "squareroot of 9 is 3", near(ak_sqrtf(9.0f), 3.0f, 0.001f), "");
     check(&ctx, "atan2(1,1) is pi/4",
           near(ak_atan2f(1.0f, 1.0f), AK_PI / 4.0f, 0.0005f), "");
+
+    /* CRSF barometer: a frame whose bytes can be checked by hand. 123.4 m is
+     * 1234 dm + 10000 = 11234 (0x2be2), and -2.5 m/s is -250 cm/s (0xff06).
+     * The address, length and crc are part of the check too. */
+    {
+        ak_crsf_telemetry_t in = {0};
+        ak_crsf_tlm_t tlm;
+        uint8_t frame[AK_CRSF_TLM_MAX_FRAME];
+        static const uint8_t expected[8] = {
+            AK_CRSF_ADDRESS_FLIGHT_CONTROLLER, 0x06u, AK_CRSF_TYPE_BARO,
+            0x2bu, 0xe2u, 0xffu, 0x06u, 0x88u
+        };
+
+        in.baro_valid = 1;
+        in.baro_alt_m = 123.4f;
+        in.vertical_speed_m_s = -2.5f;
+        ak_crsf_tlm_init(&tlm);
+        unsigned len = ak_crsf_tlm_next(&tlm, &in, 0u, frame, sizeof frame);
+        int same = len == sizeof expected;
+        for (unsigned i = 0; same && i < sizeof expected; i++) {
+            same = frame[i] == expected[i];
+        }
+        check(&ctx, "CRSF barometer frame is big-endian and crc-correct",
+              same, "");
+    }
 
     /* Mixer: hover is symmetric, and each torque moves the right side. */
     ak_mixer_apply(&ak_mixer_quad_x, 0.5f, 0.0f, 0.0f, 0.0f, &out_buf);
@@ -259,8 +286,8 @@ int ak_flight_selftest(ak_printf_fn out)
         ak_flight_step(&wing, &imu, &rc, t_ms * 1000u, t_ms);
     }
     check(&ctx, "a wing arms the same way", wing.state == AK_FLIGHT_ARMED, "");
-    check(&ctx, "an armed wing keeps its accelerometer attitude aid",
-          wing.est.accel_enabled == 1, "");
+    check(&ctx, "an armed wing uses gyro-carried attitude",
+          wing.est.accel_enabled == 0, "");
 
     for (int i = 0; i < 300; i++) { /* the receiver goes quiet */
         t_ms += 1;

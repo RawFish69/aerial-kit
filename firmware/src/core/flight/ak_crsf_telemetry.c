@@ -16,6 +16,7 @@ enum {
     TLM_ATTITUDE = 0,
     TLM_BATTERY,
     TLM_GPS,
+    TLM_BARO,
     TLM_MODE,
     TLM_SLOTS
 };
@@ -24,6 +25,7 @@ static const uint32_t tlm_period_ms[TLM_SLOTS] = {
     100u, /* attitude, 10 Hz */
     200u, /* battery, 5 Hz */
     500u, /* gps, 2 Hz */
+    100u, /* baro altitude and vario, 10 Hz */
     1000u /* flight mode, 1 Hz */
 };
 
@@ -183,6 +185,39 @@ static unsigned gps_frame(const ak_crsf_telemetry_t *in, uint8_t *out,
     return build(out, cap, AK_CRSF_TYPE_GPS, payload, sizeof payload);
 }
 
+/*
+ * 0x09 barometer altitude, 4 bytes:
+ *
+ *   uint16 altitude      decimetres + 10,000, or metres with bit 15 set
+ *   int16  verticalspd   centimetres a second, positive up
+ *
+ * The offset form is the one every handset understands and covers the normal
+ * flying range. The absolute-metres form is kept for a height outside it so a
+ * valid reading is not silently wrapped into a different altitude.
+ */
+static unsigned baro_frame(const ak_crsf_telemetry_t *in, uint8_t *out,
+                           unsigned cap)
+{
+    uint8_t payload[4];
+    int32_t altitude_dm = round_to_int(in->baro_alt_m * 10.0f) + 10000;
+    uint16_t altitude;
+    int32_t vertical_cms =
+        round_to_int(in->vertical_speed_m_s * 100.0f);
+
+    if (altitude_dm >= 0 && altitude_dm <= 0xFFFF) {
+        altitude = (uint16_t)altitude_dm;
+    } else {
+        int32_t absolute_m = round_to_int(in->baro_alt_m);
+        altitude = (uint16_t)(0x8000u |
+                              (uint16_t)clamp_u16(absolute_m, 0, 0x7FFF));
+    }
+
+    put_u16(&payload[0], altitude);
+    put_u16(&payload[2], (uint16_t)(int16_t)clamp_u16(
+                             vertical_cms, -0x8000, 0x7FFF));
+    return build(out, cap, AK_CRSF_TYPE_BARO, payload, sizeof payload);
+}
+
 /* 0x21 Flight mode: the mode string, null terminated. */
 static unsigned mode_frame(const ak_crsf_telemetry_t *in, uint8_t *out,
                            unsigned cap)
@@ -204,6 +239,7 @@ void ak_crsf_tlm_init(ak_crsf_tlm_t *tlm)
     tlm->attitude_frames = 0;
     tlm->battery_frames = 0;
     tlm->gps_frames = 0;
+    tlm->baro_frames = 0;
     tlm->mode_frames = 0;
     tlm->device_infos = 0;
     tlm->started = 0;
@@ -262,6 +298,16 @@ unsigned ak_crsf_tlm_next(ak_crsf_tlm_t *tlm,
             len = gps_frame(in, out, cap);
             if (len > 0u) {
                 tlm->gps_frames++;
+            }
+            break;
+        case TLM_BARO:
+            if (!in->baro_valid) {
+                len = 0;
+                break;
+            }
+            len = baro_frame(in, out, cap);
+            if (len > 0u) {
+                tlm->baro_frames++;
             }
             break;
         default:

@@ -150,6 +150,15 @@ static ak_rc_receiver_t receiver;
  * of the receiver's own transmit line, which is why a board whose protocol is
  * SBUS sends nothing at all: SBUS has no return path. */
 static ak_crsf_tlm_t crsf_tlm;
+/* The vario is a filtered derivative of the fused height. The barometer moves
+ * in 1 Pa steps at 32 Hz, so differentiating one raw sample at a time would
+ * report mostly quantisation noise; a third of a second is fast enough for the
+ * host altitude loop and short enough that climb and sink remain distinct. */
+static float    telemetry_baro_last_m;
+static float    telemetry_vario_m_s;
+static uint32_t telemetry_baro_last_ms;
+static int      telemetry_baro_have_last;
+#define AK_TELEMETRY_VARIO_TAU_S 0.35f
 static uint32_t      next_crsf_ms;
 static uint32_t      crsf_pings_answered;
 static ak_imu_t          imu;
@@ -4896,6 +4905,32 @@ static void telemetry_input(ak_crsf_telemetry_t *in, uint32_t now_ms)
         in->speed_mm_s = (float)gps.fix.speed_mm_s;
         in->course_deg = (float)gps.fix.course_e5 / 100000.0f;
         in->satellites = gps.fix.satellites;
+    }
+    if (ak_altitude_have_reference(&altitude) && altitude_live(now_ms)) {
+        float height_m = ak_altitude_height_m(&altitude);
+
+        if (telemetry_baro_have_last) {
+            uint32_t elapsed_ms = now_ms - telemetry_baro_last_ms;
+
+            if (elapsed_ms > 0u) {
+                float dt_s = (float)elapsed_ms / 1000.0f;
+                float raw_vario = (height_m - telemetry_baro_last_m) / dt_s;
+                float alpha =
+                    dt_s / (AK_TELEMETRY_VARIO_TAU_S + dt_s);
+
+                telemetry_vario_m_s +=
+                    alpha * (raw_vario - telemetry_vario_m_s);
+            }
+        }
+        telemetry_baro_last_m = height_m;
+        telemetry_baro_last_ms = now_ms;
+        telemetry_baro_have_last = 1;
+        in->baro_valid = 1;
+        in->baro_alt_m = height_m;
+        in->vertical_speed_m_s = telemetry_vario_m_s;
+    } else {
+        telemetry_baro_have_last = 0;
+        telemetry_vario_m_s = 0.0f;
     }
     in->flight_mode = ak_crsf_flight_mode(
         state != AK_FLIGHT_DISARMED,

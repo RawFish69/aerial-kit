@@ -148,6 +148,7 @@ from the same state everything else uses.
 | `0x1E` attitude | 10 Hz | roll, pitch and yaw from the estimator, radians x 10000 |
 | `0x08` battery | 5 Hz | the pack voltage in tenths of a volt, and the percentage the configured thresholds imply |
 | `0x02` gps | 2 Hz | position in degrees x 1e7, ground speed, course, altitude above msl, satellites |
+| `0x09` baro altitude | 10 Hz | fused height above take-off and vertical speed, in the standard CRSF baro/vario layout |
 | `0x21` flight mode | 1 Hz | `DISARM`, `ANGLE`, `ACRO`, `RTH`, `!FS!` |
 | `0x29` device info | on a device ping | the flight controller's name, so a handset lists it |
 
@@ -164,6 +165,12 @@ flight core's state is "on autopilot", and a transmitter's screen has room for
 `RTH`. The mapping is in `ak_crsf_flight_mode()`, and the one thing it must not
 do is disagree with the flight core about who is flying - a mode that says ACRO
 while the navigator has the aircraft is worse than no mode at all.
+
+The **barometer frame** carries the same fused height the navigator uses, at a
+rate high enough for a host altitude loop. Vertical speed is a filtered
+derivative with a 0.35 s time constant; the part itself measures at 32 Hz in
+one-pascal steps, so differencing a single sample would report quantisation
+noise as a climb.
 
 **The device info frame is the handset's first question, and it is answered
 once per ping.** A transmitter sends `0x28` and will not list the flight
