@@ -12,6 +12,7 @@ usb_patch_file="$root/patches/expresslrs-4.1.0-native-usb.patch"
 handset_patch_file="$root/patches/expresslrs-4.1.0-native-handset.patch"
 hardening_patch_file="$root/patches/expresslrs-4.1.0-hardening.patch"
 led_state_patch_file="$root/patches/expresslrs-4.1.0-led-state.patch"
+rmt_led_patch_file="$root/patches/expresslrs-4.1.0-rmt-led.patch"
 stamp_file="$express/.aerialkit-bootstrap.sha256"
 mkdir -p "$vendor"
 
@@ -55,6 +56,7 @@ else
     git -C "$express" apply "$usb_patch_file"
     git -C "$express" apply "$hardening_patch_file"
     git -C "$express" apply "$led_state_patch_file"
+    git -C "$express" apply "$rmt_led_patch_file"
     printf '%s\n' "$stamp" > "$stamp_file"
 fi
 

@@ -1,0 +1,74 @@
+diff --git a/src/lib/LED/devRGB.cpp b/src/lib/LED/devRGB.cpp
+--- a/src/lib/LED/devRGB.cpp
++++ b/src/lib/LED/devRGB.cpp
+@@ -1,4 +1,8 @@
+ #include "targets.h"
++
++// Dual-role builds use the RMT role-state LED in aerialkit_led_state.cpp.
++// No upstream animation, HSV or I2S code is compiled into them.
++#if !defined(AERIALKIT_DUAL_ROLE)
+ #include "common.h"
+ #include "devLED.h"
+ 
+@@ -480,3 +484,5 @@
+     .timeout = timeout,
+     .subscribe = EVENT_CONNECTION_CHANGED | EVENT_ENTER_BIND_MODE | EVENT_EXIT_BIND_MODE
+ };
++
++#endif // !AERIALKIT_DUAL_ROLE
+diff --git a/src/lib/LED/esp32rgb.cpp b/src/lib/LED/esp32rgb.cpp
+--- a/src/lib/LED/esp32rgb.cpp
++++ b/src/lib/LED/esp32rgb.cpp
+@@ -1,6 +1,6 @@
+ #include "targets.h"
+ 
+-#if defined(PLATFORM_ESP32)
++#if defined(PLATFORM_ESP32) && !defined(AERIALKIT_DUAL_ROLE)
+ 
+ #include <cstring>
+ #include "freertos/task.h"
+diff --git a/src/src/rx-serial/SerialCRSF.cpp b/src/src/rx-serial/SerialCRSF.cpp
+--- a/src/src/rx-serial/SerialCRSF.cpp
++++ b/src/src/rx-serial/SerialCRSF.cpp
+@@ -88,6 +88,7 @@
+     crsfParser.processBytes(this, bytes, size, [](const crsf_header_t *message) {
+ #if defined(AERIALKIT_DUAL_ROLE)
+         aerialkitLedMarkSerialInput();
++        aerialkitLedObserveFrame(message);
+ #endif
+         if (message->type == CRSF_FRAMETYPE_BATTERY_SENSOR)
+         {
+diff --git a/src/src/rx_main.cpp b/src/src/rx_main.cpp
+--- a/src/src/rx_main.cpp
++++ b/src/src/rx_main.cpp
+@@ -2071,6 +2071,9 @@
+     registerButtonFunction(ACTION_RESET_REBOOT, resetConfigAndReboot);
+ 
+     devicesStart();
++#if defined(AERIALKIT_DUAL_ROLE)
++    aerialkitBootReport();
++#endif
+ 
+     // setup() eats up some of this time, which can cause the first mode connection to fail.
+     // Resetting the time here give the first mode a better chance of connection.
+diff --git a/src/src/tx_main.cpp b/src/src/tx_main.cpp
+--- a/src/src/tx_main.cpp
++++ b/src/src/tx_main.cpp
+@@ -1180,6 +1180,7 @@
+       crsfParser.processBytes(&usbConnector, buf, size, [](const crsf_header_t *message) {
+ #if defined(AERIALKIT_DUAL_ROLE)
+         aerialkitLedMarkSerialInput();
++        aerialkitLedObserveFrame(message);
+ #endif
+         if (message->type == CRSF_FRAMETYPE_RC_CHANNELS_PACKED)
+         {
+@@ -1499,6 +1500,9 @@
+   registerButtonFunction(ACTION_INCREASE_POWER, cyclePower);
+ 
+   devicesStart();
++#if defined(AERIALKIT_DUAL_ROLE)
++  aerialkitBootReport();
++#endif
+ 
+   if (firmwareOptions.is_airport)
+   {

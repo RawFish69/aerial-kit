@@ -44,8 +44,7 @@ case "$mode" in
         "$root/scripts/bootstrap.sh"
         export PYTHONPATH="$HOME/.platformio/packages/tool-esptoolpy${PYTHONPATH:+:$PYTHONPATH}"
         "$pio" run -d "$vendor/ExpressLRS/src" \
-            -e AERIALKIT_ELRS_USB_TX_REV_A3_via_UART
-        "$pio" run -d "$vendor/ExpressLRS/src" \
+            -e AERIALKIT_ELRS_USB_TX_REV_A3_via_UART \
             -e AERIALKIT_ELRS_USB_TX_REV_A3_RX_via_UART
         python3 "$root/tools/assemble_dual_role.py" \
             --root "$root" \
