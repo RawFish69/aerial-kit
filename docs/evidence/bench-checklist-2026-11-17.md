@@ -15,7 +15,7 @@ It caused an RX LittleFS format failure and invalid-image panic.
 Use the four-slot factory artifact whose manifest records SHA-256:
 
 ```text
-033d66391ecd01d91964af802688e92102035d9624ca04bc8b81db86f593ee64
+7210b9ff0600c2458e3fc3f429c0bbb6a9d282f1ddbe5ad4bd9c0bcb23a6cca7
 ```
 
 The replaced image must list `tx_1`, `rx_0`, `rx_1` and `role_state`.
@@ -111,10 +111,10 @@ includes an empty filesystem at `0x6d2000`.
 Wi-Fi OTA updates the inactive slot for the actual running role. Use a full
 USB/ROM factory flash for the initial install or recovery.
 
-## 5. Configure and bind
+## 5. Configure and bind over native USB
 
-Open each board's ExpressLRS configuration page over native USB. Configure both
-boards with:
+Connect each board's native USB CDC port and use the CRSF CLI/configurator
+without a Wi-Fi dependency. Configure both boards with:
 
 - the same binding phrase;
 - the same regulatory domain, packet rate (initially 150 Hz) and telemetry
@@ -126,7 +126,33 @@ Expected result: the receiver acquires the transmitter and reports link
 statistics. A failure to bind is not diagnosed by raising power; check role,
 domain, binding phrase and image first.
 
-## 6. Test the host UART without a flight controller
+## 6. USB-only TX/RX link test
+
+No J3 adapter and no Wi-Fi are required. With both boards on their native USB
+ports, identify the two CDC devices:
+
+```bash
+ls -l /dev/serial/by-id/
+```
+
+Use the TX logical rate of 400000 and the RX logical rate of 420000 in the
+tool or CLI. CDC ignores the baud setting, but the nominal value documents the
+CRSF endpoint being emulated.
+
+Expected USB behavior:
+
+- TX receives valid `RC_CHANNELS_PACKED` frames from its host and starts RF
+  scheduling on the first valid RC frame.
+- TX returns `LINK_STATISTICS`, telemetry and device information on the same
+  native USB stream.
+- RX emits valid `RC_CHANNELS_PACKED` plus CRC to its USB host.
+- Telemetry frames written by the RX host are forwarded over RF.
+- The two devices remain distinct `/dev/ttyACM*` endpoints.
+
+At boot, expect one green pulse for TX or two blue pulses for RX at the
+configured low brightness, followed by the normal ExpressLRS LED state.
+
+## 7. Optional J3 UART test
 
 Use a 3.3 V USB-UART adapter:
 
@@ -166,7 +192,7 @@ Unplug the USB-UART adapter while frames are running. Expected result:
 a reconnect begins another full arm hold at low throttle. It must not resume an
 armed handover from the previous connection.
 
-## 7. Restore the firmware HIL harness before FC-in-the-loop
+## 8. Restore the firmware HIL harness before FC-in-the-loop
 
 This stage is currently blocked. The public firmware tree builds only the ARM
 Feather F405 image; the Makefile has no host/SIL target. The historical notes
@@ -188,7 +214,7 @@ firmware, start with hover, then small stick steps, and compare the plant's
 attitude/position with a serial transcript. This overnight run did not perform
 that test.
 
-## 8. FC bench test with props off
+## 9. FC bench test with props off
 
 1. Configure the FC receiver UART for CRSF at 420000 baud, 8N1, non-inverted.
 2. Confirm AETR on channels 1-4, mode on channel 5 and arm on channel 6.
@@ -219,7 +245,7 @@ that test.
 9. Repeat the link-loss test from a fresh arm cycle. Copy the FC console, UART
    counters, failsafe state and output/ESC signal evidence into a dated record.
 
-## 9. Configurator binding and Wi-Fi workflow
+## 10. Configurator binding and Wi-Fi workflow
 
 Use the configurator's **Device → Radio module** page. Native USB is for
 flashing and the ExpressLRS native Wi-Fi page; stock ExpressLRS 4.1.0 does not

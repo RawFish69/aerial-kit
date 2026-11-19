@@ -92,6 +92,32 @@ class DualRoleArtifactTests(unittest.TestCase):
             ],
         )
 
+    def test_native_usb_and_led_patch_wiring(self) -> None:
+        patch = (
+            ROOT / "patches" / "expresslrs-4.1.0-native-usb.patch"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "UsbCrsfConnected",
+            "CRSF_FRAMETYPE_RC_CHANNELS_PACKED",
+            "SerialUSB_device",
+            "new SerialCRSF(USBSerial, USBSerial)",
+            "aerialkitRoleHeartbeat",
+            "two blue pulses identify RX",
+            "one green pulse identifies TX",
+        ):
+            self.assertIn(required, patch)
+
+    def test_usb_crsf_channel_frame_is_26_bytes(self) -> None:
+        from aerial_kit.comms.crsf import CrsfParser, make_rc_channels_frame
+
+        channels = [172, 992, 992, 172, 992, 172] + [992] * 10
+        frame = make_rc_channels_frame(channels, address=0xC8)
+        self.assertEqual(len(frame), 26)
+        parsed = CrsfParser().feed(frame)
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0].frame_type, 0x16)
+        self.assertEqual(len(parsed[0].payload), 22)
+
     def test_generated_artifact_layout(self) -> None:
         artifact = ROOT / "dist" / "aerialkit-rev-a3-elrs-dual-role.bin"
         manifest_path = ROOT / "dist" / "aerialkit-rev-a3-elrs-dual-role.json"

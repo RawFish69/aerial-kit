@@ -55,6 +55,13 @@ The SX1280 power table is `[-18, -14, -10, -6, +5]` dBm and defaults to the
 lowest entry. The +5 dBm maximum is the documented input limit of the
 RFX2401C, not a measured board output.
 
+The native USB CDC path is a CRSF transport in both roles. TX accepts
+`RC_CHANNELS_PACKED` from the host and starts the normal ExpressLRS scheduling
+path. RX emits `RC_CHANNELS_PACKED` to the host and accepts host telemetry.
+The nominal rates are 400000 baud for TX-host and 420000 baud for RX-FC; USB
+CDC ignores the requested baud rate. Two boards appear as distinct
+`/dev/ttyACM*` devices.
+
 ## Build
 
 PlatformIO and the ESP32 Arduino 2.0.17 framework are required.

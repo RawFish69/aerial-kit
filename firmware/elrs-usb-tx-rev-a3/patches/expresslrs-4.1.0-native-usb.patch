@@ -1,0 +1,289 @@
+diff --git a/src/lib/LED/devRGB.cpp b/src/lib/LED/devRGB.cpp
+index 797b682..cce7fa3 100644
+--- a/src/lib/LED/devRGB.cpp
++++ b/src/lib/LED/devRGB.cpp
+@@ -54,6 +54,28 @@ void WS281Binit()
+     }
+ }
+
++#if defined(AERIALKIT_DUAL_ROLE)
++void WS281BsetLED(uint32_t color);
++
++static void aerialkitRoleHeartbeat()
++{
++#if defined(TARGET_RX)
++    constexpr uint32_t color = 0x0000FF; // two blue pulses identify RX
++    constexpr uint8_t pulses = 2;
++#else
++    constexpr uint32_t color = 0x00FF00; // one green pulse identifies TX
++    constexpr uint8_t pulses = 1;
++#endif
++    for (uint8_t i = 0; i < pulses; ++i)
++    {
++        WS281BsetLED(color);
++        delay(140);
++        WS281BsetLED(0);
++        delay(140);
++    }
++}
++#endif
++
+ void WS281BsetLED(int index, uint32_t color)
+ {
+     if (OPT_WS2812_IS_GRB)
+@@ -376,6 +398,9 @@ static bool initialize()
+             }
+         }
+         WS281Binit();
++#if defined(AERIALKIT_DUAL_ROLE)
++        aerialkitRoleHeartbeat();
++#endif
+         blinkyColor.h = 0;
+         blinkyColor.s = 255;
+         blinkyColor.v = 128;
+diff --git a/src/src/rx-serial/devSerialIO.cpp b/src/src/rx-serial/devSerialIO.cpp
+index 250bf32..5cf7868 100644
+--- a/src/src/rx-serial/devSerialIO.cpp
++++ b/src/src/rx-serial/devSerialIO.cpp
+@@ -3,6 +3,7 @@
+ #if defined(TARGET_RX)
+
+ #include "SerialIO.h"
++#include "devSerialIO.h"
+ #include "common.h"
+ #include "config.h"
+ #include "crsf_protocol.h"
+@@ -34,6 +35,9 @@ typedef struct devserial_ctx_s {
+ static devserial_ctx_t serial0;
+ #if defined(PLATFORM_ESP32)
+ static devserial_ctx_t serial1;
++#if defined(AERIALKIT_DUAL_ROLE)
++static devserial_ctx_t serialUSB;
++#endif
+ #endif
+
+ void ICACHE_RAM_ATTR crsfRCFrameAvailable()
+@@ -41,6 +45,9 @@ void ICACHE_RAM_ATTR crsfRCFrameAvailable()
+     serial0.frameAvailable = true;
+ #if defined(PLATFORM_ESP32)
+     serial1.frameAvailable = true;
++#if defined(AERIALKIT_DUAL_ROLE)
++    serialUSB.frameAvailable = true;
++#endif
+ #endif
+ }
+
+@@ -49,6 +56,9 @@ void ICACHE_RAM_ATTR crsfRCFrameMissed()
+     serial0.frameMissed = true;
+ #if defined(PLATFORM_ESP32)
+     serial1.frameMissed = true;
++#if defined(AERIALKIT_DUAL_ROLE)
++    serialUSB.frameMissed = true;
++#endif
+ #endif
+ }
+
+@@ -59,6 +69,10 @@ static int start()
+ #if defined(PLATFORM_ESP32)
+     serial1.io = &serial1IO;
+     serial1.lastConnectionState = disconnected;
++#if defined(AERIALKIT_DUAL_ROLE)
++    serialUSB.io = &usbSerialIO;
++    serialUSB.lastConnectionState = disconnected;
++#endif
+ #endif
+
+     return DURATION_IMMEDIATELY;
+@@ -90,6 +104,12 @@ static int event1()
+ {
+     return event(&serial1);
+ }
++#if defined(AERIALKIT_DUAL_ROLE)
++static int eventUSB()
++{
++    return event(&serialUSB);
++}
++#endif
+ #endif
+
+ /***
+@@ -263,6 +283,15 @@ void sendImmediateRC()
+
+         (*(serial1.io))->sendRCFrame(sendChannels, missed, ChannelData);
+     }
++#if defined(AERIALKIT_DUAL_ROLE)
++    if (*(serialUSB.io) != nullptr && (*(serialUSB.io))->sendImmediateRC() && connectionState != serialUpdate)
++    {
++        const bool missed = serialUSB.frameMissed;
++        serialUSB.frameMissed = false;
++        const bool sendChannels = confirmFrameAvailable(&serialUSB);
++        (*(serialUSB.io))->sendRCFrame(sendChannels, missed, ChannelData);
++    }
++#endif
+ #endif
+ }
+
+@@ -280,6 +309,13 @@ void handleSerialIO()
+         (*(serial1.io))->processSerialInput();
+         (*(serial1.io))->sendQueuedData((*(serial1.io))->getMaxSerialWriteSize());
+     }
++#if defined(AERIALKIT_DUAL_ROLE)
++    if (*(serialUSB.io) != nullptr)
++    {
++        (*(serialUSB.io))->processSerialInput();
++        (*(serialUSB.io))->sendQueuedData((*(serialUSB.io))->getMaxSerialWriteSize());
++    }
++#endif
+ #endif
+ }
+
+@@ -293,6 +329,12 @@ static int timeout1()
+ {
+   return timeout(&serial1);
+ }
++#if defined(AERIALKIT_DUAL_ROLE)
++static int timeoutUSB()
++{
++  return timeout(&serialUSB);
++}
++#endif
+ #endif
+
+ device_t Serial0_device = {
+@@ -311,6 +353,15 @@ device_t Serial1_device = {
+     .timeout = timeout1,
+     .subscribe = EVENT_CONNECTION_CHANGED | EVENT_CONFIG_MODEL_CHANGED
+ };
++#if defined(AERIALKIT_DUAL_ROLE)
++device_t SerialUSB_device = {
++    .initialize = nullptr,
++    .start = start,
++    .event = eventUSB,
++    .timeout = timeoutUSB,
++    .subscribe = EVENT_CONNECTION_CHANGED | EVENT_CONFIG_MODEL_CHANGED
++};
++#endif
+ #endif
+
+ #endif
+diff --git a/src/src/rx-serial/devSerialIO.h b/src/src/rx-serial/devSerialIO.h
+index 6b3625b..29565d4 100644
+--- a/src/src/rx-serial/devSerialIO.h
++++ b/src/src/rx-serial/devSerialIO.h
+@@ -2,10 +2,17 @@
+
+ #include "device.h"
+
++class SerialIO;
++
+ extern device_t Serial0_device;
+ #if defined(PLATFORM_ESP32)
+ extern device_t Serial1_device;
+ #endif
++
++#if defined(AERIALKIT_DUAL_ROLE) && defined(PLATFORM_ESP32_S3)
++extern SerialIO *usbSerialIO;
++extern device_t SerialUSB_device;
++#endif
+ extern void sendImmediateRC();
+ extern void handleSerialIO();
+ extern void crsfRCFrameAvailable();
+diff --git a/src/src/rx_main.cpp b/src/src/rx_main.cpp
+index c1a13e8..31302e8 100644
+--- a/src/src/rx_main.cpp
++++ b/src/src/rx_main.cpp
+@@ -78,6 +78,9 @@ device_affinity_t ui_devices[] = {
+ #if defined(PLATFORM_ESP32)
+   {&Serial1_device, 1},
+   {&SerialUpdate_device, 1},
++  #if defined(AERIALKIT_DUAL_ROLE)
++  {&SerialUSB_device, 1},
++  #endif
+ #endif
+   {&LED_device, 0},
+   {&RXLUA_device, 0},
+@@ -124,6 +127,9 @@ uint32_t serialBaud;
+     const Stream *serial1_protocol_tx = &(SERIAL1_PROTOCOL_TX);
+
+     SerialIO *serial1IO = nullptr;
++    #if defined(AERIALKIT_DUAL_ROLE) && defined(PLATFORM_ESP32_S3)
++    SerialIO *usbSerialIO = nullptr;
++    #endif
+ #endif
+
+ SerialIO *serialIO = nullptr;
+@@ -1264,6 +1270,14 @@ static void setupSerial()
+     bool mavlinkSerialOutput = false;
+     bool hottTlmSerial = false;
+
++#if defined(AERIALKIT_DUAL_ROLE) && defined(PLATFORM_ESP32_S3)
++    USBSerial.begin(420000);
++    if (usbSerialIO == nullptr)
++    {
++        usbSerialIO = new SerialCRSF(USBSerial, USBSerial);
++    }
++#endif
++
+     if (OPT_CRSF_RCVR_NO_SERIAL)
+     {
+         // For PWM receivers with no serial pins defined, only turn on the Serial port if logging is on
+@@ -1504,6 +1518,13 @@ static void serialShutdown()
+         delete serialIO;
+         serialIO = nullptr;
+     }
++#if defined(AERIALKIT_DUAL_ROLE) && defined(PLATFORM_ESP32_S3)
++    if (usbSerialIO != nullptr)
++    {
++        delete usbSerialIO;
++        usbSerialIO = nullptr;
++    }
++#endif
+ }
+
+ void reconfigureSerial()
+diff --git a/src/src/tx_main.cpp b/src/src/tx_main.cpp
+index 34e9065..abd620f 100644
+--- a/src/src/tx_main.cpp
++++ b/src/src/tx_main.cpp
+@@ -96,6 +96,8 @@ TXModuleEndpoint crsfTransmitter;
+ TXOTAConnector otaConnector;
+ TXUSBConnector usbConnector;
+ CRSFParser crsfParser;
++static uint32_t UsbCrsfLastRecv = 0;
++static bool UsbCrsfConnected = false;
+
+ device_affinity_t ui_devices[] = {
+   {&Handset_device, 1},
+@@ -1171,7 +1173,18 @@ static void HandleUARTin()
+     }
+     else
+     {
+-      crsfParser.processBytes(&usbConnector, buf, size);
++      crsfParser.processBytes(&usbConnector, buf, size, [](const crsf_header_t *message) {
++        if (message->type == CRSF_FRAMETYPE_RC_CHANNELS_PACKED)
++        {
++          UsbCrsfLastRecv = micros();
++          if (!UsbCrsfConnected)
++          {
++            UsbCrsfConnected = true;
++            CRSFHandset::SetUARTRequestedBaud(400000);
++            UARTconnected();
++          }
++        }
++      });
+     }
+   }
+
+@@ -1522,6 +1534,12 @@ void loop()
+
+   HandleUARTin();
+
++  if (UsbCrsfConnected && (micros() - UsbCrsfLastRecv > 500000U))
++  {
++    UsbCrsfConnected = false;
++    UARTdisconnected();
++  }
++
+   if (connectionState > MODE_STATES)
+   {
+     return;

@@ -34,7 +34,7 @@ an empty LittleFS filesystem. The `tx_1` and `rx_1` OTA slots are erased.
 - ExpressLRS 4.1.0 RX build: 1,121,357 bytes, limit 1,310,720 bytes.
 - Factory artifact: 8,331,264 bytes.
 - SHA-256:
-  `033d66391ecd01d91964af802688e92102035d9624ca04bc8b81db86f593ee64`.
+  `7210b9ff0600c2458e3fc3f429c0bbb6a9d282f1ddbe5ad4bd9c0bcb23a6cca7`.
 - Partition-table offsets agree with the source CSV and the manifest.
 - Both role-state records have valid magic, sequence, CRC, TX slot 0 and RX
   slot 2.

@@ -3,7 +3,26 @@
 This describes how a host talks to the Aerial Kit ELRS USB TX Rev A3 using
 the pinned ExpressLRS 4.1.0 target.
 
-## Selected transport
+## USB-only bench transport
+
+The preferred bench connection is the ESP32-S3 native USB-CDC port. It works
+for both roles and does not require a USB-UART adapter or Wi-Fi:
+
+- TX: host sends CRSF `RC_CHANNELS_PACKED` to the board. The bridge feeds the
+  normal ExpressLRS scheduler and returns telemetry, link statistics and device
+  information over the same CDC stream.
+- RX: the board outputs CRSF `RC_CHANNELS_PACKED` as the flight-controller
+  endpoint. Host telemetry written to CDC is forwarded over RF through the
+  normal telemetry path.
+- Nominal logical rates remain **400000 baud for the TX host side** and
+  **420000 baud for the RX FC side**. USB CDC ignores the selected baud rate;
+  the nominal rate is documented for CRSF tooling and configuration.
+- Native USB ROM download remains separate. Hold BOOT and pulse RESET if the
+  application does not enter download mode automatically.
+
+Two boards enumerate as two distinct `/dev/ttyACM*` devices.
+
+## Optional UART bench transport
 
 Use a **3.3 V USB-UART adapter** connected to UART0 on J3:
 
@@ -22,10 +41,8 @@ ExpressLRS `CRSFHandset.cpp` starts autobaud detection at 400000 and only cycles
 through its handset baud table. The 420000 rate is the receiver-to-flight-
 controller link, not the host-to-TX link.
 
-Native USB-CDC on GPIO19/20 is not a drop-in RC transport in stock
-ExpressLRS 4.1.0. On the ESP32-S3 TX build, `USBSerial` is assigned to the
-TxUSB/configuration side, while RC frame input is read by `CRSFHandset` from
-UART0. A host therefore needs the USB-UART adapter for autonomous CRSF input.
+The UART path remains available for existing J3 installations. It is not
+required for the USB-only bench.
 
 Native USB on GPIO19/20 supports:
 
@@ -72,8 +89,9 @@ The factory image includes an empty LittleFS filesystem in the `spiffs`
 partition at `0x6d2000`. This avoids first-boot mount/format failures caused by
 stale filesystem contents from a different partition layout.
 
-The RX image outputs receiver frames on UART0 at the receiver-to-FC rate,
-normally 420000 baud, unless configuration changes it.
+The RX image also outputs receiver frames on UART0 at the receiver-to-FC rate,
+normally 420000 baud, unless configuration changes it. The USB CDC endpoint
+operates in parallel.
 
 ## Firmware overlay
 
@@ -87,6 +105,8 @@ commit `a9d4a9cb5b5687c4c9d7e9e7fbdf44ad93651da6`. It:
 - limits the WS2812 to 26/255;
 - adds two update slots per role and two role-state records;
 - preformats LittleFS for the full factory image;
+- bridges CRSF over native USB-CDC in both roles;
+- emits a one-green-pulse TX or two-blue-pulse RX boot heartbeat;
 - samples GPIO4 again before radio setup and fails safe on a role mismatch.
 
 Both applications and their combined flash image build in this repository.
