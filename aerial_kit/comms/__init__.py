@@ -40,6 +40,14 @@ from .crsf import (
     parse_parameter_record,
     unpack_channels,
 )
+from .akp import (
+    AkClient,
+    AkError,
+    AkHello,
+    AkProtocolError,
+    AkStatus,
+    AkWriteRefused,
+)
 from .transport import (
     Link,
     LoopbackTransport,
@@ -57,6 +65,12 @@ from .transport import (
 __all__ = [
     "CRSF_BAUD",
     "CRSF_RX_FC_BAUD",
+    "AkClient",
+    "AkError",
+    "AkHello",
+    "AkProtocolError",
+    "AkStatus",
+    "AkWriteRefused",
     "BackendArmSequencer",
     "CrsfChannelMap",
     "CrsfDeviceInfo",
