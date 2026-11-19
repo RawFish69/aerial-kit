@@ -30,16 +30,26 @@ def _import_repo():
 def firmware_radio_settings(airframe):
     """Radio backend settings for flying the real AK firmware over the radio.
 
-    The host sends *angle* sticks (the firmware has no velocity mode), scaled
-    to the firmware's own tilt limit, around this airframe's hover throttle,
-    and closes the velocity loop itself on telemetry.
+    The firmware's velocity hold flies it: the host sends world velocity
+    (rotated to the FC's heading from telemetry), climb rate and yaw rate as
+    sticks on AUX7 at the firmware's own full-scale values (ak_nav: 6 m/s,
+    3 m/s climb, 1.5 rad/s yaw), and the FC closes the loops on its own
+    sensors instead of the host closing them over delayed telemetry.
     """
-    _import_repo()
-    from aerial_kit.airframes.multirotor_specs import load_multirotor_spec
-    from sim_py.fc_sil import radio_stick_settings
+    del airframe
+    return {
+        'stick_mapping': 'velocity',
+        'velocity_channel': FIRMWARE_VELOCITY_CHANNEL,
+        'manual_max_speed_mps': 6.0,
+        'manual_max_climb_mps': 3.0,
+        'max_yaw_rate_rps': 1.5,
+        'vxy_feedback': False,
+        'vz_feedback': False,
+    }
 
-    return {**radio_stick_settings(load_multirotor_spec(str(airframe))),
-            'vxy_feedback': True, 'vz_feedback': True}
+
+#: AUX channel for the AK firmware's velocity hold in the SIL (1-based).
+FIRMWARE_VELOCITY_CHANNEL = 7
 
 
 def _radio_backend(context):
@@ -230,6 +240,7 @@ def generate_launch_description():
                 'flight_controller': LaunchConfiguration('flight_controller'),
                 # With the firmware, RC comes from the receiver bytes as on a real FC.
                 'firmware_rc_input': 'crsf',
+                'firmware_velocity_channel': FIRMWARE_VELOCITY_CHANNEL,
             }],
         ),
         OpaqueFunction(function=_radio_backend),

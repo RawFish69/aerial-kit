@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Vector3
 from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -166,6 +166,11 @@ class MultirotorBackendAdapterNode(Node):
             # on manual_topic; 'crsf' = raw ELRS receiver bytes (the radio SIL).
             ('firmware_rc_input', 'teleop'),
             ('crsf_rx_topic', '/uav/radio/receiver_rx_bytes'),
+            # firmware only: 1-based AUX that selects the FC's velocity hold (0 = none).
+            ('firmware_velocity_channel', 0),
+            # firmware only: the FC's own attitude estimate (roll, pitch, yaw in the
+            # odometry's ENU/FLU convention) for the radio's attitude telemetry.
+            ('firmware_attitude_topic', '/uav/radio/fc_attitude_rpy'),
             ('viewer_camera_topic', VIEWER_CAMERA_TOPIC),
         ):
             self.declare_parameter(name, default)
@@ -204,7 +209,8 @@ class MultirotorBackendAdapterNode(Node):
                 raise ValueError(f'flight_controller:=firmware drives quad-X only; {spec.name} has {spec.n_rotors} rotors')
             self.firmware = FirmwareInTheLoop(
                 launch['airframe'], start_z=None if not airborne else launch['start_z_m'],
-                wind_mps=(launch['wind_x_mps'], launch['wind_y_mps'], 0.0))
+                wind_mps=(launch['wind_x_mps'], launch['wind_y_mps'], 0.0),
+                velocity_channel=int(self.get_parameter('firmware_velocity_channel').value) or None)
             self.radio = FirmwareRadio(
                 hover_throttle(spec),
                 max_thrust_ratio=float(self.get_parameter('firmware_max_thrust_ratio').value))
@@ -252,6 +258,10 @@ class MultirotorBackendAdapterNode(Node):
             self.create_subscription(UInt8MultiArray, self.get_parameter('crsf_rx_topic').value,
                                      self._on_crsf_bytes, 50)
         self.pub_odom = self.create_publisher(Odometry, self.get_parameter('backend_odom_topic').value, 20)
+        self.pub_fc_attitude = None
+        if self.firmware is not None and self.get_parameter('firmware_attitude_topic').value:
+            self.pub_fc_attitude = self.create_publisher(
+                Vector3, self.get_parameter('firmware_attitude_topic').value, 20)
         self.timer = self.create_timer(self.period, self._tick)
         self.get_logger().info(
             f'multirotor backend: mujoco {spec.name} ({spec.n_rotors} rotors, '
@@ -396,6 +406,12 @@ class MultirotorBackendAdapterNode(Node):
             self._tick_firmware(now)
             self._sync_viewer()
             self._publish(self.backend.state())
+            if self.pub_fc_attitude is not None:
+                # Firmware attitude is FRD/NED (yaw clockwise from north); odometry
+                # euler angles are FLU/ENU (yaw counter-clockwise from east).
+                roll, pitch, yaw = (float(a) for a in self.firmware.fc.attitude())
+                yaw_enu = math.atan2(math.sin(math.pi / 2 - yaw), math.cos(math.pi / 2 - yaw))
+                self.pub_fc_attitude.publish(Vector3(x=roll, y=-pitch, z=yaw_enu))
             return
         state = self.backend.state()
         source = self.control_source(now)

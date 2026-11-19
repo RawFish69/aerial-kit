@@ -81,9 +81,12 @@ class CrsfChannelMap:
     arm_threshold: int = 1300
     angle_mode_count: int = CRSF_CHANNEL_MAX
     disabled_mode_count: int = CRSF_CHANNEL_MIN
+    velocity: int = 0
 
     def __post_init__(self) -> None:
-        channels = (self.roll, self.pitch, self.throttle, self.yaw, self.arm, self.mode)
+        channels = [self.roll, self.pitch, self.throttle, self.yaw, self.arm, self.mode]
+        if self.velocity:
+            channels.append(self.velocity)
         if any(channel < 1 or channel > CRSF_CHANNEL_COUNT for channel in channels):
             raise ValueError(
                 f"CRSF channel numbers must be 1..{CRSF_CHANNEL_COUNT}, got {channels}"
@@ -93,7 +96,7 @@ class CrsfChannelMap:
 
     @classmethod
     def from_mapping(cls, values: dict[str, int]) -> CrsfChannelMap:
-        names = ("roll", "pitch", "throttle", "yaw", "arm", "mode")
+        names = ["roll", "pitch", "throttle", "yaw", "arm", "mode", "velocity"]
         return cls(**{name: int(values.get(name, getattr(cls(), name))) for name in names})
 
     @staticmethod
@@ -106,7 +109,13 @@ class CrsfChannelMap:
         normalized = _clamp(value, 0.0, 1.0)
         return round(CRSF_CHANNEL_MIN + normalized * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN))
 
-    def encode(self, sticks: RcSticks, *, enabled: bool) -> tuple[int, ...]:
+    def encode(
+        self,
+        sticks: RcSticks,
+        *,
+        enabled: bool,
+        velocity_hold: bool = False,
+    ) -> tuple[int, ...]:
         channels = [CRSF_CHANNEL_MID] * CRSF_CHANNEL_COUNT
         channels[self.roll - 1] = self._stick_count(sticks.roll)
         channels[self.pitch - 1] = self._stick_count(sticks.pitch)
@@ -116,6 +125,14 @@ class CrsfChannelMap:
         channels[self.mode - 1] = (
             self.angle_mode_count if enabled else self.disabled_mode_count
         )
+        if self.velocity:
+            channels[self.velocity - 1] = (
+                CRSF_CHANNEL_MAX if enabled and velocity_hold else CRSF_CHANNEL_MIN
+            )
+        elif velocity_hold:
+            raise ValueError(
+                "velocity hold asked for, but the channel map has no velocity channel"
+            )
         return tuple(channels)
 
     def decode_sticks(self, channels: Sequence[int]) -> CrsfStickState:

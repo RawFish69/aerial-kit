@@ -479,7 +479,9 @@ def main():
     # The move to 45 is the receiver's two switch channels, `arm_channel` and
     # `mode_channel` (2026-10-05): ExpressLRS and the custom ESP-NOW radio both
     # arm on CH5, and the fixed order read CH5 as the mode switch. 43 + 2 = 45.
-    expect("and reports the parameter table", count == 45)
+    # It moved to 46 with `velocity_channel`, the optional AUX selector for
+    # firmware-side velocity hold.
+    expect("and reports the parameter table", count == 46)
 
     # ---- the capability word, on the stand-in -----------------------------
     #

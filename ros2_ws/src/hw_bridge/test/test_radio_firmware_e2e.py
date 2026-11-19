@@ -31,14 +31,19 @@ LATENCY_S = 0.008
 class RadioFirmwareLoop:
     """The host radio backend flying the real firmware over a simulated link."""
 
-    def __init__(self, airframe='fpv_quad_5in', loss=0.0, seed=7, start_on_ground=True):
+    def __init__(self, airframe='fpv_quad_5in', loss=0.0, seed=7, start_on_ground=True, mode='angle'):
+        """mode 'velocity': the FC's velocity hold flies it (AUX7, as bringup sets up);
+        'angle': the host closes velocity over angle sticks (the older path)."""
         from aerial_kit.airframes.multirotor_specs import load_multirotor_spec
         from aerial_kit.comms.crsf import CrsfParser, make_rc_channels_frame
         from hw_bridge.crsf_radio_mapping import BackendArmSequencer, CrsfChannelMap
         from hw_bridge.rc_mapping import params_from_airframe
         from sim_py.fc_sil import FirmwareInTheLoop, radio_stick_settings
 
-        self.sim = FirmwareInTheLoop(airframe)
+        if mode not in ('angle', 'velocity'):
+            raise ValueError(mode)
+        self.mode = mode
+        self.sim = FirmwareInTheLoop(airframe, velocity_channel=7 if mode == 'velocity' else None)
         # The same settings bringup gives the radio backend in firmware mode:
         # the FC's tilt limit, this airframe's hover throttle, a thrust-scaled kz.
         rs = radio_stick_settings(load_multirotor_spec(airframe), self.sim.fc)
@@ -51,7 +56,7 @@ class RadioFirmwareLoop:
         self.measure_lag_s = 0.0
         self._v_meas = np.zeros(3)
         self.sequencer = BackendArmSequencer(arm_hold_sec=1.0)
-        self.channel_map = CrsfChannelMap()
+        self.channel_map = CrsfChannelMap(velocity=7 if mode == 'velocity' else 0)
         self.make_frame = make_rc_channels_frame
         self.parser = CrsfParser()
         self.rng = random.Random(seed)
@@ -64,8 +69,19 @@ class RadioFirmwareLoop:
         self.sent = self.delivered = 0
 
     def _host_frame(self):
-        from hw_bridge.crsf_radio_mapping import rotate_world_velocity_to_body
+        from hw_bridge.crsf_radio_mapping import rotate_world_velocity_to_body, velocity_to_manual_sticks
         from hw_bridge.rc_mapping import velocity_to_rc
+
+        if self.mode == 'velocity':
+            # The host knows the FC's heading from its attitude telemetry (the FC's
+            # own estimate, NED, clockwise from north) and sends velocity sticks in it.
+            yaw_enu = math.pi / 2.0 - float(self.sim.fc.attitude()[2])
+            right, forward = rotate_world_velocity_to_body(*self.demand[:2], yaw_enu)
+            sticks = velocity_to_manual_sticks(right, forward, self.demand[2], 0.0, max_speed_mps=6.0,
+                                               max_climb_mps=3.0, max_yaw_rate_rps=1.5)
+            sticks, arm = self.sequencer.update(self.enabled, sticks, self.sim.t)
+            return self.make_frame(self.channel_map.encode(
+                sticks, enabled=arm, velocity_hold=self.sequencer.armed))
 
         s = self.sim.state
         if self.measure_lag_s > 0.0:
@@ -111,43 +127,71 @@ def _tilt_deg(quat):
     return math.degrees(math.acos(max(-1.0, min(1.0, 1 - 2 * (x * x + y * y)))))
 
 
-def test_radio_arms_the_firmware_takes_off_and_holds_a_velocity():
-    loop = RadioFirmwareLoop(loss=0.10)
+def test_radio_arms_the_firmware_and_its_velocity_hold_flies_the_demand():
+    # The host sends world velocity on AUX7; the FC closes the loops on its own
+    # sensors (firmware velocity hold), not over the link.
+    loop = RadioFirmwareLoop(loss=0.10, mode='velocity')
     try:
         loop.run(0.5)
         assert loop.sim.fc.state == 'disarmed'
         loop.enabled = True
         loop.run(1.2)                                  # 1.0 s host arm hold > 0.5 s FW hold
-        assert loop.sim.fc.state == 'armed'
+        assert loop.sim.fc.state in ('armed', 'on autopilot')
         assert loop.sim.state.position[2] < 0.1        # throttle held low while arming
-        loop.demand = (0.0, 0.0, 2.0)
-        loop.run(2.5)
-        z = loop.sim.state.position[2]
-        assert 3.0 < z < 8.0, z
-        loop.demand = (3.0, 0.0, 0.0)
-        loop.run(4.0)
+        loop.demand = (0.0, 0.0, 1.0)
+        loop.run(3.0)
         s = loop.sim.state
-        assert abs(s.velocity[0] - 3.0) < 1.0, s.velocity
-        assert abs(s.velocity[1]) < 1.0 and abs(s.velocity[2]) < 1.0, s.velocity
-        assert _tilt_deg(s.attitude_quat) < 25.0
-        assert 0.8 < loop.delivered / loop.sent < 0.97   # ~10 % loss really happened
+        assert loop.sim.fc.state == 'on autopilot' and loop.sim.fc.velocity_mode
+        assert abs(s.velocity[2] - 1.0) < 0.2, s.velocity
+        loop.demand = (3.0, 0.0, 0.0)
+        loop.run(10.0)
+        s = loop.sim.state
+        assert loop.sim.fc.track_aligned
+        assert abs(np.linalg.norm(s.velocity[:2]) - 3.0) < 0.6, s.velocity      # the speed asked for
+        assert s.velocity[0] > 1.0, s.velocity       # roughly the right way: heading comes from the track
+        assert abs(s.velocity[2]) < 0.3, s.velocity
+        assert 0.8 < loop.delivered / loop.sent < 0.97
         assert np.all(np.isfinite(loop.sim.backend.data.qpos))
     finally:
         loop.close()
 
 
-def test_link_cut_lets_the_firmware_fail_safe_on_its_own():
-    loop = RadioFirmwareLoop()
+def test_angle_sticks_still_fly_the_demand_direction():
+    # The older path (host closes velocity over angle sticks). With the
+    # estimator fixed it no longer overshoots: 3 m/s asked, ~1.3 m/s reached in
+    # 4 s at the conservative 0.2/s gain. It must move the right way and stay level.
+    loop = RadioFirmwareLoop(loss=0.10)
+    try:
+        loop.run(0.5)
+        loop.enabled = True
+        loop.run(1.2)
+        assert loop.sim.fc.state == 'armed'
+        loop.demand = (0.0, 0.0, 2.0)
+        loop.run(2.5)
+        assert 3.0 < loop.sim.state.position[2] < 8.0
+        loop.demand = (3.0, 0.0, 0.0)
+        loop.run(4.0)
+        s = loop.sim.state
+        assert s.velocity[0] > 1.0 and abs(s.velocity[1]) < 0.5, s.velocity
+        assert _tilt_deg(s.attitude_quat) < 25.0
+    finally:
+        loop.close()
+
+
+@pytest.mark.parametrize('mode', ['angle', 'velocity'])
+def test_link_cut_lets_the_firmware_fail_safe_on_its_own(mode):
+    loop = RadioFirmwareLoop(mode=mode)
     try:
         loop.run(0.3)
         loop.enabled = True
         loop.run(1.2)
         loop.demand = (0.0, 0.0, 2.0)
         loop.run(2.0)
-        assert loop.sim.fc.state == 'armed'
+        flying = 'on autopilot' if mode == 'velocity' else 'armed'     # velocity hold is MANAGED
+        assert loop.sim.fc.state == flying
         loop.link_up = False                           # TX keeps sending, nothing arrives
         loop.run(0.1)
-        assert loop.sim.fc.state == 'armed'            # inside the FC's receiver timeout
+        assert loop.sim.fc.state == flying             # inside the FC's receiver timeout
         loop.run(0.6)
         assert loop.sim.fc.state == 'failsafe'
         assert np.all(loop.sim.motors == 0.0)

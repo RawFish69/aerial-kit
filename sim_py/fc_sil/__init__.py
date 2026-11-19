@@ -49,9 +49,17 @@ def _load():
     lib.akfc_attitude.argtypes = [ctypes.c_void_p, f32p]
     lib.akfc_command.argtypes = [ctypes.c_void_p, f32p]
     lib.akfc_config.argtypes = [ctypes.c_void_p, f32p]
+    lib.akfc_set_velocity_channel.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+    lib.akfc_step_nav.argtypes = [ctypes.c_void_p, f32p, f32p, ctypes.POINTER(ctypes.c_uint16),
+                                  ctypes.c_int, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+                                  ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_float,
+                                  f32p, f32p]
+    lib.akfc_velocity_mode.argtypes = [ctypes.c_void_p]
+    lib.akfc_track_aligned.argtypes = [ctypes.c_void_p]
+    lib.akfc_set_nav_cruise.argtypes = [ctypes.c_void_p, ctypes.c_float]
     for name in ("akfc_rc_channels", "akfc_max_motors", "akfc_max_servos"):
         getattr(lib, name).restype = ctypes.c_uint
-    if lib.akfc_abi_version() != 2:
+    if lib.akfc_abi_version() != 3:
         raise RuntimeError("akfc shim ABI mismatch; rebuild with build.py --force")
     _lib = lib
     return lib
@@ -116,6 +124,40 @@ class AkFlightCore:
                             self._motor, self._servo)
         return np.array(self._motor[:], dtype=float), np.array(self._servo[:], dtype=float)
 
+    def set_velocity_channel(self, channel: int | None) -> None:
+        """1-based receiver channel that selects the firmware's velocity hold (None = off)."""
+        c = int(channel or 0)
+        if not 0 <= c <= self.n_channels:
+            raise ValueError(f"velocity channel must be 1..{self.n_channels} or None")
+        self._lib.akfc_set_velocity_channel(self._h, c)
+        self.velocity_index = c - 1 if c else None
+
+    def step_nav(self, gyro_frd, accel_g, channels, rc_valid: bool, rc_ms: int, now_us: int, now_ms: int,
+                 gps_valid: bool, north_m_s: float, east_m_s: float, alt_msl_m: float):
+        """One loop as main.c runs it with its navigator (velocity hold + heading aiding)."""
+        for i in range(3):
+            self._gyro[i] = float(gyro_frd[i])
+            self._accel[i] = float(accel_g[i])
+        for i in range(self.n_channels):
+            self._ch[i] = int(channels[i])
+        self._lib.akfc_step_nav(self._h, self._gyro, self._accel, self._ch, int(bool(rc_valid)),
+                                int(rc_ms) & 0xFFFFFFFF, int(now_us) & 0xFFFFFFFF, int(now_ms) & 0xFFFFFFFF,
+                                int(bool(gps_valid)), float(north_m_s), float(east_m_s), float(alt_msl_m),
+                                self._motor, self._servo)
+        return np.array(self._motor[:], dtype=float), np.array(self._servo[:], dtype=float)
+
+    def set_nav_cruise(self, throttle: float) -> None:
+        """The navigator's hover throttle (firmware parameter ``rth_cruise``)."""
+        self._lib.akfc_set_nav_cruise(self._h, float(throttle))
+
+    @property
+    def velocity_mode(self) -> bool:
+        return bool(self._lib.akfc_velocity_mode(self._h))
+
+    @property
+    def track_aligned(self) -> bool:
+        return bool(self._lib.akfc_track_aligned(self._h))
+
     @property
     def state(self) -> str:
         return self._lib.akfc_state_name(self._h).decode()
@@ -139,7 +181,7 @@ class AkFlightCore:
                     angle_mode=bool(out[4]), arm_request=bool(out[5]))
 
     def channels_from_sticks(self, roll: float, pitch: float, yaw: float, throttle: float,
-                             arm: bool, angle_mode: bool = True) -> list[int]:
+                             arm: bool, angle_mode: bool = True, velocity: bool = False) -> list[int]:
         """Receiver counts for normalised sticks (roll/pitch/yaw -1..1, throttle 0..1)."""
         L = self.layout
 
@@ -152,6 +194,10 @@ class AkFlightCore:
         ch[L.throttle] = round(L.min + max(0.0, min(1.0, float(throttle))) * (L.max - L.min))
         ch[L.arm] = L.max if arm else L.min
         ch[L.mode] = L.max if angle_mode else L.min
+        if getattr(self, "velocity_index", None) is not None:
+            ch[self.velocity_index] = L.max if velocity else L.min
+        elif velocity:
+            raise ValueError("velocity hold asked for, but no velocity channel is set")
         return ch
 
 
@@ -174,7 +220,11 @@ class FirmwareInTheLoop:
     """The AK firmware flying a MuJoCo multirotor (quad-X) at 1 kHz."""
 
     def __init__(self, airframe: str = "fpv_quad_5in", start_z: float | None = None,
-                 wind_mps=(0.0, 0.0, 0.0), loop_hz: float = 1000.0, battery_soc: float = 1.0):
+                 wind_mps=(0.0, 0.0, 0.0), loop_hz: float = 1000.0, battery_soc: float = 1.0,
+                 velocity_channel: int | None = None):
+        """``velocity_channel`` (1-based, e.g. 7) enables the firmware's velocity
+        hold: the loop then runs main.c's navigator with the plant's GPS-grade
+        velocity, altitude and ground track (``gps_alive`` withholds them)."""
         from aerial_kit.dynamics.rotations import quat_to_rotmat
         from sim_py.backends.mujoco_multirotor_backend import MujocoMultirotorBackend
 
@@ -199,7 +249,15 @@ class FirmwareInTheLoop:
                                loop_period_us=int(round(1e6 / loop_hz)))
         self.dt = 1.0 / loop_hz
         self.t = 0.0
+        self.nav = velocity_channel is not None
+        self.fc.set_velocity_channel(velocity_channel)
+        # rth_cruise = this airframe's hover throttle, as a setup would configure it.
+        self.fc.set_nav_cruise(hover_throttle(spec))
+        self.gps_alive = True
+        self.origin_alt_m = 100.0
         self.sticks = dict(roll=0.0, pitch=0.0, yaw=0.0, throttle=0.0, arm=False, angle_mode=True)
+        if self.nav:
+            self.sticks["velocity"] = False
         self.rc_alive = True
         self._last_rc_ms = 0
         self._raw_channels: list[int] | None = None   # set by receive_frame()
@@ -239,7 +297,14 @@ class FirmwareInTheLoop:
                 if self.rc_alive:
                     self._last_rc_ms = now_ms
                 ch = self.fc.channels_from_sticks(**self.sticks)
-            self.motors, _ = self.fc.step(gyro, accel, ch, self.rc_alive, self._last_rc_ms, now_us, now_ms)
+            if self.nav:
+                s = self.backend.state()
+                self.motors, _ = self.fc.step_nav(
+                    gyro, accel, ch, self.rc_alive, self._last_rc_ms, now_us, now_ms,
+                    self.gps_alive, float(s.velocity[1]), float(s.velocity[0]),   # ENU -> north, east
+                    self.origin_alt_m + float(s.position[2]))
+            else:
+                self.motors, _ = self.fc.step(gyro, accel, ch, self.rc_alive, self._last_rc_ms, now_us, now_ms)
             thrust = t_max * np.clip(self.motors[:4], 0.0, 1.0) ** 2   # throttle -> speed -> thrust
             self.backend.step(ControlTarget(accel_cmd=np.zeros(3),
                                             metadata={"rotor_thrust_n": thrust}), self.dt)

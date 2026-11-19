@@ -602,8 +602,11 @@ static void nav_update(uint32_t now)
     /* The launch is the one thing here that needs no position at all, so a fix
      * that has gone quiet does not end it: see the step below, which is after
      * the fence and the pack have had their say. */
-    if (!gps_ok && !(nav.active && flying) && !ak_launch_active(&launch)) {
+    if (!gps_ok && !(nav.active && flying) &&
+        !(flight.cmd.velocity_mode && flying) &&
+        !ak_launch_active(&launch)) {
         ak_nav_disengage(&nav);
+        ak_nav_velocity_stop(&nav);
         ak_flight_set_guidance(&flight, 0);
         ak_flight_set_managed(&flight, 0);
         return;
@@ -789,6 +792,42 @@ static void nav_update(uint32_t now)
         }
         return;
     }
+
+    /*
+     * Pilot-requested velocity hold. The host sends north/east velocity,
+     * climb rate and yaw rate through the sticks; the rate loops stay on the
+     * aircraft, where barometer, GPS and IMU updates are not delayed by a
+     * telemetry link. A failsafe, battery return, fence or mission above has
+     * already had its say and this block is not reached.
+     */
+    if (flight.cmd.velocity_mode && flying && ak_flight_link_live(&flight) &&
+        !mission_requested && !battery_return && !fence_breach &&
+        !ak_launch_active(&launch)) {
+        ak_nav_velocity_setpoint_t velocity;
+        float yaw_rad = flight.est.yaw;
+        float max_speed = nav.quad_speed;
+        float right = flight.cmd.roll * max_speed;
+        float forward = -flight.cmd.pitch * max_speed;
+
+        velocity.north_mps =
+            forward * ak_cosf(yaw_rad) - right * ak_sinf(yaw_rad);
+        velocity.east_mps =
+            forward * ak_sinf(yaw_rad) + right * ak_cosf(yaw_rad);
+        velocity.climb_mps = (flight.cmd.throttle - 0.5f) *
+                             2.0f * AK_NAV_QUAD_MAX_CLIMB_MPS;
+        velocity.yaw_rate_rps =
+            flight.cmd.yaw * AK_NAV_QUAD_MAX_YAW_RATE_RPS;
+        ak_nav_velocity_set(&nav, &velocity);
+        if (ak_nav_velocity_step(&nav, &in, &nav_command)) {
+            ak_flight_set_guidance(&flight, &nav_command);
+            ak_flight_set_managed(&flight, 1);
+        } else {
+            ak_flight_set_guidance(&flight, 0);
+            ak_flight_set_managed(&flight, 0);
+        }
+        return;
+    }
+    ak_nav_velocity_stop(&nav);
 
     /*
      * The launch, which is a mode the pilot asked for like a mission and is

@@ -47,6 +47,10 @@
 #define AK_NAV_RATE_SAMPLES 8
 #define AK_NAV_RATE_STEP_MS 25u
 
+/* Limits used when a host sends velocity setpoints. */
+#define AK_NAV_QUAD_MAX_CLIMB_MPS 3.0f
+#define AK_NAV_QUAD_MAX_YAW_RATE_RPS 1.5f
+
 /*
  * The longest interval one guidance step will integrate over, in milliseconds.
  *
@@ -99,6 +103,14 @@ typedef struct {
     int     gps_valid;
     int32_t course_e5;   /* the gps ground course, degrees * 1e5 */
     int32_t speed_mm_s;  /* the gps ground speed */
+    /*
+     * World velocity when the caller has it directly. The GPS path derives the
+     * same vector from speed and course below; a fused-velocity caller does not
+     * have to invent a course for a stationary aircraft.
+     */
+    int      velocity_valid;
+    float    north_m_s;
+    float    east_m_s;
     int32_t yaw_mrad;    /* the estimator's heading */
     int     yaw_aligned; /* ... aligned to the ground track */
     /* What a full stick asks the angle loop for, so the quadrotor's profile
@@ -123,6 +135,15 @@ typedef struct {
      * derivative without a timestep is a number with no units. */
     float   dt_s;
 } ak_nav_input_t;
+
+/* A world-frame velocity request. The host can update this from a mission
+ * controller without closing a position loop over delayed telemetry. */
+typedef struct {
+    float north_mps;
+    float east_mps;
+    float climb_mps;
+    float yaw_rate_rps;
+} ak_nav_velocity_setpoint_t;
 
 typedef struct {
     /* Guidance gains, in the units a person would tune them in. */
@@ -195,6 +216,16 @@ typedef struct {
     unsigned rate_count;
     unsigned rate_age_ms;
     float    climb_m_s;
+    /*
+     * Velocity hold. Unlike the return and mission profiles this needs no
+     * home: it owns the horizontal and vertical loops while the flight core
+     * presents its output through the same guidance/MANAGED interface.
+     */
+    int     velocity_active;
+    float   velocity_n_mps;
+    float   velocity_e_mps;
+    float   velocity_climb_mps;
+    float   velocity_yaw_rate_rps;
     /* Steps flown holding with no position fix, which is what the console
      * reports when a return has lost its GPS: a number rather than a flag,
      * because "for how long" is the question a person asks next. */
@@ -343,5 +374,16 @@ float ak_nav_course_error_e2(int32_t wanted_e2, int32_t actual_e5);
  * valid, and produces what the sticks would have said. Returns 1 while
  * returning, 0 when it is not engaged. */
 int ak_nav_step(ak_nav_t *nav, const ak_nav_input_t *in, ak_rc_command_t *out);
+
+/* Hand the velocity loop a world-frame setpoint. Calling this repeatedly keeps
+ * the mode active; stop() resets its rate and vertical integrators. */
+void ak_nav_velocity_set(ak_nav_t *nav,
+                         const ak_nav_velocity_setpoint_t *setpoint);
+void ak_nav_velocity_stop(ak_nav_t *nav);
+
+/* One step of velocity hold. Returns 0 when there is no usable measured
+ * velocity, so the caller can release guidance rather than fly blind. */
+int ak_nav_velocity_step(ak_nav_t *nav, const ak_nav_input_t *in,
+                         ak_rc_command_t *out);
 
 #endif /* AK_FLIGHT_AK_NAV_H */
