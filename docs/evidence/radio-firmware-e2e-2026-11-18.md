@@ -83,3 +83,24 @@ host's slow velocity loop zig-zags (+/-6 m, ~12 s period) and the 240 s timeout 
 went furthest but breaks the 1 s-lag robustness test (39 deg tilt), so the default stays 0.2 /s.
 The remaining fix is the same as for altitude: velocity hold on the FC (GPS + IMU at the FC's rate)
 so the host sends velocity setpoints, or a faster horizontal-velocity downlink.
+
+## Update: firmware velocity hold (PR #32) — the demo mission completes
+The FC now holds velocity itself (`velocity_channel`, `ak_nav_velocity_*`, guidance/MANAGED). In the
+SIL: `sim_py.fc_sil` runs main.c's navigator each loop (link update, velocity hold, core step,
+GPS-course heading aid) with the plant's velocity, altitude and ground track, `rth_cruise` set to
+the airframe's hover throttle; bringup's firmware mode sends world velocity (rotated to the FC's own
+heading from attitude telemetry), climb and yaw rate on AUX7 at the firmware's full scales, and the
+simulated receiver now sends the **FC's attitude estimate** as attitude telemetry, as hardware does.
+
+| run | result | closest to goal | max tilt |
+|---|---|---|---|
+| 0 % loss | completed, landed, disarmed | 0.27 m | 35 deg |
+| 10 % loss | completed, landed, disarmed | 0.50 m | 35 deg |
+| link cut at 2 m | firmware MANAGED -> failsafe, motors off, on the ground | - | - |
+
+Evidence: `radio-sil-fpv-firmware-velhold-loss{0.0,10.0}-*.json`, `radio-sil-fpv_quad_5in-link-loss-20261118-173914.json`.
+The odometry the monitor records reads (0, 0, 0) after disarm (`last_positions_m` shows the landing
+at the goal first): a post-landing artefact of the host estimator, not the aircraft.
+
+Sending the plant's *true* attitude as telemetry (the earlier SIL) made the host rotate commands by
+a heading the FC does not have; the executor zig-zagged and the mission timed out 42 m short.
