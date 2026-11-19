@@ -135,6 +135,24 @@ A receiver that is not there at all is not a hazard: no frames means no fresh
 `last_update_ms`, which is a failsafe, which means zero throttle, and the
 arming path additionally refuses to arm without a converged attitude estimate.
 
+### Velocity-hold channel
+
+`velocity_channel` selects an optional AUX switch for guided multirotor flight.
+While that switch is high, the four sticks carry setpoints instead of angles:
+
+| channel | meaning at full travel |
+| --- | --- |
+| roll | velocity to the right |
+| pitch | velocity forward |
+| throttle | climb rate, with centre meaning zero |
+| yaw | yaw rate |
+
+The firmware applies the horizontal velocity error against GPS ground velocity,
+the climb error against the fused barometer rate, and hands the result to the
+normal angle loop through `AK_FLIGHT_MANAGED`. GPS loss while velocity hold is
+selected leaves the aircraft level at the configured `cruise` throttle rather
+than interpreting velocity channels as tilt commands.
+
 ## The other direction: what the handset is told
 
 CRSF is a two-way bus, and PA9 has been labelled "wired for telemetry later"

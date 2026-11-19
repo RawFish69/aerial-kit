@@ -57,6 +57,8 @@ def main() -> int:
         'max_ground_speed_mps': round(max(r[4] for r in s), 2) if s else None,
         'max_tilt_deg': round(max(r[6] for r in s), 1) if s else None,
         'final_position_m': [round(x, 2) for x in s[-1][1:4]] if s else None,
+        # The end of the run, so a stray last sample (a node resetting on shutdown) shows up as one.
+        'last_positions_m': [[round(x, 2) for x in r[1:4]] for r in s[-200::40]] if s else None,
         'closest_to_goal_xy_m': round(min(math.hypot(r[1] - GOAL[0], r[2] - GOAL[1]) for r in s), 2) if s else None,
     }
     text = json.dumps(summary, indent=1)

@@ -5,6 +5,7 @@
 #include "ak_flight.h"
 #include "ak_math.h"
 #include "ak_mixer.h"
+#include "ak_nav.h"
 
 typedef struct {
     ak_printf_fn out;
@@ -75,6 +76,117 @@ int ak_flight_selftest(ak_printf_fn out)
     check(&ctx, "squareroot of 9 is 3", near(ak_sqrtf(9.0f), 3.0f, 0.001f), "");
     check(&ctx, "atan2(1,1) is pi/4",
           near(ak_atan2f(1.0f, 1.0f), AK_PI / 4.0f, 0.0005f), "");
+
+    {
+        ak_rc_config_t cfg;
+        ak_rc_input_t input = {0};
+        ak_rc_command_t command;
+        ak_rc_default_config(&cfg);
+        cfg.velocity_channel = 7u;
+        for (int i = 0; i < AK_RC_CHANNELS; i++) {
+            input.channel[i] = (uint16_t)cfg.mid;
+        }
+        input.channel[6] = (uint16_t)cfg.max;
+        input.valid = 1;
+        check(&ctx, "velocity channel selects velocity hold",
+              ak_rc_decode(&input, &cfg, &command) &&
+                  command.velocity_mode == 1,
+              "");
+    }
+
+    {
+        static ak_nav_t velocity_nav;
+        ak_nav_velocity_setpoint_t setpoint = {
+            .north_mps = 2.0f,
+            .east_mps = 0.0f,
+            .climb_mps = 0.0f,
+            .yaw_rate_rps = 0.0f,
+        };
+        ak_nav_input_t nav_in = {0};
+        ak_rc_command_t command;
+
+        ak_nav_init(&velocity_nav);
+        ak_nav_set_profile(&velocity_nav, AK_NAV_PROFILE_QUAD);
+        velocity_nav.cruise = 0.34f;
+        velocity_nav.quad_speed = 4.0f;
+        nav_in.alt_mm = 10000;
+        nav_in.velocity_valid = 1;
+        nav_in.north_m_s = 0.0f;
+        nav_in.east_m_s = 0.0f;
+        nav_in.yaw_aligned = 1;
+        nav_in.max_tilt_rad = ak_deg2rad(35.0f);
+        nav_in.dt_s = 0.02f;
+        ak_nav_velocity_set(&velocity_nav, &setpoint);
+        check(&ctx, "velocity hold asks for forward acceleration",
+              ak_nav_velocity_step(&velocity_nav, &nav_in, &command) &&
+                  command.pitch < -0.1f && command.angle_mode == 1,
+              "");
+
+        setpoint.north_mps = 0.0f;
+        setpoint.climb_mps = 1.0f;
+        ak_nav_velocity_set(&velocity_nav, &setpoint);
+        ak_nav_velocity_step(&velocity_nav, &nav_in, &command);
+        check(&ctx, "velocity hold asks for a climb",
+              command.throttle > velocity_nav.cruise, "");
+    }
+
+    {
+        static ak_nav_t safe_nav;
+        ak_nav_velocity_setpoint_t setpoint = {
+            .north_mps = 3.0f,
+            .east_mps = 0.0f,
+            .climb_mps = 1.0f,
+            .yaw_rate_rps = 0.0f,
+        };
+        ak_nav_input_t nav_in = {0};
+        ak_rc_command_t command;
+
+        ak_nav_init(&safe_nav);
+        ak_nav_set_profile(&safe_nav, AK_NAV_PROFILE_QUAD);
+        safe_nav.cruise = 0.34f;
+        nav_in.alt_mm = 10000;
+        nav_in.max_tilt_rad = ak_deg2rad(35.0f);
+        nav_in.dt_s = 0.02f;
+        ak_nav_velocity_set(&safe_nav, &setpoint);
+        check(&ctx, "velocity hold without a measurement holds level and hover",
+              ak_nav_velocity_step(&safe_nav, &nav_in, &command) &&
+                  near(command.roll, 0.0f, 0.001f) &&
+                  near(command.pitch, 0.0f, 0.001f) &&
+                  near(command.throttle, safe_nav.cruise, 0.001f),
+              "");
+    }
+
+    {
+        static ak_nav_t settle_nav;
+        ak_nav_velocity_setpoint_t setpoint = {
+            .north_mps = 1.0f,
+            .east_mps = 0.0f,
+            .climb_mps = 0.0f,
+            .yaw_rate_rps = 0.0f,
+        };
+        ak_nav_input_t nav_in = {0};
+        ak_rc_command_t command;
+        float measured_north = 0.0f;
+
+        ak_nav_init(&settle_nav);
+        ak_nav_set_profile(&settle_nav, AK_NAV_PROFILE_QUAD);
+        settle_nav.cruise = 0.34f;
+        settle_nav.quad_speed = 4.0f;
+        nav_in.alt_mm = 10000;
+        nav_in.velocity_valid = 1;
+        nav_in.yaw_aligned = 1;
+        nav_in.max_tilt_rad = ak_deg2rad(35.0f);
+        nav_in.dt_s = 0.02f;
+        ak_nav_velocity_set(&settle_nav, &setpoint);
+        for (int i = 0; i < 300; i++) {
+            nav_in.north_m_s = measured_north;
+            ak_nav_velocity_step(&settle_nav, &nav_in, &command);
+            measured_north +=
+                -command.pitch * nav_in.max_tilt_rad * 9.80665f * 0.02f;
+        }
+        check(&ctx, "velocity hold settles a 1 m/s step",
+              measured_north > 0.8f && measured_north < 1.2f, "");
+    }
 
     /* CRSF barometer: a frame whose bytes can be checked by hand. 123.4 m is
      * 1234 dm + 10000 = 11234 (0x2be2), and -2.5 m/s is -250 cm/s (0xff06).
@@ -193,14 +305,13 @@ int ak_flight_selftest(ak_printf_fn out)
     check(&ctx, "arm switch plus low throttle arms",
           flight.state == AK_FLIGHT_ARMED, "");
 
-    /* A small tilt still gets the accelerometer's help; beyond the gate the
-     * thrust vector must not be mistaken for gravity. */
-    flight.est.roll = ak_deg2rad(10.0f);
+    /* Even a gentle command must not mistake rotor thrust for gravity. */
+    flight.est.roll = ak_deg2rad(3.0f);
     t_ms += 1;
     synthetic_imu(&imu, t_ms * 1000u, 0.0f, 0.0f);
     rc_frame(&rc, t_ms, 0.0f, 0.0f, 1);
     ak_flight_step(&flight, &imu, &rc, t_ms * 1000u, t_ms);
-    check(&ctx, "an armed quadrotor does not treat tilted rotor thrust as gravity",
+    check(&ctx, "an armed quadrotor is gyro-carried even at small tilt",
           flight.est.accel_enabled == 0, "");
     flight.est.roll = 0.0f;
     flight.est.pitch = 0.0f;

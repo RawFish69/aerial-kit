@@ -92,6 +92,10 @@ class CrsfRadioBackendNode(Node):
             'yaw_channel': 4,
             'arm_channel': 6,
             'mode_channel': 5,
+            # 0 = none. With stick_mapping 'velocity' and an AK flight controller,
+            # set the FC's velocity_channel here too (SIL: 7): after the arm
+            # handover the FC flies the velocity sticks itself.
+            'velocity_channel': 0,
             'arm_threshold': 1300,
             'angle_mode_count': 1811,
             'disabled_mode_count': 172,
@@ -135,6 +139,7 @@ class CrsfRadioBackendNode(Node):
             yaw=int(g('yaw_channel').value),
             arm=int(g('arm_channel').value),
             mode=int(g('mode_channel').value),
+            velocity=int(g('velocity_channel').value),
             arm_threshold=int(g('arm_threshold').value),
             angle_mode_count=int(g('angle_mode_count').value),
             disabled_mode_count=int(g('disabled_mode_count').value),
@@ -352,7 +357,10 @@ class CrsfRadioBackendNode(Node):
                 f'CRSF arm sequence {"handover" if self.arm_sequencer.armed else "reset"}'
             )
             self._last_sequencer_armed = self.arm_sequencer.armed
-        channels = self.channel_map.encode(sticks, enabled=armed)
+        channels = self.channel_map.encode(
+            sticks, enabled=armed,
+            velocity_hold=bool(self.channel_map.velocity) and self.stick_mapping == 'velocity'
+            and self.arm_sequencer.armed)
         try:
             self._emit(make_rc_channels_frame(channels))
             if self.link is not None:

@@ -15,14 +15,21 @@
 #include <string.h>
 
 #include "ak_flight.h"
+#include "ak_math.h"
 #include "ak_mixer.h"
+#include "ak_nav.h"
 #include "ak_rc.h"
 
 typedef struct {
     ak_flight_t flight;
+    /* The navigator, for velocity hold: run the way main.c's nav_update()
+     * runs it (see akfc_step_nav). */
+    ak_nav_t nav;
+    uint32_t nav_last_ms;
+    int nav_have_last;
 } akfc_t;
 
-int akfc_abi_version(void) { return 2; }
+int akfc_abi_version(void) { return 3; }
 unsigned akfc_rc_channels(void) { return AK_RC_CHANNELS; }
 unsigned akfc_max_motors(void) { return AK_MAX_MOTORS; }
 unsigned akfc_max_servos(void) { return AK_MAX_SERVOS; }
@@ -46,6 +53,7 @@ akfc_t *akfc_create(int airframe, unsigned motors, unsigned servos, unsigned loo
     if (loop_period_us > 0u) {
         ak_flight_set_loop_period_us(&fc->flight, loop_period_us);
     }
+    ak_nav_init(&fc->nav);
     return fc;
 }
 
@@ -136,3 +144,111 @@ void akfc_config(const akfc_t *fc, float out[6])
     out[4] = (float)fc->flight.rc_cfg.arm_threshold;
     out[5] = (float)fc->flight.rc_cfg.mode_threshold;
 }
+
+/* 1-based receiver channel that selects velocity hold (0 = none). */
+void akfc_set_velocity_channel(akfc_t *fc, unsigned channel)
+{
+    fc->flight.rc_cfg.velocity_channel = channel;
+}
+
+/*
+ * One loop as main.c runs it with a navigator: link update, velocity hold
+ * (main.c's nav_update(), the velocity-hold branch, reading the command the
+ * core decoded last loop), the core's step, then GPS-course heading aiding.
+ * The measurements are what the aircraft's sensors would give it: world
+ * north/east velocity (fused), altitude above sea level, and a GPS ground
+ * track (speed and course) for heading alignment; gps_valid = 0 withholds
+ * all of them.
+ */
+void akfc_step_nav(akfc_t *fc, const float gyro[3], const float accel[3],
+                   const uint16_t *channels, int rc_valid, uint32_t rc_ms,
+                   uint32_t now_us, uint32_t now_ms,
+                   int gps_valid, float north_m_s, float east_m_s, float alt_msl_m,
+                   float *motors, float *servos)
+{
+    ak_imu_sample_t imu;
+    ak_rc_input_t rc;
+    ak_flight_t *f = &fc->flight;
+
+    memset(&imu, 0, sizeof imu);
+    for (int i = 0; i < 3; i++) {
+        imu.gyro[i] = gyro[i];
+        imu.accel[i] = accel[i];
+    }
+    imu.time_us = now_us;
+    imu.valid = 1;
+    memset(&rc, 0, sizeof rc);
+    for (unsigned i = 0; i < AK_RC_CHANNELS; i++) {
+        rc.channel[i] = channels[i];
+    }
+    rc.last_update_ms = rc_ms;
+    rc.valid = rc_valid;
+
+    (void)ak_flight_link_update(f, &rc, now_ms, 0);
+    {
+        int state = ak_flight_state(f);
+        int flying = state == AK_FLIGHT_ARMED || state == AK_FLIGHT_MANAGED ||
+                     state == AK_FLIGHT_RTH || state == AK_FLIGHT_DESCEND;
+        ak_nav_input_t in;
+        ak_rc_command_t nav_command;
+
+        memset(&in, 0, sizeof in);
+        in.alt_mm = (int32_t)(alt_msl_m * 1000.0f);
+        in.gps_valid = gps_valid;
+        in.velocity_valid = gps_valid;
+        in.north_m_s = north_m_s;
+        in.east_m_s = east_m_s;
+        in.yaw_mrad = (int32_t)(f->est.yaw * 1000.0f);
+        in.yaw_aligned = f->est.track_aligned;
+        in.max_tilt_rad = ak_deg2rad(f->cfg.max_tilt_deg);
+        in.dt_s = fc->nav_have_last ? (float)(now_ms - fc->nav_last_ms) / 1000.0f : 0.0f;
+        fc->nav_last_ms = now_ms;
+        fc->nav_have_last = 1;
+        memset(&nav_command, 0, sizeof nav_command);
+
+        if (f->cmd.velocity_mode && flying && ak_flight_link_live(f)) {
+            ak_nav_velocity_setpoint_t v;
+            float yaw = f->est.yaw;
+            float right = f->cmd.roll * fc->nav.quad_speed;
+            float forward = -f->cmd.pitch * fc->nav.quad_speed;
+
+            v.north_mps = forward * ak_cosf(yaw) - right * ak_sinf(yaw);
+            v.east_mps = forward * ak_sinf(yaw) + right * ak_cosf(yaw);
+            v.climb_mps = (f->cmd.throttle - 0.5f) * 2.0f * AK_NAV_QUAD_MAX_CLIMB_MPS;
+            v.yaw_rate_rps = f->cmd.yaw * AK_NAV_QUAD_MAX_YAW_RATE_RPS;
+            ak_nav_velocity_set(&fc->nav, &v);
+            if (ak_nav_velocity_step(&fc->nav, &in, &nav_command)) {
+                ak_flight_set_guidance(f, &nav_command);
+                ak_flight_set_managed(f, 1);
+            } else {
+                ak_flight_set_guidance(f, 0);
+                ak_flight_set_managed(f, 0);
+            }
+        } else {
+            ak_nav_velocity_stop(&fc->nav);
+            ak_flight_set_guidance(f, 0);
+            ak_flight_set_managed(f, 0);
+        }
+    }
+    ak_flight_step(f, &imu, &rc, now_us, now_ms);
+    if (gps_valid) {
+        float speed = ak_sqrtf(north_m_s * north_m_s + east_m_s * east_m_s);
+        ak_estimator_aid_heading(&f->est, ak_atan2f(east_m_s, north_m_s), speed,
+                                 (float)ak_flight_last_loop_us(f) / 1000000.0f);
+    }
+    {
+        const ak_outputs_t *o = ak_flight_outputs(f);
+        for (unsigned i = 0; i < AK_MAX_MOTORS; i++) {
+            motors[i] = o->motor[i];
+        }
+        for (unsigned i = 0; i < AK_MAX_SERVOS; i++) {
+            servos[i] = o->servo[i];
+        }
+    }
+}
+
+int akfc_velocity_mode(const akfc_t *fc) { return fc->flight.cmd.velocity_mode; }
+int akfc_track_aligned(const akfc_t *fc) { return fc->flight.est.track_aligned; }
+
+/* The navigator's hover throttle (parameter rth_cruise): per airframe. */
+void akfc_set_nav_cruise(akfc_t *fc, float throttle) { fc->nav.cruise = throttle; }

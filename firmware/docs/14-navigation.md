@@ -756,3 +756,19 @@ attitude and *not* from the position, because the position in that input is
 stale - and the same input with the flag set does steer, which is what proves
 the flag is what decides. Everything else follows from `main()` passing the fix's
 validity in and keeping the navigator engaged while it holds.
+
+## Velocity hold
+
+The navigator also has a non-position mode for a host or advanced transmitter:
+`ak_nav_velocity_set()` receives north, east and climb-rate setpoints,
+`ak_nav_velocity_step()` closes them against GPS and fused-altitude
+measurements, and the result enters the flight core through the same
+`ak_flight_set_guidance()` and `AK_FLIGHT_MANAGED` seam as a mission. It needs
+no home point and does not descend or land by itself.
+
+The CRSF path selects it with `velocity_channel`. The normal sticks then carry
+right velocity, forward velocity, centred climb rate and yaw rate. This exists
+because a host closing those loops over a radio telemetry downlink has seconds
+of delay; the firmware has the same measurements at control rate. A loss of
+velocity measurements holds level at `cruise` throttle, which is also the
+configured hover throttle for a quadrotor in this mode.

@@ -39,6 +39,13 @@ typedef struct {
      */
     uint32_t arm_channel;
     uint32_t mode_channel;
+    /*
+     * An optional third switch: high means the stick channels carry a velocity
+     * setpoint instead of an attitude. Zero disables it. It is a separate
+     * channel because a three-position mode switch would make the existing
+     * angle/rate meaning depend on receiver endpoint calibration.
+     */
+    uint32_t velocity_channel;
 } ak_rc_config_t;
 
 /* The aux channels a switch may be on: the four sticks come first. */
@@ -50,6 +57,7 @@ typedef struct {
     float yaw;        /* -1..1 */
     float throttle;   /* 0..1 */
     int   angle_mode; /* 1 = angle/stabilized, 0 = rate */
+    int   velocity_mode; /* sticks are normalized velocity setpoints */
     int   arm_request;
 } ak_rc_command_t;
 

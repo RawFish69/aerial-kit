@@ -453,8 +453,16 @@ void ak_flight_default_config(ak_flight_config_t *cfg)
     cfg->arm_accel_lpf_hz = 0.0f;
 
     cfg->max_rate_dps = 700.0f;
-    cfg->angle_kp[0] = 6.0f;
-    cfg->angle_kp[1] = 6.0f;
+    /*
+     * Five rather than six after the estimator became gyro-carried through the
+     * small-angle regime. The old accelerometer correction supplied extra
+     * apparent angle error while accelerating; with an accurate estimate the
+     * same gain settles sooner but still holds the commanded angle. Five keeps
+     * the response comfortably inside the existing 0.4 s stick-rate check
+     * without introducing overshoot.
+     */
+    cfg->angle_kp[0] = 5.0f;
+    cfg->angle_kp[1] = 5.0f;
     cfg->angle_rate_limit = 6.0f;
     cfg->max_tilt_deg = 35.0f;
     cfg->yaw_rate_dps = 350.0f;
@@ -1475,19 +1483,16 @@ void ak_flight_step(ak_flight_t *flight, const ak_imu_sample_t *imu,
          * as level. The portable core has no airspeed/GPS acceleration input
          * to subtract those terms, so flight attitude is gyro-carried.
          *
-         * A multirotor also keeps levelling while its estimated tilt is small,
-         * preserving the existing small-angle response. Beyond seven degrees
-         * the gyro carries it, because body-z thrust can no longer be
-         * distinguished from vertical without a thrust model.
+         * This applies at every tilt, including the small angles used for
+         * gentle translation. Measured in the firmware swarm, the old seven
+         * degree multirotor exception read rotor thrust as gravity while
+         * accelerating, so a 4 degree request flew at about 7 degrees and the
+         * velocity loop overshot.
          */
         const int fixed_wing = flight->mixer != 0 && flight->mixer->fixed_wing;
         flight->est.tau =
             (fixed_wing || flight->state == AK_FLIGHT_DISARMED) ? 0.5f : 0.2f;
-        flight->est.accel_enabled =
-            flight->state == AK_FLIGHT_DISARMED ||
-            (!fixed_wing &&
-             ak_absf(flight->est.roll) < ak_deg2rad(7.0f) &&
-             ak_absf(flight->est.pitch) < ak_deg2rad(7.0f));
+        flight->est.accel_enabled = flight->state == AK_FLIGHT_DISARMED;
 
         /*
          * The pieces are the estimator's, and only the estimator's: each is at
@@ -2031,6 +2036,10 @@ unsigned ak_flight_param_table(ak_flight_t *flight, ak_param_t *items,
                 "receiver channel that selects angle mode (high = angle)",
                 &flight->rc_cfg.mode_channel, AK_RC_FIRST_AUX_CHANNEL,
                 AK_RC_CHANNELS, AK_PARAM_GROUP_RECEIVER);
+    n = add_u32(items, n, "velocity_channel",
+                "receiver channel that selects velocity hold (0 = none)",
+                &flight->rc_cfg.velocity_channel, 0u, AK_RC_CHANNELS,
+                AK_PARAM_GROUP_RECEIVER);
 
     return n;
 }

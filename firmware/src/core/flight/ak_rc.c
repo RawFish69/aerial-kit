@@ -12,6 +12,7 @@ void ak_rc_default_config(ak_rc_config_t *cfg)
     cfg->arm_threshold = 1300;
     cfg->arm_channel = (uint32_t)AK_RC_ARM + 1u;
     cfg->mode_channel = (uint32_t)AK_RC_MODE + 1u;
+    cfg->velocity_channel = 0;
 }
 
 /* A switch channel the configuration names, as an index, or -1 when it names
@@ -132,6 +133,7 @@ int ak_rc_decode(const ak_rc_input_t *input, const ak_rc_config_t *cfg,
     out->yaw = 0.0f;
     out->throttle = 0.0f;
     out->angle_mode = 0;
+    out->velocity_mode = 0;
     out->arm_request = 0;
 
     if (!input->valid) {
@@ -172,7 +174,12 @@ int ak_rc_decode(const ak_rc_input_t *input, const ak_rc_config_t *cfg,
 
     const int mode = switch_index(cfg->mode_channel, cfg->arm_channel);
     const int arm = switch_index(cfg->arm_channel, cfg->mode_channel);
+    const int velocity = switch_index(cfg->velocity_channel,
+                                      cfg->arm_channel);
     out->angle_mode = mode >= 0 && input->channel[mode] > cfg->mode_threshold;
     out->arm_request = arm >= 0 && input->channel[arm] > cfg->arm_threshold;
+    out->velocity_mode =
+        velocity >= 0 && velocity != mode &&
+        input->channel[velocity] > cfg->mode_threshold;
     return 1;
 }

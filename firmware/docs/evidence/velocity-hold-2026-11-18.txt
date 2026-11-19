@@ -1,0 +1,42 @@
+Firmware velocity hold
+Date: 2026-11-18
+Origin: docs/evidence/radio-firmware-e2e-2026-11-18.md
+
+What changed:
+  - Optional velocity_channel in the receiver configuration.
+  - Velocity-hold setpoint API in the navigator:
+      ak_nav_velocity_set()
+      ak_nav_velocity_step()
+      ak_nav_velocity_stop()
+  - World north/east velocity errors become body tilt through the current yaw.
+  - Climb-rate error uses the fused barometer rate and the existing vertical
+    throttle integrator.
+  - The result enters the flight core through guidance + AK_FLIGHT_MANAGED.
+  - Loss of velocity measurements holds level at the configured cruise/hover
+    throttle instead of releasing velocity-encoded sticks as attitude commands.
+  - Once armed, quadrotors are gyro-carried at every tilt. The old seven-degree
+    accelerometer exception biased gentle translation because rotor thrust is
+    not gravity below that angle either.
+
+Verification:
+  - Host flight-core self-test: 28/28, including receiver mode selection,
+    forward acceleration, climb commands, closed-loop settling, and the
+    no-measurement safety path.
+  - ARM build succeeds.
+  - Firmware image shape check succeeds.
+  - Existing FC-SIL tests: 19 passed, 13 subtests passed.
+  - Small-angle swarm regression: 5 passed with its expected-failure marker
+    neutralized; the physical-accelerometer formation now meets the 0.4 m
+    tolerance.
+
+Pending cross-owner integration:
+  - sim_py/fc_sil must feed plant velocity and altitude into the navigator and
+    run the resulting command through guidance/MANAGED.
+  - hw_bridge must encode the host velocity setpoints and select AUX7 in SIL.
+  - The legacy host angle-stick test must be re-tuned for an accurate
+    estimator. With the old 0.2/s velocity gain, a 3 m/s demand reaches about
+    1.32 m/s after four seconds; the former pass depended on the accelerometer
+    bias making the aircraft fly more tilt than commanded. The full ROS run is
+    228 passed, 1 failed on that expectation.
+  - The radio mission acceptance runs remain pending; this change makes no
+    flight-readiness claim.
