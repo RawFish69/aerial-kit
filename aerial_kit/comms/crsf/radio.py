@@ -182,6 +182,7 @@ class CrsfLinkQuality:
 
 
 TelemetryCallback = Callable[[object], None]
+FrameCallback = Callable[[CrsfFrame], None]
 
 
 class CrsfRadio:
@@ -213,6 +214,7 @@ class CrsfRadio:
         self._sticks = RcSticks(0.0, 0.0, 0.0, 0.0)
         self._enabled = False
         self._callbacks: list[TelemetryCallback] = []
+        self._frame_callbacks: list[FrameCallback] = []
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._send_thread: threading.Thread | None = None
@@ -246,6 +248,13 @@ class CrsfRadio:
 
     def add_telemetry_callback(self, callback: TelemetryCallback) -> None:
         self._callbacks.append(callback)
+
+    def add_frame_callback(self, callback: FrameCallback) -> None:
+        """Observe every valid CRSF frame before telemetry decoding."""
+        self._frame_callbacks.append(callback)
+
+    def remove_frame_callback(self, callback: FrameCallback) -> None:
+        self._frame_callbacks.remove(callback)
 
     def send_once(self, now: float | None = None) -> int:
         moment = time.monotonic() if now is None else float(now)
@@ -314,6 +323,8 @@ class CrsfRadio:
     def _dispatch(self, frame: CrsfFrame) -> None:
         self._received += 1
         self._last_frame_monotonic = time.monotonic()
+        for callback in tuple(self._frame_callbacks):
+            callback(frame)
         telemetry = decode_telemetry(frame)
         if isinstance(telemetry, LinkStatisticsTelemetry):
             self.link_quality = CrsfLinkQuality(

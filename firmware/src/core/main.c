@@ -25,6 +25,7 @@
 #include "ak_selftest.h"
 #include "ak_rc_receiver.h"
 #include "ak_crsf_telemetry.h"
+#include "ak_crsf_tunnel.h"
 #include "ak_imu.h"
 #include "ak_imu_bno055.h"
 #include "ak_baro.h"
@@ -146,6 +147,7 @@ static int         fast_task = -1;
  * bytes arriving on the receiver's port are. */
 static uint32_t    rc_protocol = AK_RC_PROTOCOL_CRSF;
 static ak_rc_receiver_t receiver;
+static ak_crsf_tunnel_t radio_tunnel;
 /* What the handset is told, and how often it has been asked. The frames go out
  * of the receiver's own transmit line, which is why a board whose protocol is
  * SBUS sends nothing at all: SBUS has no return path. */
@@ -2208,6 +2210,7 @@ static ak_proto_t    proto;
  * own client on it. Sharing one would let two clients' bytes interleave into
  * one frame, which no amount of crc catching makes acceptable. */
 static ak_proto_t    net_proto;
+static ak_proto_t    radio_proto;
 static ak_proto_io_t proto_io;
 static uint32_t      telemetry_sent;
 static uint32_t      next_telemetry_ms;
@@ -4917,6 +4920,18 @@ static int telemetry_percent(void)
     return (int)(percent + 0.5f);
 }
 
+static void radio_tunnel_send(void *ctx, const uint8_t *frame, unsigned length)
+{
+    (void)ctx;
+    (void)ak_board_rc_send((const char *)frame, length);
+}
+
+static void radio_tunnel_frame(void *ctx, const uint8_t *frame, unsigned length)
+{
+    (void)ak_crsf_tunnel_feed_frame(
+        (ak_crsf_tunnel_t *)ctx, frame, length, ak_time_ms());
+}
+
 static void telemetry_input(ak_crsf_telemetry_t *in, uint32_t now_ms)
 {
     ak_flight_state_t state = ak_flight_state(&flight);
@@ -5015,6 +5030,11 @@ static void telemetry_service(void)
     if (len > 0u) {
         (void)ak_board_rc_send((const char *)frame, len);
     }
+    /* AKP telemetry shares the same downlink but is built by the protocol
+     * engine, not by ak_crsf_telemetry.c. The service sends at most one frame
+     * and enforces its own floor so a client cannot drown the RC and flight
+     * telemetry paths. */
+    ak_crsf_tunnel_service(&radio_tunnel, now);
 }
 
 /* The receiver, as `rc` prints it: the core's view of the link, plus the one
@@ -6037,11 +6057,13 @@ int ak_firmware_main(void)
     ak_launch_init(&launch);
     ak_proto_init(&proto);
     ak_proto_init(&net_proto);
+    ak_proto_init(&radio_proto);
     /* The console serves requests and does not stream: it is the wire a person
      * types at, and frames arriving among their keystrokes is a console nobody
      * can use. The network link is the one that pushes, which is why the
      * subscribe command answers 0 here and a rate there. */
     net_proto.can_stream = 1u;
+    radio_proto.can_stream = 1u;
     proto_io.params = &params;
     /* What this build can answer, and nothing it cannot.
      *
@@ -6391,6 +6413,10 @@ int ak_firmware_main(void)
     ak_rc_receiver_set_protocol(&receiver, rc_protocol);
     ak_board_rc_set_protocol(rc_protocol);
     ak_crsf_tlm_init(&crsf_tlm);
+    ak_crsf_tunnel_init(&radio_tunnel, &radio_proto, &proto_io,
+                        radio_tunnel_send, 0);
+    ak_crsf_set_msp_frame_callback(&receiver.crsf, radio_tunnel_frame,
+                                   &radio_tunnel);
     next_crsf_ms = ak_time_ms();
     /* The flight pack. setup() configures the pin and the ADC; whether the
      * board has both is the board's answer, not an assumption - and a board

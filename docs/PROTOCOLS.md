@@ -101,8 +101,7 @@ ELRS remains the RF waveform. AKP is carried inside CRSF's MSP envelope:
 
 | direction | CRSF type | nominal payload budget |
 | --- | --- | --- |
-| uplink request | `0x7A` | 8 bytes |
-| uplink write | `0x7C` | 8 bytes |
+| uplink request/write | `0x7A` / `0x7C` | 8 bytes |
 | downlink response | `0x7B` | 58 bytes |
 
 AKP frames are segmented because an AKP frame can be much larger than one CRSF
@@ -113,17 +112,22 @@ A1  session  seq_flags  total_length  chunk...
 ```
 
 `seq_flags` uses the low six bits for sequence, bit 6 for first segment and bit
-7 for last. A receiver accepts one active session, deduplicates sequence
-numbers, reassembles by sequence, and rejects a transfer with a missing first
-or final segment. The radio scheduler gives RC and attitude telemetry priority;
-AKP traffic is rate-limited and must never starve either.
+7 for last. `total_length` is a big-endian 16-bit length. The default tunnel
+chunks are three AKP bytes uplink and 49 downlink, leaving the five-byte tunnel
+header inside the nominal MSP payload. A receiver accepts one active session,
+deduplicates identical sequence numbers, rejects conflicting duplicates and
+metadata, and requires both the first and final segment. The radio scheduler
+gives RC and attitude telemetry priority; AKP traffic is rate-limited and must
+never starve either.
 
-The pinned ExpressLRS source defines the MSP frame types and payload bounds. The
-TX/RX forwarding direction must be verified in source and in the simulated
-radio before this transport is marked supported. If forwarding does not hold,
-the fallback is ELRS serial passthrough ("Airport"), which carries AKP directly
-but gives up simultaneous RC on that serial link. That fallback must be
-explicitly selected and documented at the client.
+The pinned ExpressLRS 4.1.0 source forwards these CRSF frames as opaque
+messages: the handset router sends unknown or flight-controller-addressed
+frames to `TXOTAConnector`, and `DataUlReceiveComplete` hands received
+uplink frames back to the receiver router. The source evidence is
+`src/lib/Handset/CRSFHandset.cpp`, `src/lib/tx-crsf/TXOTAConnector.cpp`,
+`src/src/rx_main.cpp`, and `src/lib/rx-crsf/RXOTAConnector.cpp`. This makes
+simultaneous RC and MSP-envelope AKP viable; Airport serial passthrough remains
+the fallback only if a future receiver configuration stops forwarding MSP.
 
 ## Safety rules
 

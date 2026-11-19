@@ -64,6 +64,8 @@ files = [
     "aerial_kit/comms/crsf/codec.py",
     "aerial_kit/comms/crsf/parameters.py",
     "aerial_kit/comms/crsf/radio.py",
+    "aerial_kit/comms/crsf/msp_tunnel.py",
+    "aerial_kit/comms/crsf/tunnel.py",
     "aerial_kit/comms/akp/client.py",
     "aerial_kit/comms/mavlink/client.py",
     "aerial_kit/comms/mavlink/dialect.py",

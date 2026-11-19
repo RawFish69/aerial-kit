@@ -25,9 +25,20 @@ void ak_crsf_init(ak_crsf_t *crsf)
     crsf->stats_frames = 0;
     crsf->last_stats_ms = 0;
     crsf->stats = (ak_crsf_link_stats_t){0};
+    crsf->msp_frame = 0;
+    crsf->msp_ctx = 0;
     for (int i = 0; i < AK_CRSF_CHANNELS; i++) {
         crsf->channel[i] = 0;
     }
+}
+
+void ak_crsf_set_msp_frame_callback(
+    ak_crsf_t *crsf,
+    void (*callback)(void *ctx, const uint8_t *frame, unsigned length),
+    void *ctx)
+{
+    crsf->msp_frame = callback;
+    crsf->msp_ctx = ctx;
 }
 
 uint8_t ak_crsf_crc8(const uint8_t *data, uint8_t len)
@@ -117,6 +128,7 @@ int ak_crsf_feed(ak_crsf_t *crsf, uint8_t byte, ak_rc_input_t *out,
     uint8_t type = crsf->frame[2];
     uint8_t crc = crsf->frame[crsf->expected - 1];
     uint8_t want = ak_crsf_crc8(&crsf->frame[2], (uint8_t)(len - 1u));
+    uint8_t frame_length = crsf->expected;
 
     crsf->held = 0;
     crsf->expected = 0;
@@ -126,6 +138,13 @@ int ak_crsf_feed(ak_crsf_t *crsf, uint8_t byte, ak_rc_input_t *out,
         return 0;
     }
     crsf->frames++;
+
+    if ((type == AK_CRSF_TYPE_MSP_REQUEST ||
+         type == AK_CRSF_TYPE_MSP_WRITE) &&
+        crsf->msp_frame != 0) {
+        crsf->msp_frame(crsf->msp_ctx, crsf->frame, frame_length);
+        return 0;
+    }
 
     if (type == 0x28u && len >= 4u) {
         /* A device ping: [dest][origin][...]. Answered only when it is for this
