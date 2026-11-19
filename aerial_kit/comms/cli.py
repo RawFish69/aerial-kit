@@ -11,17 +11,19 @@ import argparse
 import sys
 from urllib.parse import urlsplit
 
-from .akp import AkClient
+from .akp import AkClient, AkError
 from .crsf import (
     CRSF_BAUD,
     CrsfAkpTunnel,
     CrsfLink,
     CrsfParameter,
     CrsfParameterClient,
+    CrsfError,
     SerialTransport,
     unpack_channels,
 )
-from .mavlink import MavlinkVehicle
+from .mavlink import MavlinkError, MavlinkVehicle
+from .msp import MspError
 from .transport import TcpTransport, UdpTransport
 from .transport import Transport
 
@@ -30,7 +32,7 @@ def _transport_from_args(args: argparse.Namespace) -> Transport:
     if args.port:
         return SerialTransport(
             args.port,
-            baudrate=args.baud,
+            baudrate=args.baud if args.baud is not None else 115_200,
             timeout=args.timeout,
         )
     if not args.host:
@@ -50,6 +52,14 @@ def _transport_from_args(args: argparse.Namespace) -> Transport:
 
 
 def _radio_link(args: argparse.Namespace) -> CrsfLink:
+    if args.radio:
+        raise ValueError("--radio is for the fc command, not the radio command")
+    if args.port and args.host:
+        raise ValueError("choose only one of --port or --host")
+    if args.port and args.baud is None:
+        args.baud = CRSF_BAUD
+    if not args.port and not args.host:
+        raise ValueError("radio requires --port or --host")
     transport = _transport_from_args(args)
     return CrsfLink(transport)
 
@@ -68,6 +78,10 @@ def _print_parameter(parameter: CrsfParameter) -> None:
 
 
 def _radio(args: argparse.Namespace) -> None:
+    if args.radio_action == "set" and (
+        args.field is None or args.value is None
+    ):
+        raise ValueError("radio set requires FIELD and VALUE")
     link = _radio_link(args)
     try:
         client = CrsfParameterClient(link, timeout=args.timeout)
@@ -113,6 +127,12 @@ def _akp_client(args: argparse.Namespace) -> AkClient:
 
 
 def _fc(args: argparse.Namespace) -> None:
+    if args.fc_action == "get" and args.index is None:
+        raise ValueError("fc get requires --index")
+    if args.fc_action == "set" and (
+        args.index is None or args.value is None
+    ):
+        raise ValueError("fc set requires --index and --value")
     client = _akp_client(args)
     try:
         if args.fc_action == "hello":
@@ -133,7 +153,7 @@ def _fc(args: argparse.Namespace) -> None:
         elif args.fc_action == "set":
             _require_write(args)
             result = client.set_parameter(
-                args.index, args.value, allow_write=True
+                args.index, str(args.value), allow_write=True
             )
             print(f"status={result.status} {result.message}")
         elif args.fc_action == "save":
@@ -161,6 +181,8 @@ def _fc(args: argparse.Namespace) -> None:
 def _mavlink(args: argparse.Namespace) -> None:
     vehicle = MavlinkVehicle(_transport_from_args(args), timeout=args.timeout)
     try:
+        # A vehicle streams once it has heard a ground station heartbeat.
+        vehicle.send_heartbeat()
         if args.mav_action == "status":
             identity = vehicle.identify()
             print(identity)
@@ -179,14 +201,15 @@ def _mavlink(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aerial-kit-link")
-    parser.add_argument("--port", help="serial port")
-    parser.add_argument("--host", help="tcp://host:port or udp://host:port")
-    parser.add_argument(
+    transport = parser.add_mutually_exclusive_group()
+    transport.add_argument("--port", help="serial port")
+    transport.add_argument("--host", help="tcp://host:port or udp://host:port")
+    transport.add_argument(
         "--radio",
         metavar="PORT",
         help="serial port connected to an ELRS transmitter module",
     )
-    parser.add_argument("--baud", type=int, default=115_200)
+    parser.add_argument("--baud", type=int, default=None)
     parser.add_argument("--timeout", type=float, default=2.0)
     parser.add_argument("--write", action="store_true", help="allow a device mutation")
 
@@ -197,6 +220,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     radio.add_argument("field", nargs="?", type=int)
     radio.add_argument("value", nargs="?", type=int)
+    radio.add_argument(
+        "--write", action="store_true", default=argparse.SUPPRESS,
+        help="allow a device mutation",
+    )
     radio.set_defaults(handler=_radio)
 
     fc = commands.add_parser("fc", help="query an Aerial Kit flight controller")
@@ -207,6 +234,10 @@ def build_parser() -> argparse.ArgumentParser:
     fc.add_argument("--index", type=int)
     fc.add_argument("--value", type=float)
     fc.add_argument("--hz", type=int, default=0)
+    fc.add_argument(
+        "--write", action="store_true", default=argparse.SUPPRESS,
+        help="allow a device mutation",
+    )
     fc.set_defaults(handler=_fc)
 
     mav = commands.add_parser("mavlink", help="query a PX4 or ArduPilot vehicle")
@@ -220,7 +251,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         args.handler(args)
-    except (OSError, TimeoutError, ValueError, PermissionError) as exc:
+    except (
+        OSError,
+        TimeoutError,
+        ValueError,
+        PermissionError,
+        AkError,
+        CrsfError,
+        MavlinkError,
+        MspError,
+    ) as exc:
         print(f"aerial-kit-link: {exc}", file=sys.stderr)
         return 1
     return 0

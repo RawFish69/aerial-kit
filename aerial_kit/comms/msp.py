@@ -320,7 +320,7 @@ class Deadline:
                 return data
 
 
-class MspClient:
+class _MspClient:
     """One request and its answer, over a byte stream.
 
     `read` is a callable taking `(count, timeout)` and returning up to `count`
@@ -565,7 +565,7 @@ class ReadOnlyMsp:
     _WRITE_METHODS = frozenset(("set_setting", "save"))
 
     def __init__(self, read, write, timeout=1.0):
-        self._client = MspClient(read, write, timeout=timeout)
+        self._client = _MspClient(read, write, timeout=timeout)
 
     def __getattr__(self, name):
         if name in self._WRITE_METHODS:
