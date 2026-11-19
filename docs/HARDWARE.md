@@ -41,6 +41,12 @@ Open the CDC or UART port with DTR and RTS deasserted. The Python serial
 transport does this by default. If another tool resets the module while
 opening the port, resynchronize on CRSF sync byte `0xC8`.
 
+The bundled Python CLI and configurator Bench page implement monitor, bounded
+RC drive with arm/disarm sequencing, receiver capture, telemetry injection and
+JSON evidence. They distinguish sent commands from observed DEVICE_INFO, RC
+frames, telemetry and LINK_STATISTICS. See
+[`RADIO-BENCH.md`](RADIO-BENCH.md).
+
 The factory image pairs the ESP32-S3 QIO bootloader with the applications'
 `qio_qspi` SDK libraries. The assembler verifies that pairing against a fresh
 PlatformIO `bootloader.bin`; a mismatch fails the release build. The earlier

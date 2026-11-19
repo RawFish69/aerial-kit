@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from argparse import Namespace
+import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +10,7 @@ from aerial_kit.comms.cli import _radio_link, _require_write, build_parser, main
 from aerial_kit.comms.akp import AkError
 from aerial_kit.comms import msp
 from aerial_kit.comms.crsf import CRSF_BAUD
+from aerial_kit.comms.crsf import CrsfTimeout
 
 
 def test_cli_has_all_protocol_command_families() -> None:
@@ -98,6 +101,183 @@ def test_protocol_failures_are_printed_without_a_traceback(monkeypatch, capsys) 
     captured = capsys.readouterr()
     assert "board refused the query" in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_radio_bench_parser_supports_documented_forms() -> None:
+    parser = build_parser()
+    monitor = parser.parse_args(
+        [
+            "radio",
+            "monitor",
+            "--port",
+            "/dev/ttyACM0",
+            "--baud",
+            "400000",
+            "--duration",
+            "5",
+            "--json",
+            "out.json",
+        ]
+    )
+    assert monitor.radio_action == "monitor"
+    assert monitor.port == "/dev/ttyACM0"
+    assert monitor.duration == 5
+
+    drive = parser.parse_args(
+        [
+            "radio",
+            "drive",
+            "--port",
+            "/dev/ttyACM0",
+            "--hz",
+            "150",
+            "--duration",
+            "10",
+            "--pattern",
+            "arm-test",
+            "--write",
+        ]
+    )
+    assert drive.pattern == "arm-test"
+    assert drive.write is True
+
+    bench = parser.parse_args(
+        [
+            "radio",
+            "bench",
+            "--tx",
+            "/dev/ttyACM0",
+            "--rx",
+            "/dev/ttyACM1",
+            "--write",
+        ]
+    )
+    assert (bench.tx, bench.rx) == ("/dev/ttyACM0", "/dev/ttyACM1")
+
+
+def test_radio_mutation_is_refused_before_opening_a_port(monkeypatch) -> None:
+    def fail(_args):
+        pytest.fail("transport was opened before write authorization")
+
+    monkeypatch.setattr("aerial_kit.comms.cli._radio_link", fail)
+    assert main(["radio", "drive", "--port", "/dev/fake"]) == 1
+    assert main(["radio", "inject", "--port", "/dev/fake", "--file", "x"]) == 1
+    assert main(
+        ["radio", "bench", "--tx", "/dev/a", "--rx", "/dev/b"]
+    ) == 1
+
+
+def test_radio_status_reports_device_info_and_no_answer_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FakeSerial:
+        def __init__(self, port: str, *, baudrate: int, timeout: float) -> None:
+            self.port = port
+            self.baudrate = baudrate
+            self.timeout = timeout
+            self.usb_serial_number = "SER123"
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("aerial_kit.comms.cli.SerialTransport", FakeSerial)
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli.radio_status",
+        lambda *args, **kwargs: SimpleNamespace(
+            path="/dev/radio",
+            usb_serial="SER123",
+            logical_baud=400_000,
+            role="tx",
+            product="Aerial Kit Rev A3",
+            origin=0xEE,
+            destination=0xEA,
+            firmware_string="4.1.0",
+            firmware_version=0x00040100,
+            parameter_count=12,
+            parameter_version=0,
+            to_dict=lambda: {"product": "Aerial Kit Rev A3"},
+        ),
+    )
+    assert main(["radio", "status", "--port", "/dev/radio", "--baud", "400000"]) == 0
+    captured = capsys.readouterr()
+    assert "usb_serial=SER123" in captured.out
+    assert "product=Aerial Kit Rev A3" in captured.out
+
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli.radio_status",
+        lambda *args, **kwargs: (_ for _ in ()).throw(CrsfTimeout("silent")),
+    )
+    assert main(["radio", "status", "--port", "/dev/radio"]) == 1
+
+
+def test_bench_actions_write_stable_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    class FakeTransport:
+        def close(self) -> None:
+            pass
+
+    fake_link = SimpleNamespace(transport=FakeTransport(), close=lambda: None)
+    monkeypatch.setattr("aerial_kit.comms.cli._radio_link", lambda _args: fake_link)
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli.monitor_link",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            status="valid_crsf",
+            duration_sec=1.0,
+            bytes_read=26,
+            frames=1,
+            crc_errors=0,
+            resyncs=0,
+            framing_errors=0,
+            frames_by_type={"rc_channels": 1},
+            last_seen_seconds={"rc_channels": 0.0},
+            passed=True,
+            to_dict=lambda: {"status": "valid_crsf", "frames": 1},
+        ),
+    )
+    output = tmp_path / "monitor.json"
+    assert main(
+        [
+            "radio",
+            "monitor",
+            "--port",
+            "/dev/radio",
+            "--duration",
+            "1",
+            "--json",
+            str(output),
+        ]
+    ) == 0
+    assert json.loads(output.read_text()) == {"status": "valid_crsf", "frames": 1}
+
+
+def test_no_capture_frames_is_failure(monkeypatch) -> None:
+    class FakeTransport:
+        def close(self) -> None:
+            pass
+
+    fake_link = SimpleNamespace(transport=FakeTransport(), close=lambda: None)
+    monkeypatch.setattr("aerial_kit.comms.cli._radio_link", lambda _args: fake_link)
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli.capture_link",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            passed=False,
+            status="no_bytes",
+            duration_sec=1.0,
+            frames=0,
+            rc_frames=0,
+            rc_cadence_hz=None,
+            missed_intervals=0,
+            crc_errors=0,
+            resyncs=0,
+            framing_errors=0,
+            channels=None,
+            to_dict=lambda: {"status": "no_bytes"},
+        ),
+    )
+    assert main(["radio", "capture", "--port", "/dev/radio", "--duration", "1"]) == 1
 
 
 def test_write_capable_msp_client_is_private() -> None:

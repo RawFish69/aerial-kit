@@ -8,6 +8,8 @@ import {
   RxtxConfigSubcommand,
   encodeExtended,
   encodeFrame,
+  encodeRcChannels,
+  unpackChannels,
   crc8DvbS2,
   type CrsfFrame,
 } from '../protocol/crsf';
@@ -91,6 +93,7 @@ export class DemoRadio {
   receiverWifiRequested = false;
   private readonly decoder = new CrsfDecoder();
   private readonly chunkMax: number;
+  lastRcChannels: number[] | null = null;
 
   constructor(options: DemoRadioOptions = {}) {
     this.role = options.role ?? 'tx';
@@ -100,7 +103,13 @@ export class DemoRadio {
 
   feed(bytes: Uint8Array): Uint8Array[] {
     const out: Uint8Array[] = [];
-    for (const frame of this.decoder.push(bytes)) out.push(...this.answer(frame));
+    for (const frame of this.decoder.push(bytes)) {
+      if (frame.type === FrameType.RC_CHANNELS_PACKED && frame.payload.length >= 22) {
+        this.lastRcChannels = unpackChannels(frame.payload);
+        continue;
+      }
+      out.push(...this.answer(frame));
+    }
     return out;
   }
 
@@ -229,6 +238,14 @@ export class DemoRadio {
       62 - wobble, 64 - wobble, 100, 9, 0, rate, Math.max(power, 0) + 1,
       58 + wobble, 100, 8), Address.RADIO_TRANSMITTER);
   }
+
+  rcChannels(): Uint8Array | null {
+    if (this.role !== 'rx' || !this.receiverConnected) return null;
+    return encodeRcChannels([
+      992, 992, 172, 992, 992, 172, 992, 992,
+      992, 992, 992, 992, 992, 992, 992, 992,
+    ]);
+  }
 }
 
 export class DemoRadioTransport implements Transport {
@@ -240,6 +257,7 @@ export class DemoRadioTransport implements Transport {
 
   readonly radio: DemoRadio;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private rcTimer: ReturnType<typeof setInterval> | null = null;
   private readonly dataHandlers = new Set<(chunk: Uint8Array) => void>();
   private readonly closeHandlers = new Set<(reason: string) => void>();
   private readonly errorHandlers = new Set<(message: string) => void>();
@@ -262,6 +280,10 @@ export class DemoRadioTransport implements Transport {
       const frame = this.radio.linkStatistics(Date.now());
       if (frame !== null) this.emit(frame);
     }, this.linkStatsMs);
+    this.rcTimer = setInterval(() => {
+      const frame = this.radio.rcChannels();
+      if (frame !== null) this.emit(frame);
+    }, 7);
   }
 
   private emit(bytes: Uint8Array): void {
@@ -283,6 +305,8 @@ export class DemoRadioTransport implements Transport {
     this.open_ = false;
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
+    if (this.rcTimer !== null) clearInterval(this.rcTimer);
+    this.rcTimer = null;
     for (const handler of this.closeHandlers) handler('the demo radio was closed');
   }
 

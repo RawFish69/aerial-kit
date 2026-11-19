@@ -19,6 +19,7 @@ from .codec import (
     CRSF_FRAMETYPE_PARAMETER_WRITE,
     CrsfFrame,
     CrsfLink,
+    make_device_ping,
     make_frame,
 )
 
@@ -250,12 +251,7 @@ class CrsfParameterClient:
 
     def ping(self, *, destination: int | None = None, timeout: float | None = None) -> CrsfDeviceInfo:
         target = self.destination if destination is None else destination
-        frame = _extended(
-            CRSF_FRAMETYPE_DEVICE_PING,
-            target,
-            self.origin,
-            bytes((target, self.origin)),
-        )
+        frame = make_device_ping(destination=target, origin=self.origin)
         self.link.transport.write(frame)
         reply = self._wait_for(
             CRSF_FRAMETYPE_DEVICE_INFO,

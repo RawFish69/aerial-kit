@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { DEMO_RADIO_NAME } from '../src/transport/demo-radio';
+import { DEMO_RADIO_NAME, DEMO_RADIO_RX_NAME } from '../src/transport/demo-radio';
 import { App } from '../src/ui/App';
 
 describe('the radio module page', () => {
@@ -20,6 +20,7 @@ describe('the radio module page', () => {
     expect(screen.getByText('TX Power')).toBeInTheDocument();       // a folder
     expect(screen.getByText('4.1.0 AK-A3')).toBeInTheDocument();    // an info field
     expect(screen.getByText('Binding and Wi-Fi')).toBeInTheDocument();
+    expect(screen.getByText('Bench')).toBeInTheDocument();
     expect(screen.getByText(/TX transmitter/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enable module Wi-Fi' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enable receiver Wi-Fi' })).toBeInTheDocument();
@@ -43,5 +44,50 @@ describe('the radio module page', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await user.click(screen.getByRole('button', { name: 'Disconnect' }));
     await screen.findByRole('button', { name: /Connect radio/ });
+  });
+
+  it('drives the TX from the Bench page with explicit arm confirmation and safe stop', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Device' }), 'radio');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Radio connection' }), 'demo');
+    await user.click(screen.getByRole('button', { name: /Connect radio/ }));
+    await screen.findByText(DEMO_RADIO_NAME, {}, { timeout: 4000 });
+
+    expect(screen.getByText('Bench')).toBeInTheDocument();
+    const start = screen.getByRole('button', { name: 'Start continuous drive' });
+    expect(start).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', { name: 'Allow changes' }));
+    await waitFor(() => expect(start).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText('Pattern'), 'arm-test');
+    expect(start).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', {
+      name: 'I confirm the controlled arm sequence and safe area',
+    }));
+    expect(start).toBeEnabled();
+    await user.click(start);
+    await screen.findByText(/Continuous drive is running|TX drive/);
+    await user.click(screen.getByRole('button', { name: 'Stop and disarm' }));
+    await screen.findByText(/safe disarm confirmed/, {}, { timeout: 3000 });
+    expect(screen.getAllByText(/RFC? link remains NOT TESTED here|rf_link:/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^rate /).length).toBeGreaterThan(0);
+    expect(screen.getByText('CRC 0')).toBeInTheDocument();
+    expect(screen.getByText('resyncs 0')).toBeInTheDocument();
+  });
+
+  it('captures live RX channels and telemetry injection evidence without claiming an RF link', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Device' }), 'radio');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Radio connection' }), 'demo-rx');
+    await user.click(screen.getByRole('button', { name: /Connect radio/ }));
+    await screen.findByText(DEMO_RADIO_RX_NAME, {}, { timeout: 4000 });
+    await user.click(screen.getByRole('checkbox', { name: 'Allow changes' }));
+    await user.click(screen.getByRole('button', { name: 'Start capture' }));
+    await screen.findByLabelText('Captured channels', {}, { timeout: 3000 });
+    expect(screen.getByText('CH1 992')).toBeInTheDocument();
+    await screen.findByText(/telemetry_injection:/, {}, { timeout: 3000 });
+    await user.click(screen.getByRole('button', { name: 'Stop capture' }));
+    await screen.findByText(/rf_link:/, {}, { timeout: 3000 });
   });
 });

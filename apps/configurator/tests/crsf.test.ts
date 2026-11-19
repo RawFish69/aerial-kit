@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   Address,
+  CHANNEL_MID,
   CrsfDecoder,
   type CrsfFrame,
   FrameType,
@@ -13,6 +14,7 @@ import {
   decodeParameterChunk,
   decodeTelemetry,
   encodeCrsfBindCommand,
+  encodeDefaultTelemetryFrames,
   encodeDevicePing,
   encodeMspV2Request,
   encodeMspWrite,
@@ -20,6 +22,7 @@ import {
   encodeFrame,
   encodeParameterRead,
   encodeParameterWrite,
+  encodeRcChannels,
   fromHex,
   hex,
   MSP_ELRS_RXTX_CONFIG,
@@ -96,6 +99,36 @@ describe('CRSF against the shared vectors', () => {
     expect(t('link_statistics')).toEqual({ kind: 'link', value: {
       uplinkRssi1Dbm: -90, uplinkRssi2Dbm: -92, uplinkLinkQuality: 88, uplinkSnrDb: 7, activeAntenna: 1, rfMode: 2,
       uplinkTxPower: 3, downlinkRssiDbm: -80, downlinkLinkQuality: 70, downlinkSnrDb: 4 } });
+  });
+
+  it('default bench telemetry encodes to the shared vector meanings', () => {
+    const frames = encodeDefaultTelemetryFrames().map(one);
+    expect(frames.map((frame) => frame.type)).toEqual([
+      FrameType.ATTITUDE,
+      FrameType.BATTERY,
+      FrameType.GPS,
+      FrameType.BARO_ALTITUDE,
+    ]);
+    const decoded = frames.map(decodeTelemetry);
+    expect(decoded[0]).toMatchObject({ kind: 'attitude', pitchRad: 0.1, rollRad: -0.5, yawRad: 1.2 });
+    expect(decoded[1]).toMatchObject({ kind: 'battery', voltageV: 16.8, currentA: 12.3, remainingPercent: 88 });
+    expect(decoded[2]).toMatchObject({ kind: 'gps', latitudeDeg: 47.3977, satellites: 12 });
+    expect(decoded[3]).toMatchObject({ kind: 'barometer', altitudeM: 123.4, verticalSpeedMps: -2.5 });
+  });
+
+  it('decoder records resync, framing and valid-frame counters', () => {
+    const decoder = new CrsfDecoder();
+    const valid = encodeRcChannels(Array(16).fill(CHANNEL_MID));
+    const bad = Uint8Array.from(valid);
+    bad[bad.length - 1] = bad[bad.length - 1]! ^ 0xff;
+    expect(decoder.push(new TextEncoder().encode('junk'))).toEqual([]);
+    expect(decoder.push(bad)).toEqual([]);
+    expect(decoder.push(valid)).toHaveLength(1);
+    expect(decoder.frames).toBe(1);
+    expect(decoder.crcErrors).toBe(1);
+    expect(decoder.resyncs).toBeGreaterThanOrEqual(1);
+    expect(decoder.framingErrors).toBeGreaterThanOrEqual(1);
+    expect(decoder.bytesReceived).toBe(4 + valid.length * 2);
   });
 
   it('the GPS vector label matches its bytes', () => {

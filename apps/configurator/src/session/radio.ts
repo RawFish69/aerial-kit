@@ -9,15 +9,21 @@ import {
   decodeParameterChunk,
   decodeMspResponse,
   decodeTelemetry,
+  encodeDefaultTelemetryFrames,
   encodeCrsfBindCommand,
   encodeDevicePing,
   encodeMspV2Request,
   encodeMspWrite,
   encodeParameterRead,
   encodeParameterWrite,
+  encodeRcChannels,
   MSP_ELRS_RXTX_CONFIG,
   RxtxConfigSubcommand,
   parameterValueBytes,
+  CHANNEL_MAX,
+  CHANNEL_MID,
+  CHANNEL_MIN,
+  unpackChannels,
   type CrsfFrame,
   type DeviceInfo,
   type LinkStatistics,
@@ -47,7 +53,112 @@ export interface RadioSnapshot {
   readonly telemetry: Readonly<Partial<Record<Telemetry['kind'], Telemetry>>>;
   readonly role: 'tx' | 'rx' | 'unknown';
   readonly uid: Uint8Array | null;
+  readonly bench: RadioBenchSnapshot;
   readonly error: string | null;
+}
+
+export type BenchRequirementStatus = 'PASS' | 'FAIL' | 'NOT TESTED' | 'SENT / NOT VERIFIED';
+
+export interface RadioBenchSnapshot {
+  readonly running: boolean;
+  readonly mode: 'idle' | 'drive' | 'capture';
+  readonly startedAtMs: number | null;
+  readonly endsAtMs: number | null;
+  readonly requestedHz: number;
+  readonly observedHz: number | null;
+  readonly framesSent: number;
+  readonly rcFramesCaptured: number;
+  readonly channels: number[] | null;
+  readonly frameCounts: Readonly<Record<string, number>>;
+  readonly crcErrors: number;
+  readonly resyncs: number;
+  readonly framingErrors: number;
+  readonly linkStatistics: number;
+  readonly telemetryKinds: readonly string[];
+  readonly telemetryInjected: number;
+  readonly safeDisarmSent: boolean;
+  readonly requirements: Readonly<Record<string, BenchRequirementStatus>>;
+  readonly result: 'IDLE' | 'RUNNING' | 'PASS' | 'FAIL' | 'NOT TESTED';
+  readonly summary: string;
+  readonly error: string | null;
+}
+
+type Mutable<T> = {
+  -readonly [P in keyof T]: T[P] extends readonly (infer U)[]
+    ? U[]
+    : T[P] extends Readonly<Record<string, infer V>>
+      ? Record<string, V>
+      : T[P];
+};
+
+type MutableBench = Mutable<RadioBenchSnapshot>;
+
+interface BenchCounters {
+  readonly frames: number;
+  readonly bytes: number;
+  readonly crcErrors: number;
+  readonly resyncs: number;
+  readonly framingErrors: number;
+}
+
+const BENCH_FRAME_NAMES: Readonly<Record<number, string>> = {
+  [FrameType.GPS]: 'gps',
+  [FrameType.BATTERY]: 'battery',
+  [FrameType.BARO_ALTITUDE]: 'barometer',
+  [FrameType.LINK_STATISTICS]: 'link_statistics',
+  [FrameType.RC_CHANNELS_PACKED]: 'rc_channels',
+  [FrameType.ATTITUDE]: 'attitude',
+  [FrameType.FLIGHT_MODE]: 'flight_mode',
+  [FrameType.DEVICE_INFO]: 'device_info',
+};
+
+function idleBench(): MutableBench {
+  return {
+    running: false,
+    mode: 'idle',
+    startedAtMs: null,
+    endsAtMs: null,
+    requestedHz: 150,
+    observedHz: null,
+    framesSent: 0,
+    rcFramesCaptured: 0,
+    channels: null,
+    frameCounts: {},
+    crcErrors: 0,
+    resyncs: 0,
+    framingErrors: 0,
+    linkStatistics: 0,
+    telemetryKinds: [],
+    telemetryInjected: 0,
+    safeDisarmSent: false,
+    requirements: {},
+    result: 'IDLE',
+    summary: 'No bench operation has run.',
+    error: null,
+  };
+}
+
+function neutralChannels(): number[] {
+  const channels = Array<number>(16).fill(CHANNEL_MID);
+  channels[2] = CHANNEL_MIN; // throttle
+  channels[5] = CHANNEL_MIN; // arm
+  return channels;
+}
+
+function driveChannels(pattern: 'disarmed' | 'arm-test' | 'channel-test',
+  elapsedSec: number, armHoldSec: number): number[] {
+  const channels = neutralChannels();
+  if (pattern === 'disarmed') return channels;
+  channels[4] = CHANNEL_MAX; // angle mode while armed
+  channels[5] = CHANNEL_MAX; // arm
+  if (elapsedSec < armHoldSec || pattern === 'arm-test') return channels;
+  const phase = (elapsedSec - armHoldSec) % 8;
+  channels[2] = CHANNEL_MIN + Math.round((CHANNEL_MAX - CHANNEL_MIN) * 0.1);
+  if (phase < 2) channels[0] = CHANNEL_MID - 240;
+  else if (phase < 4) channels[0] = CHANNEL_MID + 240;
+  else if (phase < 6) channels[1] = CHANNEL_MID - 240;
+  else channels[1] = CHANNEL_MID + 240;
+  return channels;
 }
 
 export class RadioWriteRefused extends Error {
@@ -78,11 +189,24 @@ export class RadioSession {
   private role: 'tx' | 'rx' | 'unknown' = 'unknown';
   private uid: Uint8Array | null = null;
   private error: string | null = null;
+  private benchState: MutableBench = idleBench();
+  private benchBaseline: BenchCounters = { frames: 0, bytes: 0, crcErrors: 0, resyncs: 0, framingErrors: 0 };
+  private benchTimer: ReturnType<typeof setTimeout> | null = null;
+  private benchStartedAt = 0;
+  private benchDeadline = 0;
+  private benchPattern: 'disarmed' | 'arm-test' | 'channel-test' = 'disarmed';
+  private benchArmHoldSec = 0.75;
+  private benchDriveArmed = false;
+  private benchLastPublish = 0;
+  private benchWriting = false;
 
   constructor(private readonly linkPort: ByteLink, private readonly timeoutMs = 600,
     private readonly now: () => number = () => Date.now()) {
     this.unsubscribe.push(linkPort.onData((chunk) => this.onData(chunk)));
     this.unsubscribe.push(linkPort.onError((message) => this.fail(message)));
+    this.unsubscribe.push(linkPort.onClose((reason) => {
+      void this.stopBench(`disconnect: ${reason}`);
+    }));
   }
 
   subscribe(listener: (s: RadioSnapshot) => void): () => void {
@@ -101,6 +225,13 @@ export class RadioSession {
       telemetry: { ...this.telemetry },
       role: this.role,
       uid: this.uid === null ? null : Uint8Array.from(this.uid),
+      bench: {
+        ...this.benchState,
+        frameCounts: { ...this.benchState.frameCounts },
+        requirements: { ...this.benchState.requirements },
+        telemetryKinds: [...this.benchState.telemetryKinds],
+        channels: this.benchState.channels === null ? null : [...this.benchState.channels],
+      },
       error: this.error,
     };
   }
@@ -125,6 +256,15 @@ export class RadioSession {
         }
       }
       const t = decodeTelemetry(frame);
+      if (this.benchState.running) {
+        const name = BENCH_FRAME_NAMES[frame.type] ?? `0x${frame.type.toString(16).padStart(2, '0')}`;
+        this.benchState.frameCounts[name] = (this.benchState.frameCounts[name] ?? 0) + 1;
+        if (frame.type === FrameType.RC_CHANNELS_PACKED && frame.payload.length >= 22) {
+          this.benchState.rcFramesCaptured++;
+          this.benchState.channels = unpackChannels(frame.payload);
+        }
+        if (frame.type === FrameType.LINK_STATISTICS) this.benchState.linkStatistics++;
+      }
       if (t !== null) {
         if (t.kind === 'link') {
           this.link = t.value;
@@ -132,10 +272,220 @@ export class RadioSession {
         } else {
           this.telemetry[t.kind] = t;
         }
+        if (this.benchState.running && !this.benchState.telemetryKinds.includes(t.kind)) {
+          this.benchState.telemetryKinds.push(t.kind);
+        }
+        touched = true;
+      }
+    }
+    if (this.benchState.running) {
+      this.syncBenchCounters();
+      if (this.now() - this.benchLastPublish >= 100) {
+        this.benchLastPublish = this.now();
         touched = true;
       }
     }
     if (touched) this.changed();
+  }
+
+  private counters(): BenchCounters {
+    return {
+      frames: this.decoder.frames,
+      bytes: this.decoder.bytesReceived,
+      crcErrors: this.decoder.crcErrors,
+      resyncs: this.decoder.resyncs,
+      framingErrors: this.decoder.framingErrors,
+    };
+  }
+
+  private syncBenchCounters(): void {
+    const current = this.counters();
+    this.benchState.crcErrors = current.crcErrors - this.benchBaseline.crcErrors;
+    this.benchState.resyncs = current.resyncs - this.benchBaseline.resyncs;
+    this.benchState.framingErrors = current.framingErrors - this.benchBaseline.framingErrors;
+  }
+
+  private resetBench(mode: 'drive' | 'capture', durationSec: number, hz: number): void {
+    const now = this.now();
+    this.benchState = {
+      ...idleBench(),
+      running: true,
+      mode,
+      startedAtMs: now,
+      endsAtMs: now + Math.max(0.1, durationSec) * 1000,
+      requestedHz: hz,
+      result: 'RUNNING',
+      summary: mode === 'drive' ? 'Continuous drive is running.' : 'Listening for receiver CRSF frames.',
+    };
+    this.benchStartedAt = now;
+    this.benchDeadline = this.benchState.endsAtMs!;
+    this.benchBaseline = this.counters();
+    this.benchDriveArmed = false;
+    this.benchLastPublish = 0;
+  }
+
+  private clearBenchTimer(): void {
+    if (this.benchTimer !== null) clearTimeout(this.benchTimer);
+    this.benchTimer = null;
+  }
+
+  private async writeSafeDisarm(): Promise<boolean> {
+    try {
+      const safe = neutralChannels();
+      if (this.benchDriveArmed) {
+        safe[5] = CHANNEL_MAX;
+        await this.linkPort.write(encodeRcChannels(safe));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      safe[5] = CHANNEL_MIN;
+      await this.linkPort.write(encodeRcChannels(safe));
+      this.benchState.safeDisarmSent = true;
+      return true;
+    } catch (error) {
+      this.benchState.safeDisarmSent = false;
+      this.benchState.error = error instanceof Error ? error.message : String(error);
+      return false;
+    }
+  }
+
+  /** Start a bounded TX drive. The caller must have enabled writes and shown a bench confirmation. */
+  async startBenchDrive(options: {
+    readonly hz?: number;
+    readonly durationSec?: number;
+    readonly pattern?: 'disarmed' | 'arm-test' | 'channel-test';
+    readonly armHoldSec?: number;
+  } = {}): Promise<void> {
+    if (!this.allowWrites) throw new RadioWriteRefused();
+    const hz = Math.max(1, Math.min(500, options.hz ?? 150));
+    const durationSec = Math.max(0.1, Math.min(300, options.durationSec ?? 10));
+    const pattern = options.pattern ?? 'disarmed';
+    const armHoldSec = Math.max(0.55, options.armHoldSec ?? 0.75);
+    if (pattern !== 'disarmed' && durationSec <= armHoldSec) {
+      throw new Error('drive duration must exceed the arm-hold interval');
+    }
+    await this.stopBench('replaced by a new drive');
+    this.benchPattern = pattern;
+    this.benchArmHoldSec = armHoldSec;
+    this.resetBench('drive', durationSec, hz);
+    this.changed();
+    const periodMs = 1000 / hz;
+    const tick = async () => {
+      if (!this.benchState.running || this.benchWriting) return;
+      const now = this.now();
+      if (now >= this.benchDeadline) {
+        await this.stopBench('drive timeout');
+        return;
+      }
+      this.benchWriting = true;
+      try {
+        const elapsed = (now - this.benchStartedAt) / 1000;
+        const armed = pattern !== 'disarmed';
+        this.benchDriveArmed = armed;
+        await this.linkPort.write(encodeRcChannels(driveChannels(pattern, elapsed, armHoldSec)));
+        this.benchState.framesSent++;
+        this.syncBenchCounters();
+      } catch (error) {
+        this.benchState.error = error instanceof Error ? error.message : String(error);
+        await this.stopBench('drive write failed');
+        return;
+      } finally {
+        this.benchWriting = false;
+      }
+      if (this.benchState.running) {
+        this.benchTimer = setTimeout(() => { void tick(); }, periodMs);
+        if (this.now() - this.benchLastPublish >= 100) {
+          this.benchLastPublish = this.now();
+          this.changed();
+        }
+      }
+    };
+    await tick();
+  }
+
+  /** Start a bounded RX capture, optionally sending one validated telemetry sequence. */
+  async startBenchCapture(options: {
+    readonly durationSec?: number;
+    readonly injectTelemetry?: boolean;
+  } = {}): Promise<void> {
+    if (options.injectTelemetry && !this.allowWrites) throw new RadioWriteRefused();
+    const durationSec = Math.max(0.1, Math.min(300, options.durationSec ?? 10));
+    await this.stopBench('replaced by a new capture');
+    this.resetBench('capture', durationSec, 0);
+    if (options.injectTelemetry) await this.injectBenchTelemetry();
+    this.benchTimer = setTimeout(() => { void this.stopBench('capture timeout'); }, durationSec * 1000);
+    this.changed();
+  }
+
+  /** Send a bounded representative telemetry sequence. Sent is not verification. */
+  async injectBenchTelemetry(): Promise<void> {
+    if (!this.allowWrites) throw new RadioWriteRefused();
+    const frames = encodeDefaultTelemetryFrames();
+    for (const frame of frames) {
+      await this.linkPort.write(frame);
+      this.benchState.telemetryInjected++;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    this.benchState.requirements.telemetry_injection = 'SENT / NOT VERIFIED';
+    this.changed();
+  }
+
+  async stopBench(reason = 'stopped'): Promise<void> {
+    const wasRunning = this.benchState.running;
+    const mode = this.benchState.mode;
+    this.clearBenchTimer();
+    if (mode === 'drive' && (wasRunning || this.benchDriveArmed)) {
+      await this.writeSafeDisarm();
+    }
+    if (wasRunning) {
+      this.syncBenchCounters();
+      this.benchState.running = false;
+      this.benchState.endsAtMs = this.now();
+      if (mode === 'drive') {
+        this.benchState.requirements.rc_drive = this.benchState.framesSent > 0 ? 'PASS' : 'FAIL';
+        this.benchState.observedHz = this.benchState.framesSent /
+          Math.max(0.001, (this.now() - this.benchStartedAt) / 1000);
+        this.benchState.requirements.link_statistics =
+          this.benchState.linkStatistics > 0 ? 'PASS' : 'NOT TESTED';
+        this.benchState.requirements.telemetry =
+          this.benchState.telemetryKinds.length > 0 ? 'PASS' : 'NOT TESTED';
+        this.benchState.requirements.rx_rc_capture = 'NOT TESTED';
+        this.benchState.requirements.rf_link = 'NOT TESTED';
+        this.benchState.result = this.benchState.framesSent > 0 ? 'PASS' : 'FAIL';
+        this.benchState.summary =
+          `TX drive ${reason}: ${this.benchState.framesSent} frames sent; ` +
+          `safe disarm ${this.benchState.safeDisarmSent ? 'confirmed' : 'not confirmed'}. RF link remains NOT TESTED here.`;
+      } else {
+        this.benchState.requirements.rx_rc_capture =
+          this.benchState.rcFramesCaptured > 0 ? 'PASS' : 'FAIL';
+        this.benchState.observedHz = this.benchState.rcFramesCaptured /
+          Math.max(0.001, (this.now() - this.benchStartedAt) / 1000);
+        this.benchState.requirements.link_statistics =
+          this.benchState.linkStatistics > 0 ? 'PASS' : 'NOT TESTED';
+        this.benchState.requirements.rf_link =
+          this.benchState.rcFramesCaptured > 0 && this.benchState.linkStatistics > 0
+            ? 'PASS'
+            : 'NOT TESTED';
+        this.benchState.result =
+          this.benchState.rcFramesCaptured > 0 ? 'PASS' : 'FAIL';
+        this.benchState.summary =
+          `RX capture ${reason}: ${this.benchState.rcFramesCaptured} RC frames; ` +
+          `${this.benchState.linkStatistics} link-statistics frames.`;
+      }
+      this.changed();
+    }
+  }
+
+  benchEvidence(): Record<string, unknown> {
+    const s = this.snapshot().bench;
+    return {
+      openedAtMs: this.now(),
+      role: this.role,
+      device: this.device,
+      bench: s,
+      link: this.link,
+      telemetry: this.telemetry,
+      decoder: this.counters(),
+    };
   }
 
   private request(bytes: Uint8Array, match: (f: CrsfFrame) => boolean, what: string): Promise<CrsfFrame> {
@@ -378,7 +728,8 @@ export class RadioSession {
     return this.runCommand(this.command(['Enable Rx WiFi']).id);
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
+    await this.stopBench('session disposed');
     for (const u of this.unsubscribe) u();
     this.waiters.clear();
     this.listeners.clear();

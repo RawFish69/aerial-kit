@@ -285,6 +285,16 @@ class SerialTransport(Link):
         port = self._port
         return int(getattr(port, "in_waiting", 0)) if port is not None else 0
 
+    @property
+    def path(self) -> str:
+        return self.port_name
+
+    @property
+    def usb_serial_number(self) -> str | None:
+        port = self._port
+        value = getattr(port, "serial_number", None) if port is not None else None
+        return str(value) if value else None
+
     def open(self) -> None:
         if self.closed:
             raise TransportClosed("transport is closed")

@@ -19,6 +19,19 @@ For a physical board:
 
 The page requests a device only after you click Connect. It does not flash firmware automatically. A board in ROM DFU mode must first be flashed and booted into the firmware's USB console. Safari and Firefox users can explore the demo or use a supported browser for USB.
 
+## Radio module Bench
+
+Select **Device → Radio module**, connect the native USB-CDC endpoint, and use the **Bench** panel below
+the radio configuration pages. TX can stream bounded 150 Hz RC with a disarmed or explicitly confirmed
+arm sequence. RX can capture 16 channels, monitor link statistics and inject representative telemetry.
+The panel shows sent/captured rates, CRC, resync and framing counters and downloads the same values as
+JSON evidence.
+
+The page does not infer an RF link from commands it sent. LINK_STATISTICS and receiver RC frames must be
+observed. Stop, timeout, navigation and disconnect paths send or request a safe disarm. Web Serial does
+not expose pre-open DTR/RTS control, so a reset during open is possible; the decoder discards boot text
+and resynchronizes on `0xC8`.
+
 **Local bridge:** GitHub Pages serves HTTPS. Browsers can block an insecure `ws://` bridge from that page. Run the app locally with the loopback helper, or configure a trusted secure `wss://` endpoint using the [bridge guide](../apps/configurator/docs/BUILD-AND-DEPLOY.md). GitHub Pages hosts static assets and cannot run the bridge or firmware builds.
 
 ## Run locally
