@@ -36,16 +36,33 @@ Native USB on GPIO19/20 supports:
 It does **not** carry `RC_CHANNELS_PACKED` from the host to the CRSF handset
 parser without a custom firmware bridge.
 
-## TX and RX images
+## TX and RX roles
 
-ExpressLRS builds separate TX and RX applications:
+ExpressLRS still builds separate TX and RX applications:
 
 - TX target: `AERIALKIT_ELRS_USB_TX_REV_A3_via_UART`.
 - RX target: `AERIALKIT_ELRS_USB_TX_REV_A3_RX_via_UART`.
 
-The physical SW2 level on GPIO4 does not choose between images at runtime.
-Set the switch to match the image being run and verify its continuity because
-the first prototype read low while its physical label indicated RX.
+The normal Rev A3 artifact contains both applications. On every reset, a small
+bootloader selector samples GPIO4 and boots:
+
+- GPIO4 low: TX application in app0 at flash offset `0x10000`;
+- GPIO4 high: RX application in app1 at flash offset `0x1F0000`.
+
+This is a boot-time choice, not a live runtime switch. Change SW2 and reboot;
+do not change roles with the board powered and RF active. Verify the switch by
+continuity because the first prototype read low while its physical label
+indicated RX.
+
+Each application checks the same pin again before radio setup. If the switch
+changed or the bootloader somehow selected the other application, both FEM
+enables remain low and the application stops instead of opening the wrong RF
+role.
+
+The dual-role artifact must be updated with a full USB/ROM flash. The stock
+single-image Wi-Fi OTA workflow is intentionally not used because it would
+replace only one of the two role slots. Native Wi-Fi configuration still
+works.
 
 The RX image outputs receiver frames on UART0 at the receiver-to-FC rate,
 normally 420000 baud, unless configuration changes it.
@@ -59,10 +76,11 @@ commit `a9d4a9cb5b5687c4c9d7e9e7fbdf44ad93651da6`. It:
 - selects the ESP32-S3 2.4 GHz TX or RX environment;
 - enables the SX1280 DC/DC path;
 - maps TXEN/RXEN, SPI, USB and LED pins;
-- limits the WS2812 to 26/255.
+- limits the WS2812 to 26/255;
+- samples GPIO4 again before radio setup and fails safe on a role mismatch.
 
-Both firmware environments build in this repository. No hardware was flashed
-or opened as part of this host-link milestone.
+Both applications and their combined flash image build in this repository.
+No hardware was flashed or opened as part of this host-link milestone.
 
 ## Host integration decision
 

@@ -25,7 +25,9 @@ FC CRSF telemetry    <- crsf_radio_backend_node <- CRSF UART <------------------
 
 The host UART is 400000 baud, 8N1, non-inverted and full duplex. This is the
 handset rate in the ELRS autobaud table. The RX-to-FC UART remains 420000 baud.
-Pin mapping, the need for a 3.3 V USB-UART adapter, role-image selection and
+One combined Rev A3 image contains both roles. GPIO4 is sampled on every reset:
+low boots TX and high boots RX, so changing SW2 requires a reboot but not a
+reflash. Pin mapping, the need for a 3.3 V USB-UART adapter, role selection and
 native USB-CDC limits are in
 [`firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md`](../firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md).
 

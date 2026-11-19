@@ -5,7 +5,7 @@ index 91e7fb8..40ecca7 100644
 @@ -29,6 +29,15 @@ constexpr auto I2S_BITS_PER_RGB_BIT = I2S_BITS_PER_SAMPLE_16BIT;
  constexpr auto BYTES_PER_LED = 24 * (I2S_BITS_PER_RGB_BIT / 8);
  constexpr auto MAX_LEDS = (DMA_BUF_LEN * DMA_BUF_COUNT - 4) / BYTES_PER_LED;
- 
+
 +#ifndef WS2812_BRIGHTNESS
 +#define WS2812_BRIGHTNESS 255
 +#endif
@@ -56,14 +56,77 @@ index 91e7fb8..40ecca7 100644
          }
      }
  }
+diff --git a/src/src/rxtx_common.cpp b/src/src/rxtx_common.cpp
+index 6b5b10d..075e648 100644
+--- a/src/src/rxtx_common.cpp
++++ b/src/src/rxtx_common.cpp
+@@ -6,6 +6,41 @@
+ #include <functional>
+ #include <Wire.h>
+
++#if defined(AERIALKIT_ROLE_SELECT_PIN)
++static void enforceAerialKitRoleSelect()
++{
++    pinMode(AERIALKIT_ROLE_SELECT_PIN, INPUT);
++    const bool roleHigh = digitalRead(AERIALKIT_ROLE_SELECT_PIN) == HIGH;
++#if defined(TARGET_TX)
++    const bool matches = !roleHigh;
++#elif defined(TARGET_RX)
++    const bool matches = roleHigh;
++#else
++    const bool matches = true;
++#endif
++
++    if (matches)
++    {
++        return;
++    }
++
++    if (GPIO_PIN_TX_ENABLE != UNDEF_PIN)
++    {
++        pinMode(GPIO_PIN_TX_ENABLE, OUTPUT);
++        digitalWrite(GPIO_PIN_TX_ENABLE, LOW);
++    }
++    if (GPIO_PIN_RX_ENABLE != UNDEF_PIN)
++    {
++        pinMode(GPIO_PIN_RX_ENABLE, OUTPUT);
++        digitalWrite(GPIO_PIN_RX_ENABLE, LOW);
++    }
++    while (true)
++    {
++        delay(1000);
++    }
++}
++#endif
++
+ static const int maxDeferredFunctions = 3;
+
+ struct deferred_t {
+@@ -64,6 +99,9 @@ static void setupWire()
+
+ void setupTargetCommon()
+ {
++#if defined(AERIALKIT_ROLE_SELECT_PIN)
++    enforceAerialKitRoleSelect();
++#endif
+     setupWire();
+ }
+
+@@ -115,4 +153,4 @@ void checkRebootTime(unsigned long now)
+     if (rebootTime_Ms != 0 && !config.IsModified() && now > rebootTime_Ms ) {
+         ESP.restart();
+     }
+-}
+\ No newline at end of file
++}
 diff --git a/src/targets/esp32s3-rx.ini b/src/targets/esp32s3-rx.ini
 index 34b76be..1cfb6ae 100644
 --- a/src/targets/esp32s3-rx.ini
 +++ b/src/targets/esp32s3-rx.ini
-@@ -11,6 +11,18 @@ build_flags =
+@@ -11,6 +11,19 @@ build_flags =
  	${env_common_esp32s3rx.build_flags}
  	${radio_SX128X.build_flags}
- 
+
 +[env:AERIALKIT_ELRS_USB_TX_REV_A3_RX_via_UART]
 +extends = env:Unified_ESP32S3_2400_RX_via_UART
 +board_config = aerialkit.rx_2400.usb_tx_rev_a3
@@ -75,18 +138,19 @@ index 34b76be..1cfb6ae 100644
 +	${env:Unified_ESP32S3_2400_RX_via_UART.build_flags}
 +	-D Regulatory_Domain_ISM_2400
 +	-D WS2812_BRIGHTNESS=26
++	-D AERIALKIT_ROLE_SELECT_PIN=4
 +
  [env:Unified_ESP32S3_2400_RX_via_BetaflightPassthrough]
  extends = env:Unified_ESP32S3_2400_RX_via_UART
- 
+
 diff --git a/src/targets/esp32s3-tx.ini b/src/targets/esp32s3-tx.ini
 index 1823a65..30d358c 100644
 --- a/src/targets/esp32s3-tx.ini
 +++ b/src/targets/esp32s3-tx.ini
-@@ -12,6 +12,18 @@ build_flags =
+@@ -12,6 +12,19 @@ build_flags =
  	${env_common_esp32s3tx.build_flags}
  	${radio_SX128X.build_flags}
- 
+
 +[env:AERIALKIT_ELRS_USB_TX_REV_A3_via_UART]
 +extends = env:Unified_ESP32S3_2400_TX_via_ETX
 +board_config = aerialkit.tx_2400.usb_tx_rev_a3
@@ -98,7 +162,8 @@ index 1823a65..30d358c 100644
 +	${env:Unified_ESP32S3_2400_TX_via_ETX.build_flags}
 +	-D Regulatory_Domain_ISM_2400
 +	-D WS2812_BRIGHTNESS=26
++	-D AERIALKIT_ROLE_SELECT_PIN=4
 +
  [env:Unified_ESP32S3_2400_TX_via_UART]
  extends = env:Unified_ESP32S3_2400_TX_via_ETX
- 
+
