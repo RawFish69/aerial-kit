@@ -46,8 +46,13 @@ ExpressLRS still builds separate TX and RX applications:
 The normal Rev A3 artifact contains both applications. On every reset, a small
 bootloader selector samples GPIO4 and boots:
 
-- GPIO4 low: TX application in app0 at flash offset `0x10000`;
-- GPIO4 high: RX application in app1 at flash offset `0x1F0000`.
+- GPIO4 low: the active TX slot (`tx_0` at `0x10000` or `tx_1` at `0x2b0000`);
+- GPIO4 high: the active RX slot (`rx_0` at `0x450000` or `rx_1` at `0x590000`).
+
+The active slot for each role is stored in two independently erasable
+`role_state` records at `0x6d0000`. If the selected image is invalid, the
+bootloader falls back only to the other slot for the same role. It never boots
+the opposite RF role.
 
 This is a boot-time choice, not a live runtime switch. Change SW2 and reboot;
 do not change roles with the board powered and RF active. Verify the switch by
@@ -59,10 +64,13 @@ changed or the bootloader somehow selected the other application, both FEM
 enables remain low and the application stops instead of opening the wrong RF
 role.
 
-The dual-role artifact must be updated with a full USB/ROM flash. The stock
-single-image Wi-Fi OTA workflow is intentionally not used because it would
-replace only one of the two role slots. Native Wi-Fi configuration still
-works.
+The ExpressLRS Wi-Fi update path writes to the inactive slot for the running
+role and commits that slot after a successful update. A full USB/ROM factory
+flash is still required for the initial installation or recovery.
+
+The factory image includes an empty LittleFS filesystem in the `spiffs`
+partition at `0x6d2000`. This avoids first-boot mount/format failures caused by
+stale filesystem contents from a different partition layout.
 
 The RX image outputs receiver frames on UART0 at the receiver-to-FC rate,
 normally 420000 baud, unless configuration changes it.
@@ -77,6 +85,8 @@ commit `a9d4a9cb5b5687c4c9d7e9e7fbdf44ad93651da6`. It:
 - enables the SX1280 DC/DC path;
 - maps TXEN/RXEN, SPI, USB and LED pins;
 - limits the WS2812 to 26/255;
+- adds two update slots per role and two role-state records;
+- preformats LittleFS for the full factory image;
 - samples GPIO4 again before radio setup and fails safe on a role mismatch.
 
 Both applications and their combined flash image build in this repository.

@@ -45,8 +45,19 @@ case "$mode" in
     dual)
         "$root/scripts/bootstrap.sh"
         artifact="$root/dist/aerialkit-rev-a3-elrs-dual-role.bin"
+        manifest="$root/dist/aerialkit-rev-a3-elrs-dual-role.json"
         if [[ ! -f "$artifact" ]]; then
             echo "dual-role artifact not found; run ./scripts/build.sh dual first" >&2
+            exit 2
+        fi
+        expected_sha="$(python3 -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' \
+            "$manifest")"
+        actual_sha="$(sha256sum "$artifact" | awk '{print $1}')"
+        if [[ "$actual_sha" != "$expected_sha" ]]; then
+            echo "dual-role artifact hash mismatch; refusing to flash" >&2
+            echo "expected $expected_sha" >&2
+            echo "actual   $actual_sha" >&2
             exit 2
         fi
         python3 "$vendor/ExpressLRS/src/python/external/esptool/esptool.py" \

@@ -1,33 +1,30 @@
 #!/usr/bin/env python3
-"""Build and verify the single Rev A3 ELRS TX/RX flash image."""
+"""Build and verify the four-slot Rev A3 ELRS factory image."""
 
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 from pathlib import Path
-import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 
 
-BOOTLOADER_ADDR = 0x0000
-PARTITION_ADDR = 0x8000
-OTA_DATA_ADDR = 0xE000
-TX_APP_ADDR = 0x10000
-RX_APP_ADDR = 0x1F0000
-TX_SLOT_SIZE = 0x1E0000
-RX_SLOT_SIZE = 0x1E0000
-
-BOOTLOADER_SELECTOR_ADDR = 0x403CC000
-BOOTLOADER_SELECTOR_FN_ADDR = 0x403CC010
-BOOTLOADER_SELECT_FN_ADDR = 0x403CD868
-BOOTLOADER_SELECT_SEGMENT_ADDR = 0x403CC700
-BOOTLOADER_CAVE_END = 0x403CC700
-
 FLASH_SIZE = 8 * 1024 * 1024
+BOOTLOADER_OFFSET = 0x0000
+PARTITION_TABLE_OFFSET = 0x8000
+OTA_DATA_OFFSET = 0xE000
+
+BOOTLOADER_SELECTOR_ADDRESS = 0x403CC000
+BOOTLOADER_SELECT_FUNCTION = 0x403CD868
+BOOTLOADER_SELECT_SEGMENT = 0x403CC700
+
+ROLE_RECORD_MAGIC = 0x414B5253
+ROLE_STATE_SECTOR_SIZE = 0x1000
 
 
 def run(command: list[str], *, cwd: Path | None = None) -> None:
@@ -43,6 +40,67 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def read_partitions(path: Path) -> dict[str, dict[str, int | str]]:
+    rows: list[dict[str, int | str]] = []
+    with path.open(newline="", encoding="utf-8") as source:
+        reader = csv.reader(
+            (line for line in source if not line.lstrip().startswith("#")),
+            skipinitialspace=True,
+        )
+        for row in reader:
+            if not row:
+                continue
+            rows.append(
+                {
+                    "name": row[0].strip(),
+                    "type": row[1].strip(),
+                    "subtype": row[2].strip(),
+                    "offset": int(row[3], 0),
+                    "size": int(row[4], 0),
+                }
+            )
+
+    partitions = {str(row["name"]): row for row in rows}
+    previous_end = 0
+    for row in rows:
+        offset = int(row["offset"])
+        size = int(row["size"])
+        if offset % ROLE_STATE_SECTOR_SIZE or size % ROLE_STATE_SECTOR_SIZE:
+            raise RuntimeError(f"partition {row['name']} is not sector aligned")
+        if offset < previous_end:
+            raise RuntimeError(f"partition {row['name']} overlaps the previous row")
+        previous_end = offset + size
+    if previous_end > FLASH_SIZE:
+        raise RuntimeError("partition table exceeds the 8 MB flash")
+    return partitions
+
+
+def verify_binary_partitions(
+    path: Path,
+    expected: dict[str, dict[str, int | str]],
+) -> None:
+    data = path.read_bytes()
+    actual: dict[str, tuple[int, int]] = {}
+    for offset in range(0, len(data), 32):
+        entry = data[offset : offset + 32]
+        if len(entry) < 32:
+            break
+        magic, _type, _subtype, address, size, label, _flags = struct.unpack(
+            "<HBBII16sI", entry
+        )
+        if magic != 0x50AA:
+            break
+        name = label.split(b"\0", 1)[0].decode("ascii")
+        actual[name] = (address, size)
+
+    for name, row in expected.items():
+        if actual.get(name) != (int(row["offset"]), int(row["size"])):
+            raise RuntimeError(
+                f"generated partition table disagrees with CSV for {name}: "
+                f"{actual.get(name)} != ({row['offset']}, {row['size']})"
+            )
+
+
 def import_esptool(vendor: Path):
     esptool_dir = vendor / "ExpressLRS" / "src" / "python" / "external" / "esptool"
     sys.path.insert(0, str(esptool_dir))
@@ -51,7 +109,7 @@ def import_esptool(vendor: Path):
     return ESP32S3FirmwareImage
 
 
-def compile_bootloader_selector(
+def compile_selector(
     cache: Path,
     source_dir: Path,
     build_dir: Path,
@@ -63,116 +121,83 @@ def compile_bootloader_selector(
     if not Path(gcc).is_file():
         raise FileNotFoundError(f"ESP32-S3 compiler not found: {gcc}")
 
-    selector_object = build_dir / "selector.o"
     selector_elf = build_dir / "selector.elf"
-    selector_bin = build_dir / "selector.bin"
-    jump_object = build_dir / "selector_jump.o"
-    jump_elf = build_dir / "selector_jump.elf"
-    jump_bin = build_dir / "selector_jump.bin"
-
     run(
         [
             gcc,
             "-Os",
-            "-mlongcalls",
-            "-fno-jump-tables",
-            "-fno-tree-switch-conversion",
-            "-ffunction-sections",
-            "-fdata-sections",
+            "-nostdlib",
+            "-ffreestanding",
+            "-fno-builtin",
             "-fno-stack-protector",
-            "-c",
-            str(source_dir / "selector.c"),
+            "-fno-exceptions",
+            "-mlongcalls",
+            "-mtext-section-literals",
+            "-Wl,--build-id=none",
+            f"-Wl,-T,{source_dir / 'selector.ld'}",
+            "-Wl,--gc-sections",
             "-o",
-            str(selector_object),
+            str(selector_elf),
+            str(source_dir / "selector_jump.S"),
+            str(source_dir / "selector.c"),
         ]
     )
+
+    trampoline_path = build_dir / "trampoline.bin"
+    selector_path = build_dir / "selector.bin"
     run(
         [
-            gcc,
-            "-nostdlib",
-            "-Wl,--gc-sections",
-            f"-Wl,-Ttext=0x{BOOTLOADER_SELECTOR_ADDR:x}",
-            "-Wl,-e,aerialkit_role_partition",
-            str(selector_object),
-            "-o",
+            objcopy,
+            "--dump-section",
+            f".trampoline={trampoline_path}",
             str(selector_elf),
         ]
     )
     run(
         [
             objcopy,
-            "-O",
-            "binary",
-            "-j",
-            ".iram.text.aerialkit_selector.literal",
-            "-j",
-            ".iram.text.aerialkit_selector",
+            "--dump-section",
+            f".selector={selector_path}",
             str(selector_elf),
-            str(selector_bin),
         ]
     )
+    trampoline = trampoline_path.read_bytes()
+    selector = selector_path.read_bytes()
     nm_output = subprocess.check_output(
         [str(prefix) + "nm", "-n", str(selector_elf)],
         text=True,
-    )
-    selector_symbol = next(
-        (
-            line.split()
-            for line in nm_output.splitlines()
-            if line.split() and line.split()[-1] == "aerialkit_role_partition"
-        ),
-        None,
-    )
-    if selector_symbol is None or int(selector_symbol[0], 16) != BOOTLOADER_SELECTOR_FN_ADDR:
-        raise RuntimeError("selector function moved from its reserved bootloader address")
-
-    run(
-        [
-            gcc,
-            "-c",
-            "-mlongcalls",
-            str(source_dir / "selector_jump.S"),
-            "-o",
-            str(jump_object),
-        ]
-    )
-    run(
-        [
-            gcc,
-            "-nostdlib",
-            f"-Wl,-Ttext=0x{BOOTLOADER_SELECT_FN_ADDR:x}",
-            str(jump_object),
-            "-o",
-            str(jump_elf),
-        ]
-    )
-    run(
-        [
-            objcopy,
-            "-O",
-            "binary",
-            "-j",
-            ".jump",
-            str(jump_elf),
-            str(jump_bin),
-        ]
-    )
-
-    selector = selector_bin.read_bytes()
-    jump = jump_bin.read_bytes()
-    if not selector or len(selector) > 0x700:
-        raise RuntimeError("selector compilation produced an unexpected image")
-    if jump != bytes.fromhex("06e9f9"):
-        raise RuntimeError(f"selector jump compilation produced {jump.hex()}, expected 06e9f9")
-    if BOOTLOADER_SELECTOR_ADDR + len(selector) > BOOTLOADER_CAVE_END:
-        raise RuntimeError("selector does not fit in the bootloader IRAM code cave")
-    return selector, jump
+    ).splitlines()
+    symbols = {
+        parts[-1]: int(parts[0], 16)
+        for line in nm_output
+        if (parts := line.split())
+        and len(parts) >= 3
+    }
+    if symbols.get("bootloader_utility_get_selected_boot_partition") != BOOTLOADER_SELECT_FUNCTION:
+        raise RuntimeError("bootloader trampoline moved outside its reserved address")
+    selector_function = symbols.get("aerialkit_select_boot_partition")
+    if selector_function is None or not (
+        BOOTLOADER_SELECTOR_ADDRESS
+        <= selector_function
+        < BOOTLOADER_SELECTOR_ADDRESS + len(selector)
+    ):
+        raise RuntimeError("selector function moved outside its reserved segment")
+    if len(trampoline) != 3:
+        raise RuntimeError(f"selector trampoline is {len(trampoline)} bytes")
+    if not selector:
+        raise RuntimeError("selector image is empty")
+    if (
+        BOOTLOADER_SELECTOR_ADDRESS + len(selector)
+        > BOOTLOADER_SELECT_SEGMENT
+    ):
+        raise RuntimeError("selector does not fit in the bootloader IRAM gap")
+    return trampoline, selector
 
 
 def patch_bootloader(
     bootloader_elf: Path,
+    trampoline: bytes,
     selector: bytes,
-    jump: bytes,
     output_path: Path,
     *,
     toolchain: Path,
@@ -188,22 +213,23 @@ def patch_bootloader(
             str(bootloader_elf),
         ]
     )
+
     loader = bytearray(loader_section.read_bytes())
-    select_offset = BOOTLOADER_SELECT_FN_ADDR - BOOTLOADER_SELECT_SEGMENT_ADDR
-    if select_offset < 0 or select_offset + len(jump) > len(loader):
+    function_offset = BOOTLOADER_SELECT_FUNCTION - BOOTLOADER_SELECT_SEGMENT
+    if function_offset < 0 or function_offset + len(trampoline) > len(loader):
         raise RuntimeError("bootloader selector function is outside its IRAM section")
-    if loader[select_offset : select_offset + len(jump)] == jump:
+    if loader[function_offset : function_offset + len(trampoline)] == trampoline:
         raise RuntimeError("bootloader is already dual-role patched")
-    if loader[select_offset : select_offset + 3] != bytes.fromhex("36c100"):
+    if loader[function_offset : function_offset + 3] != bytes.fromhex("36c100"):
         raise RuntimeError(
-            "pinned bootloader selector entry has changed; refusing to patch an unknown build"
+            "pinned bootloader selector entry changed; refusing an unknown build"
         )
-    loader[select_offset : select_offset + len(jump)] = jump
+    loader[function_offset : function_offset + len(trampoline)] = trampoline
     loader_section.write_bytes(loader)
 
-    patched_elf = output_path.with_suffix(".elf")
     selector_file = output_path.with_suffix(".selector.bin")
     selector_file.write_bytes(selector)
+    patched_elf = output_path.with_suffix(".elf")
     run(
         [
             str(objcopy),
@@ -214,7 +240,7 @@ def patch_bootloader(
             "--set-section-flags",
             ".aerialkit_selector=alloc,load,code,contents",
             "--change-section-vma",
-            f".aerialkit_selector=0x{BOOTLOADER_SELECTOR_ADDR:x}",
+            f".aerialkit_selector=0x{BOOTLOADER_SELECTOR_ADDRESS:x}",
             str(bootloader_elf),
             str(patched_elf),
         ]
@@ -238,68 +264,125 @@ def patch_bootloader(
         ]
     )
     loader_section.unlink(missing_ok=True)
-    patched_elf.unlink(missing_ok=True)
     selector_file.unlink(missing_ok=True)
+    patched_elf.unlink(missing_ok=True)
+
+
+def role_record_crc(prefix: bytes) -> int:
+    value = 2166136261
+    for byte in prefix:
+        value ^= byte
+        value = (value * 16777619) & 0xFFFFFFFF
+    return value
+
+
+def make_role_state(size: int) -> bytes:
+    prefix = struct.pack("<IIBBH", ROLE_RECORD_MAGIC, 1, 0, 2, 0)
+    record = prefix + struct.pack("<I", role_record_crc(prefix))
+    state = bytearray(b"\xff" * size)
+    state[0 : len(record)] = record
+    state[ROLE_STATE_SECTOR_SIZE : ROLE_STATE_SECTOR_SIZE + len(record)] = record
+    return bytes(state)
+
+
+def make_littlefs(mklittlefs: Path, size: int, build_dir: Path) -> Path:
+    if not mklittlefs.is_file():
+        raise FileNotFoundError(f"mklittlefs not found: {mklittlefs}")
+    empty_dir = build_dir / "littlefs-empty"
+    empty_dir.mkdir()
+    image = build_dir / "littlefs.bin"
+    run(
+        [
+            str(mklittlefs),
+            "-c",
+            str(empty_dir),
+            "-b",
+            "4096",
+            "-p",
+            "256",
+            "-s",
+            str(size),
+            str(image),
+        ]
+    )
+    if image.stat().st_size != size:
+        raise RuntimeError(
+            f"LittleFS image is {image.stat().st_size} bytes, expected {size}"
+        )
+    return image
 
 
 def merge_image(
     bootloader: Path,
     partitions: Path,
     ota_data: Path,
-    tx_app: Path,
-    rx_app: Path,
+    tx: Path,
+    rx: Path,
+    role_state: bytes,
+    littlefs: Path,
+    partition_rows: dict[str, dict[str, int | str]],
     output: Path,
-) -> tuple[int, dict[str, int]]:
-    pieces = {
-        BOOTLOADER_ADDR: bootloader,
-        PARTITION_ADDR: partitions,
-        OTA_DATA_ADDR: ota_data,
-        TX_APP_ADDR: tx_app,
-        RX_APP_ADDR: rx_app,
+) -> tuple[int, dict[int, int]]:
+    if tx.stat().st_size > int(partition_rows["tx_0"]["size"]):
+        raise RuntimeError("TX application overflows tx_0")
+    if rx.stat().st_size > int(partition_rows["rx_0"]["size"]):
+        raise RuntimeError("RX application overflows rx_0")
+    if len(role_state) != int(partition_rows["role_state"]["size"]):
+        raise RuntimeError("role_state image has the wrong size")
+    if littlefs.stat().st_size != int(partition_rows["spiffs"]["size"]):
+        raise RuntimeError("LittleFS image has the wrong size")
+
+    pieces: dict[int, Path | bytes] = {
+        BOOTLOADER_OFFSET: bootloader,
+        PARTITION_TABLE_OFFSET: partitions,
+        OTA_DATA_OFFSET: ota_data,
+        int(partition_rows["tx_0"]["offset"]): tx,
+        int(partition_rows["rx_0"]["offset"]): rx,
+        int(partition_rows["role_state"]["offset"]): role_state,
+        int(partition_rows["spiffs"]["offset"]): littlefs,
     }
-    sizes = {address: path.stat().st_size for address, path in pieces.items()}
-    if sizes[TX_APP_ADDR] > TX_SLOT_SIZE:
-        raise RuntimeError("TX application overflows its app0 slot")
-    if sizes[RX_APP_ADDR] > RX_SLOT_SIZE:
-        raise RuntimeError("RX application overflows its app1 slot")
-
-    image_size = max(address + size for address, size in sizes.items())
-    merged = bytearray(b"\xff") * image_size
-    for address, path in pieces.items():
-        merged[address : address + sizes[address]] = path.read_bytes()
-    output.write_bytes(merged)
-    return image_size, sizes
-
-
-def verify_image(
-    output: Path,
-    sizes: dict[str, int],
-    *,
-    vendor: Path,
-) -> None:
-    esptool = vendor / "ExpressLRS" / "src" / "python" / "external" / "esptool" / "esptool.py"
-    run(
-        [
-            sys.executable,
-            str(esptool),
-            "--chip",
-            "esp32s3",
-            "image_info",
-            str(output),
-        ]
+    image_end = (
+        int(partition_rows["spiffs"]["offset"])
+        + int(partition_rows["spiffs"]["size"])
     )
-    expected = {
-        "bootloader": sizes[BOOTLOADER_ADDR],
-        "partitions": sizes[PARTITION_ADDR],
-        "ota_data": sizes[OTA_DATA_ADDR],
-        "tx": sizes[TX_APP_ADDR],
-        "rx": sizes[RX_APP_ADDR],
-    }
-    if not all(size > 0 for size in expected.values()):
-        raise RuntimeError(f"empty image component: {expected}")
+    merged = bytearray(b"\xff" * image_end)
+    sizes: dict[int, int] = {}
+    for offset, piece in pieces.items():
+        data = piece.read_bytes() if isinstance(piece, Path) else piece
+        merged[offset : offset + len(data)] = data
+        sizes[offset] = len(data)
+
+    output.write_bytes(merged)
+    return image_end, sizes
 
 
-def verify_app(esptool: Path, path: Path, label: str) -> None:
+def verify_patched_bootloader(
+    path: Path,
+    trampoline: bytes,
+    selector: bytes,
+    *,
+    esptool: Path,
+    image_class,
+) -> None:
+    with path.open("rb") as stream:
+        image = image_class(stream)
+    selector_segment = next(
+        (segment for segment in image.segments if segment.addr == BOOTLOADER_SELECTOR_ADDRESS),
+        None,
+    )
+    loader_segment = next(
+        (segment for segment in image.segments if segment.addr == BOOTLOADER_SELECT_SEGMENT),
+        None,
+    )
+    if selector_segment is None or loader_segment is None:
+        raise RuntimeError("patched bootloader has an unexpected segment map")
+    if selector_segment.data[: len(selector)] != selector:
+        raise RuntimeError("bootloader does not contain the four-slot selector")
+    function_offset = BOOTLOADER_SELECT_FUNCTION - loader_segment.addr
+    if loader_segment.data[
+        function_offset : function_offset + len(trampoline)
+    ] != trampoline:
+        raise RuntimeError("bootloader selector function was not replaced")
     run(
         [
             sys.executable,
@@ -310,34 +393,11 @@ def verify_app(esptool: Path, path: Path, label: str) -> None:
             str(path),
         ]
     )
+
+
+def verify_app(esptool: Path, path: Path, label: str) -> None:
     if path.read_bytes()[:1] != b"\xe9":
-        raise RuntimeError(f"{label} is not an ESP32-S3 application image")
-
-
-def verify_patched_bootloader(
-    bootloader: Path,
-    selector: bytes,
-    *,
-    esptool: Path,
-    image_class,
-) -> None:
-    with bootloader.open("rb") as stream:
-        image = image_class(stream)
-    selector_segment = next(
-        (segment for segment in image.segments if segment.addr == BOOTLOADER_SELECTOR_ADDR),
-        None,
-    )
-    loader_segment = next(
-        (segment for segment in image.segments if segment.addr == BOOTLOADER_SELECT_SEGMENT_ADDR),
-        None,
-    )
-    if selector_segment is None or loader_segment is None:
-        raise RuntimeError("patched bootloader has an unexpected segment map")
-    if selector_segment.data[: len(selector)] != selector:
-        raise RuntimeError("patched bootloader does not contain the selector")
-    offset = BOOTLOADER_SELECT_FN_ADDR - loader_segment.addr
-    if loader_segment.data[offset : offset + 3] != bytes.fromhex("06e9f9"):
-        raise RuntimeError("patched bootloader does not contain the role jump")
+        raise RuntimeError(f"{label} is not an ESP application image")
     run(
         [
             sys.executable,
@@ -345,7 +405,7 @@ def verify_patched_bootloader(
             "--chip",
             "esp32s3",
             "image_info",
-            str(bootloader),
+            str(path),
         ]
     )
 
@@ -355,6 +415,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--vendor", type=Path, required=True)
+    parser.add_argument("--mklittlefs", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -364,8 +425,8 @@ def main() -> int:
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
 
+    partition_rows = read_partitions(root / "partitions" / "dual-role.csv")
     expresslrs = vendor / "ExpressLRS"
-    image_class = import_esptool(vendor)
     tx_build = expresslrs / "src" / ".pio" / "build" / "AERIALKIT_ELRS_USB_TX_REV_A3_via_UART"
     rx_build = (
         expresslrs / "src" / ".pio" / "build" / "AERIALKIT_ELRS_USB_TX_REV_A3_RX_via_UART"
@@ -374,105 +435,116 @@ def main() -> int:
         for name in ("firmware.bin", "partitions.bin", "bootloader.bin"):
             if not (build / name).is_file():
                 raise FileNotFoundError(build / name)
-    if (tx_build / "partitions.bin").read_bytes() != (rx_build / "partitions.bin").read_bytes():
+    if (tx_build / "partitions.bin").read_bytes() != (
+        rx_build / "partitions.bin"
+    ).read_bytes():
         raise RuntimeError("TX and RX builds have different partition tables")
-    if (tx_build / "bootloader.bin").read_bytes() != (rx_build / "bootloader.bin").read_bytes():
+    if (tx_build / "bootloader.bin").read_bytes() != (
+        rx_build / "bootloader.bin"
+    ).read_bytes():
         raise RuntimeError("TX and RX builds have different bootloaders")
+    verify_binary_partitions(tx_build / "partitions.bin", partition_rows)
 
-    with tempfile.TemporaryDirectory(prefix="aerialkit-dual-role-") as temporary:
-        temporary_dir = Path(temporary)
-        selector, jump = compile_bootloader_selector(
-            cache,
-            root / "bootloader",
-            temporary_dir,
-        )
-        bootloader_elf = (
+    image_class = import_esptool(vendor)
+    esptool = expresslrs / "src" / "python" / "external" / "esptool" / "esptool.py"
+    with tempfile.TemporaryDirectory(prefix="aerialkit-four-slot-") as temporary:
+        temp = Path(temporary)
+        trampoline, selector = compile_selector(cache, root / "bootloader", temp)
+        patched_bootloader = temp / "bootloader.bin"
+        patch_bootloader(
             cache
             / "framework-arduinoespressif32"
             / "tools"
             / "sdk"
             / "esp32s3"
             / "bin"
-            / "bootloader_dio_80m.elf"
-        )
-        patched_bootloader = temporary_dir / "bootloader.bin"
-        patch_bootloader(
-            bootloader_elf,
+            / "bootloader_dio_80m.elf",
+            trampoline,
             selector,
-            jump,
             patched_bootloader,
             toolchain=cache / "toolchain-xtensa-esp32s3" / "bin",
-            esptool=expresslrs / "src" / "python" / "external" / "esptool" / "esptool.py",
+            esptool=esptool,
         )
-        parts = temporary_dir / "parts"
-        parts.mkdir()
-        shutil.copy2(patched_bootloader, parts / "bootloader.bin")
-        shutil.copy2(tx_build / "partitions.bin", parts / "partitions.bin")
-        shutil.copy2(
+        verify_patched_bootloader(
+            patched_bootloader,
+            trampoline,
+            selector,
+            esptool=esptool,
+            image_class=image_class,
+        )
+
+        role_state = make_role_state(int(partition_rows["role_state"]["size"]))
+        littlefs = make_littlefs(
+            args.mklittlefs.resolve(),
+            int(partition_rows["spiffs"]["size"]),
+            temp,
+        )
+        tx = tx_build / "firmware.bin"
+        rx = rx_build / "firmware.bin"
+        verify_app(esptool, tx, "TX")
+        verify_app(esptool, rx, "RX")
+
+        merged = output / "aerialkit-rev-a3-elrs-dual-role.bin"
+        image_size, sizes = merge_image(
+            patched_bootloader,
+            tx_build / "partitions.bin",
             cache
             / "framework-arduinoespressif32"
             / "tools"
             / "partitions"
             / "boot_app0.bin",
-            parts / "ota_data.bin",
-        )
-        shutil.copy2(tx_build / "firmware.bin", parts / "tx.bin")
-        shutil.copy2(rx_build / "firmware.bin", parts / "rx.bin")
-
-        merged_name = "aerialkit-rev-a3-elrs-dual-role.bin"
-        merged = output / merged_name
-        image_size, sizes = merge_image(
-            parts / "bootloader.bin",
-            parts / "partitions.bin",
-            parts / "ota_data.bin",
-            parts / "tx.bin",
-            parts / "rx.bin",
+            tx,
+            rx,
+            role_state,
+            littlefs,
+            partition_rows,
             merged,
         )
-        verify_app(
-            expresslrs / "src" / "python" / "external" / "esptool" / "esptool.py",
-            parts / "tx.bin",
-            "TX",
-        )
-        verify_app(
-            expresslrs / "src" / "python" / "external" / "esptool" / "esptool.py",
-            parts / "rx.bin",
-            "RX",
-        )
-        verify_patched_bootloader(
-            parts / "bootloader.bin",
-            selector,
-            esptool=expresslrs / "src" / "python" / "external" / "esptool" / "esptool.py",
-            image_class=image_class,
-        )
-        verify_image(merged, sizes, vendor=vendor)
-
         merged_bytes = merged.read_bytes()
-        for offset, label in (
-            (TX_APP_ADDR, "TX"),
-            (RX_APP_ADDR, "RX"),
-        ):
-            if merged_bytes[offset : offset + 1] != b"\xe9":
-                raise RuntimeError(f"merged image has no valid {label} application")
+        if merged_bytes[int(partition_rows["tx_0"]["offset"]) :][:1] != b"\xe9":
+            raise RuntimeError("tx_0 does not contain the TX image")
+        if merged_bytes[int(partition_rows["rx_0"]["offset"]) :][:1] != b"\xe9":
+            raise RuntimeError("rx_0 does not contain the RX image")
 
         manifest = {
-            "artifact": merged_name,
-            "flash_offset": hex(BOOTLOADER_ADDR),
+            "artifact": merged.name,
+            "flash_offset": hex(BOOTLOADER_OFFSET),
             "flash_size": FLASH_SIZE,
             "image_size": image_size,
             "sha256": sha256(merged),
             "roles": {"gpio4_low": "tx", "gpio4_high": "rx"},
             "partitions": {
-                "tx_app": hex(TX_APP_ADDR),
-                "rx_app": hex(RX_APP_ADDR),
+                name: {
+                    "offset": hex(int(row["offset"])),
+                    "size": int(row["size"]),
+                }
+                for name, row in partition_rows.items()
             },
             "applications": {
-                "tx": {"size": sizes[TX_APP_ADDR], "sha256": sha256(parts / "tx.bin")},
-                "rx": {"size": sizes[RX_APP_ADDR], "sha256": sha256(parts / "rx.bin")},
+                "tx": {
+                    "slot": "tx_0",
+                    "size": sizes[int(partition_rows["tx_0"]["offset"])],
+                    "sha256": sha256(tx),
+                },
+                "rx": {
+                    "slot": "rx_0",
+                    "size": sizes[int(partition_rows["rx_0"]["offset"])],
+                    "sha256": sha256(rx),
+                },
             },
             "bootloader": {
-                "size": sizes[BOOTLOADER_ADDR],
-                "sha256": sha256(parts / "bootloader.bin"),
+                "size": sizes[BOOTLOADER_OFFSET],
+                "sha256": sha256(patched_bootloader),
+            },
+            "littlefs": {
+                "offset": partition_rows["spiffs"]["offset"],
+                "size": int(partition_rows["spiffs"]["size"]),
+                "sha256": sha256(littlefs),
+            },
+            "role_state": {
+                "offset": partition_rows["role_state"]["offset"],
+                "initial_tx_slot": "tx_0",
+                "initial_rx_slot": "rx_0",
             },
         }
         (output / "aerialkit-rev-a3-elrs-dual-role.json").write_text(

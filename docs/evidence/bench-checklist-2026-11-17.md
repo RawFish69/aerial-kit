@@ -6,6 +6,20 @@ the overnight run: no serial port, radio or flight controller was opened, and
 no RF was transmitted. Completing it would establish a bench-tested link, not
 flight readiness.
 
+## Replacement artifact gate — 2026-11-19
+
+Do not use the earlier two-slot artifact
+`5e4c3fd99679541b6c4fa10899b53335dbde64a5af40c0ae8bae156fd2e19b5d`.
+It caused an RX LittleFS format failure and invalid-image panic.
+
+Use the four-slot factory artifact whose manifest records SHA-256:
+
+```text
+033d66391ecd01d91964af802688e92102035d9624ca04bc8b81db86f593ee64
+```
+
+The replaced image must list `tx_1`, `rx_0`, `rx_1` and `role_state`.
+
 ## Stop conditions
 
 - Remove all propellers. Keep the aircraft restrained until electrical and
@@ -80,8 +94,22 @@ remains available for configuration, and repeated reset/power-cycle tests
 boot the role selected by GPIO4 every time. A role mismatch must leave both
 FEM enables low; it must not transmit or receive.
 
-The single-application Wi-Fi OTA path is not a valid update path for this
-artifact. Use a full USB/ROM flash when changing firmware.
+The factory image must report these offsets:
+
+```text
+tx_0      0x10000
+tx_1      0x2b0000
+rx_0      0x450000
+rx_1      0x590000
+role_state 0x6d0000
+spiffs    0x6d2000
+```
+
+LittleFS must mount without a format error on first boot. The factory image
+includes an empty filesystem at `0x6d2000`.
+
+Wi-Fi OTA updates the inactive slot for the actual running role. Use a full
+USB/ROM factory flash for the initial install or recovery.
 
 ## 5. Configure and bind
 

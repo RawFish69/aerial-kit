@@ -119,11 +119,62 @@ index 6b5b10d..075e648 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/src/lib/WIFI/devWIFI.cpp b/src/lib/WIFI/devWIFI.cpp
+index 94133f4..2636545 100644
+--- a/src/lib/WIFI/devWIFI.cpp
++++ b/src/lib/WIFI/devWIFI.cpp
+@@ -14,6 +14,9 @@
+ #include <esp_partition.h>
+ #include <esp_ota_ops.h>
+ #include <soc/uart_pins.h>
++#if defined(AERIALKIT_DUAL_ROLE)
++#include "aerialkit_dual_role_ota.h"
++#endif
+ #else
+ #include <ESP8266WiFi.h>
+ #include <ESP8266mDNS.h>
+@@ -809,9 +812,16 @@ static void corsPreflightResponse(AsyncWebServerRequest *request) {
+ }
+
+ static void WebUploadResponseHandler(AsyncWebServerRequest *request) {
++  bool role_committed = true;
+   if (target_seen || Update.hasError()) {
++    const bool update_ok = !Update.hasError() && Update.end();
++    #if defined(AERIALKIT_DUAL_ROLE)
++    if (update_ok) {
++      role_committed = aerialkit_dual_role_commit_ota();
++    }
++    #endif
+     String msg;
+-    if (!Update.hasError() && Update.end()) {
++    if (update_ok && role_committed) {
+       DBGLN("Update complete, rebooting");
+       msg = String("{\"status\": \"ok\", \"msg\": \"Update complete. ");
+       #if defined(TARGET_RX)
+@@ -824,6 +834,8 @@ static void WebUploadResponseHandler(AsyncWebServerRequest *request) {
+       StreamString p = StreamString();
+       if (Update.hasError()) {
+         Update.printError(p);
++      } else if (!role_committed) {
++        p.println("Could not commit the selected firmware slot!");
+       } else {
+         p.println("Not enough data uploaded!");
+       }
+@@ -846,7 +858,9 @@ static void WebUploadResponseHandler(AsyncWebServerRequest *request) {
+ }
+
+ static void WebUploadDataHandler(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
++  #if !defined(AERIALKIT_DUAL_ROLE)
+   force_update = force_update || request->hasArg("force");
++  #endif
+   if (index == 0) {
+     #if defined(TARGET_TX) && defined(PLATFORM_ESP32)
+       WifiJoystick::StopJoystickService();
 diff --git a/src/targets/esp32s3-rx.ini b/src/targets/esp32s3-rx.ini
 index 34b76be..1cfb6ae 100644
 --- a/src/targets/esp32s3-rx.ini
 +++ b/src/targets/esp32s3-rx.ini
-@@ -11,6 +11,19 @@ build_flags =
+@@ -11,6 +11,22 @@ build_flags =
  	${env_common_esp32s3rx.build_flags}
  	${radio_SX128X.build_flags}
 
@@ -139,6 +190,9 @@ index 34b76be..1cfb6ae 100644
 +	-D Regulatory_Domain_ISM_2400
 +	-D WS2812_BRIGHTNESS=26
 +	-D AERIALKIT_ROLE_SELECT_PIN=4
++	-D AERIALKIT_DUAL_ROLE=1
++	-include ${PROJECT_DIR}/include/aerialkit_dual_role_ota.h
++board_build.partitions = ${PROJECT_DIR}/aerialkit_dual_role.csv
 +
  [env:Unified_ESP32S3_2400_RX_via_BetaflightPassthrough]
  extends = env:Unified_ESP32S3_2400_RX_via_UART
@@ -147,7 +201,7 @@ diff --git a/src/targets/esp32s3-tx.ini b/src/targets/esp32s3-tx.ini
 index 1823a65..30d358c 100644
 --- a/src/targets/esp32s3-tx.ini
 +++ b/src/targets/esp32s3-tx.ini
-@@ -12,6 +12,19 @@ build_flags =
+@@ -12,6 +12,22 @@ build_flags =
  	${env_common_esp32s3tx.build_flags}
  	${radio_SX128X.build_flags}
 
@@ -163,6 +217,9 @@ index 1823a65..30d358c 100644
 +	-D Regulatory_Domain_ISM_2400
 +	-D WS2812_BRIGHTNESS=26
 +	-D AERIALKIT_ROLE_SELECT_PIN=4
++	-D AERIALKIT_DUAL_ROLE=1
++	-include ${PROJECT_DIR}/include/aerialkit_dual_role_ota.h
++board_build.partitions = ${PROJECT_DIR}/aerialkit_dual_role.csv
 +
  [env:Unified_ESP32S3_2400_TX_via_UART]
  extends = env:Unified_ESP32S3_2400_TX_via_ETX
