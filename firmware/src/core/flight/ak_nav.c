@@ -14,6 +14,7 @@
  * throttle. A little above the proportional gain, so a steady rate can be held
  * on the integral alone with the error back at zero. */
 #define AK_QUAD_CLIMB_I_PER_M_S 0.12f
+#define AK_QUAD_CLIMB_DEADBAND 0.05f
 
 void ak_nav_init(ak_nav_t *nav)
 {
@@ -574,9 +575,13 @@ static int32_t quad_target_altitude(const ak_nav_t *nav)
 static float quad_throttle(ak_nav_t *nav, float desired_climb, float dt_s)
 {
     float error = desired_climb - nav->climb_m_s;
-    float i_next = nav->climb_i + nav->quad_alt_ki * error * dt_s;
+    float integrated_error = ak_absf(error) > AK_QUAD_CLIMB_DEADBAND
+                                ? error : 0.0f;
+    float i_next = nav->climb_i +
+                   nav->quad_alt_ki * integrated_error * dt_s;
     float i_limit = AK_QUAD_CLIMB_I_PER_M_S *
-                    (desired_climb < 0.0f ? -desired_climb : desired_climb);
+                    (desired_climb < 0.0f ? -desired_climb : desired_climb) +
+                    AK_NAV_QUAD_CLIMB_I_FLOOR;
     float out;
 
     i_next = ak_clampf(i_next, -i_limit, i_limit);
@@ -1197,7 +1202,9 @@ int ak_nav_velocity_step(ak_nav_t *nav, const ak_nav_input_t *in,
     if (!in->yaw_aligned) {
         if (ak_absf(nav->velocity_n_mps) > 0.5f ||
             ak_absf(nav->velocity_e_mps) > 0.5f) {
-            out->pitch = -AK_QUAD_NUDGE_TILT;
+            float speed = ak_sqrtf(vn * vn + ve * ve);
+            float nudge = (speed - AK_NAV_QUAD_ALIGN_SPEED_MPS) * 0.25f;
+            out->pitch = ak_clampf(nudge, -AK_QUAD_NUDGE_TILT, 0.15f);
         }
         return 1;
     }

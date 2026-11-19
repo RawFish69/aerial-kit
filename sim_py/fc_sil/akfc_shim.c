@@ -252,3 +252,6 @@ int akfc_track_aligned(const akfc_t *fc) { return fc->flight.est.track_aligned; 
 
 /* The navigator's hover throttle (parameter rth_cruise): per airframe. */
 void akfc_set_nav_cruise(akfc_t *fc, float throttle) { fc->nav.cruise = throttle; }
+
+/* The zero-climb trim the vertical loop has learned, for host regressions. */
+float akfc_nav_climb_integral(const akfc_t *fc) { return fc->nav.climb_i; }

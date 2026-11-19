@@ -54,11 +54,16 @@ typedef struct {
     int   converged; /* set once the accelerometer has been used enough times */
     int   accel_used;
     /* How long the ground track has been agreeing with the yaw estimate, and
-     * whether that is long enough to steer by. The position controller asks:
+     * whether that is long enough to steer by. Agreement means both a small
+     * residual and a course that is not swinging: time spent merely moving is
+     * not evidence that the heading is right. The position controller asks:
      * a world-frame error turned into a body-frame tilt with a yaw that is 90
      * degrees out flies the aircraft confidently in the wrong direction. */
     float track_aligned_s;
     int   track_aligned;
+    float track_last_course;
+    int   track_have_course;
+    float track_misaligned_s;
 } ak_estimator_t;
 
 void ak_estimator_init(ak_estimator_t *est, float tau);

@@ -188,6 +188,56 @@ int ak_flight_selftest(ak_printf_fn out)
               measured_north > 0.8f && measured_north < 1.2f, "");
     }
 
+    {
+        static ak_estimator_t heading_est;
+        float course = AK_PI * 0.5f;
+
+        ak_estimator_init(&heading_est, 0.5f);
+        for (int i = 0; i < 100; i++) {
+            ak_estimator_aid_heading(&heading_est, course, 5.0f, 0.02f);
+        }
+        check(&ctx, "heading alignment needs a small residual, not only time",
+              heading_est.track_aligned == 0, "");
+        for (int i = 0; i < 700; i++) {
+            ak_estimator_aid_heading(&heading_est, course, 5.0f, 0.02f);
+        }
+        check(&ctx, "heading alignment completes after the estimate converges",
+              heading_est.track_aligned == 1 &&
+                  ak_absf(ak_wrap_pi(course - heading_est.yaw)) <
+                      ak_deg2rad(12.0f),
+              "");
+    }
+
+    {
+        static ak_nav_t trim_nav;
+        ak_nav_velocity_setpoint_t setpoint = {
+            .north_mps = 0.0f,
+            .east_mps = 0.0f,
+            .climb_mps = 0.0f,
+            .yaw_rate_rps = 0.0f,
+        };
+        ak_nav_input_t trim_in = {0};
+        ak_rc_command_t command;
+
+        ak_nav_init(&trim_nav);
+        ak_nav_set_profile(&trim_nav, AK_NAV_PROFILE_QUAD);
+        trim_nav.cruise = 0.55f;
+        trim_in.velocity_valid = 1;
+        trim_in.yaw_aligned = 1;
+        trim_in.max_tilt_rad = ak_deg2rad(35.0f);
+        trim_in.dt_s = 0.02f;
+        ak_nav_velocity_set(&trim_nav, &setpoint);
+        for (int i = 0; i < 150; i++) {
+            trim_in.alt_mm = 10000 + (int32_t)(i * 52);
+            ak_nav_velocity_step(&trim_nav, &trim_in, &command);
+        }
+        check(&ctx, "zero-climb hold trims a cruise offset",
+              trim_nav.climb_i < -0.10f &&
+                  ak_absf(trim_nav.climb_i) <=
+                      AK_NAV_QUAD_CLIMB_I_FLOOR + 0.001f,
+              "");
+    }
+
     /* CRSF barometer: a frame whose bytes can be checked by hand. 123.4 m is
      * 1234 dm + 10000 = 11234 (0x2be2), and -2.5 m/s is -250 cm/s (0xff06).
      * The address, length and crc are part of the check too. */
