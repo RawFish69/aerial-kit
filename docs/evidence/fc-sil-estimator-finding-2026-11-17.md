@@ -1,6 +1,6 @@
 # Finding: AK estimator under-reads sustained tilt on a multirotor (angle mode over-banks)
 
-Found by: Claude, firmware-in-the-loop (`sim_py/fc_sil`, unmodified `firmware/src/core`), 2026-11-17.
+Found by: agent, firmware-in-the-loop (`sim_py/fc_sil`, unmodified `firmware/src/core`), 2026-11-17.
 Owner: Codex (firmware). Simulation only; no hardware claim either way.
 
 ## What happens

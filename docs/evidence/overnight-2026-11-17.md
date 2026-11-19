@@ -10,7 +10,7 @@ Branch: `overnight-2026-11-17`, created from `sim-airframes` at
 `86056707617108c3d65f1eef53ce035b2ea8bbd0`.
 
 No physical hardware was opened, flashed or commanded. No RF was transmitted.
-No Claude-owned simulator file was edited or staged. No flight-readiness claim
+No sim-agent-owned simulator file was edited or staged. No flight-readiness claim
 is made.
 
 ### Milestones
@@ -92,7 +92,7 @@ continuity check, an antenna or 50 ohm load, the non-RF diagnostic image and
 lowest configured RF power. Then verify image selection, binding, the J3 UART
 host link, and finally the real FC failsafe with props removed.
 
-No Claude-owned change request is required. The existing concurrent
+No sim-agent-owned change request is required. The existing concurrent
 multirotor-backend auto-land behavior was used as-is and remains unstaged.
 
 ## Progress log
@@ -143,7 +143,7 @@ Tests:
 - `./scripts/test_ros2.sh`: **204 passed**. Three warnings: two deprecated
   Python `sre_*` modules in ROS dependencies and the unregistered `slow`
   pytest mark.
-- After preserving concurrent changes from the Claude-owned MuJoCo work, the
+- After preserving concurrent changes from the sim-agent-owned MuJoCo work, the
   pre-commit rerun produced **517 passed, 84 subtests passed** and
   **205 passed** respectively. The additional tests came from those
   concurrent simulator changes; no owner-protected file was staged or edited

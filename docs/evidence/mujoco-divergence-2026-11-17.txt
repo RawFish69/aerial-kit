@@ -49,7 +49,7 @@ Wings (same weakness, different fix)
   new tumble test for both wings.
 
 Multirotor Gazebo demos, re-validated in isolation
-  (ROS_DOMAIN_ID=88, GZ_PARTITION=claude88; DeepSeek's earlier run had been
+  (ROS_DOMAIN_ID=88, a separate GZ_PARTITION; DeepSeek's earlier run had been
   disturbed by a concurrent teleop test)
   ros2 launch sim_gazebo multirotor_gazebo_demo.launch.py headless:=true start_demo:=true airframe:=<a>
     research_hex   pose stream ok, Demo: disarm, closest 0.55 m, finite
