@@ -46,6 +46,8 @@ class _SerialPortProtocol(Protocol):
     in_waiting: int
     timeout: float
 
+    def open(self) -> None: ...
+
     def read(self, size: int) -> bytes: ...
 
     def write(self, data: bytes) -> int: ...
@@ -264,12 +266,16 @@ class SerialTransport(Link):
         reconnect: bool = True,
         reconnect_delay: float = 0.25,
         auto_open: bool = True,
+        dtr: bool = False,
+        rts: bool = False,
     ) -> None:
         super().__init__(timeout=timeout)
         self.port_name = port
         self.baudrate = int(baudrate)
         self.reconnect = bool(reconnect)
         self.reconnect_delay = max(0.0, float(reconnect_delay))
+        self.dtr = bool(dtr)
+        self.rts = bool(rts)
         self._port: _SerialPortProtocol | None = None
         if auto_open:
             self.open()
@@ -290,14 +296,26 @@ class SerialTransport(Link):
             raise ImportError(
                 "SerialTransport requires pyserial; install aerial-kit[radio]"
             ) from exc
-        self._port = cast(_SerialPortProtocol, serial.Serial(
-            port=self.port_name,
-            baudrate=self.baudrate,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=self.timeout,
-        ))
+        settings = {
+            "baudrate": self.baudrate,
+            "bytesize": serial.EIGHTBITS,
+            "parity": serial.PARITY_NONE,
+            "stopbits": serial.STOPBITS_ONE,
+            "timeout": self.timeout,
+        }
+        serial_for_url = getattr(serial, "serial_for_url", None)
+        if callable(serial_for_url):
+            handle = serial_for_url(
+                self.port_name, do_not_open=True, **settings
+            )
+            handle.dtr = self.dtr
+            handle.rts = self.rts
+            handle.open()
+        else:
+            handle = serial.Serial(port=self.port_name, **settings)
+            handle.dtr = self.dtr
+            handle.rts = self.rts
+        self._port = cast(_SerialPortProtocol, handle)
 
     def _reopen(self) -> None:
         self._close_port()

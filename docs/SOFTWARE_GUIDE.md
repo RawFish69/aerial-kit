@@ -556,6 +556,9 @@ setup is in [mavlink_bridge/README.md](../ros2_ws/src/mavlink_bridge/README.md).
   transport. Its `transport:=ros` mode feeds the SIL radio below. Channel mapping,
   arming sequence, command-frame conversion, reconnect behavior, telemetry topics
   and failsafe behavior are in [HARDWARE.md](HARDWARE.md).
+  `SerialTransport` deasserts DTR and RTS before opening, so it does not
+  deliberately reset native-USB CRSF endpoints. Other host tools should do the
+  same and resynchronize on CRSF sync byte `0xC8` after any boot or replay.
 - `hw_state_estimator_node` runs an **INS EKF** by default (`estimator: ekf`, from
   `aerial_kit.estimation`). It estimates position, velocity, accelerometer bias and baro
   offset, rejects GPS outliers with a chi-square gate, and publishes covariances. Set

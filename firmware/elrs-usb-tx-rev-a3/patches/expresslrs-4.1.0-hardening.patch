@@ -1,0 +1,272 @@
+diff --git a/src/lib/LED/esp32rgb.h b/src/lib/LED/esp32rgb.h
+index 1111111..2222222 100644
+--- a/src/lib/LED/esp32rgb.h
++++ b/src/lib/LED/esp32rgb.h
+@@ -1,5 +1,8 @@
+ #pragma once
+ #include <Arduino.h>
++#if defined(AERIALKIT_DUAL_ROLE)
++#include <esp32-hal-rmt.h>
++#endif
+ 
+ class RgbColor
+ {
+@@ -27,6 +31,9 @@ private:
+     int num_leds;
+     int gpio_pin;
+ 
++    mutable bool i2s_ready = false;
++    mutable rmt_obj_t *rmt_fallback = nullptr;
++
+     friend class ESP32LedDriverGRB;
+     friend class ESP32LedDriverRGB;
+ };
+diff --git a/src/lib/LED/esp32rgb.cpp b/src/lib/LED/esp32rgb.cpp
+index 3333333..4444444 100644
+--- a/src/lib/LED/esp32rgb.cpp
++++ b/src/lib/LED/esp32rgb.cpp
+@@ -43,6 +43,12 @@ ESP32LedDriver::ESP32LedDriver(const int count, const int pin) : num_leds(count),
+ 
+ ESP32LedDriver::~ESP32LedDriver()
+ {
++#if defined(AERIALKIT_DUAL_ROLE)
++    if (rmt_fallback != nullptr)
++    {
++        (void)rmtDeinit(rmt_fallback);
++    }
++#endif
+     heap_caps_free(out_buffer);
+ }
+ 
+@@ -64,21 +68,80 @@ void ESP32LedDriver::Begin() const
+         .data_in_num = I2S_PIN_NO_CHANGE,
+     };
+ 
+-    i2s_driver_install(I2S_NUM, &i2s_config, 0, nullptr);
++    esp_err_t status = i2s_driver_install(I2S_NUM, &i2s_config, 0, nullptr);
+     delay(1); // without this it fails to boot and gets stuck!
+-    i2s_set_pin(I2S_NUM, &pin_config);
+-    i2s_zero_dma_buffer(I2S_NUM);
+-    i2s_stop(I2S_NUM);
++    if (status == ESP_OK)
++    {
++        status = i2s_set_pin(I2S_NUM, &pin_config);
++    }
++    if (status == ESP_OK)
++    {
++        status = i2s_zero_dma_buffer(I2S_NUM);
++    }
++    if (status == ESP_OK)
++    {
++        status = i2s_stop(I2S_NUM);
++    }
++    i2s_ready = status == ESP_OK;
++#if defined(AERIALKIT_DUAL_ROLE)
++    if (!i2s_ready)
++    {
++        (void)i2s_driver_uninstall(I2S_NUM);
++        rmt_fallback = rmtInit(gpio_pin, RMT_TX_MODE, RMT_MEM_64);
++        if (rmt_fallback != nullptr &&
++            rmtSetTick(rmt_fallback, 100) <= 0.0f)
++        {
++            (void)rmtDeinit(rmt_fallback);
++            rmt_fallback = nullptr;
++        }
++    }
++#endif
+ }
+ 
+ void ESP32LedDriver::Show() const
+ {
+     size_t bytes_written = 0;
+-    i2s_stop(I2S_NUM);
+-    if (i2s_write(I2S_NUM, out_buffer, out_buffer_size, &bytes_written, 0) == ESP_OK)
++    if (i2s_ready &&
++        i2s_stop(I2S_NUM) == ESP_OK &&
++        i2s_write(I2S_NUM, out_buffer, out_buffer_size, &bytes_written, 0) == ESP_OK &&
++        bytes_written == out_buffer_size &&
++        i2s_start(I2S_NUM) == ESP_OK)
+     {
+-        i2s_start(I2S_NUM);
++        return;
++    }
++    i2s_ready = false;
++#if defined(AERIALKIT_DUAL_ROLE)
++    if (rmt_fallback == nullptr)
++    {
++        rmt_fallback = rmtInit(gpio_pin, RMT_TX_MODE, RMT_MEM_64);
++        if (rmt_fallback != nullptr &&
++            rmtSetTick(rmt_fallback, 100) <= 0.0f)
++        {
++            (void)rmtDeinit(rmt_fallback);
++            rmt_fallback = nullptr;
++        }
++    }
++    if (rmt_fallback != nullptr)
++    {
++        const size_t item_count = static_cast<size_t>(num_leds) * 24;
++        auto *items = static_cast<rmt_data_t *>(
++            heap_caps_malloc(item_count * sizeof(rmt_data_t), MALLOC_CAP_8BIT));
++        if (items == nullptr)
++        {
++            return;
++        }
++        for (size_t index = 0; index < item_count; ++index)
++        {
++            const bool high = out_buffer[index] == 0xFFE0;
++            items[index].level0 = 1;
++            items[index].duration0 = high ? 8 : 4;
++            items[index].level1 = 0;
++            items[index].duration1 = high ? 4 : 8;
++        }
++        (void)rmtWriteBlocking(rmt_fallback, items, item_count);
++        heap_caps_free(items);
++    }
++#endif
+-    }
+ }
+ 
+ void ESP32LedDriver::ClearTo(const RgbColor color, const int first, const int last)
+diff --git a/src/src/rx-serial/devSerialIO.cpp b/src/src/rx-serial/devSerialIO.cpp
+index 5555555..6666666 100644
+--- a/src/src/rx-serial/devSerialIO.cpp
++++ b/src/src/rx-serial/devSerialIO.cpp
+@@ -261,5 +261,7 @@ void sendImmediateRC()
+ {
+-    if (*(serial0.io) != nullptr && (*(serial0.io))->sendImmediateRC() && connectionState != serialUpdate)
++    if (aerialkit_serial_io_ready(serial0.io) &&
++        (*(serial0.io))->sendImmediateRC() &&
++        connectionState != serialUpdate)
+     {
+         const bool missed = serial0.frameMissed;
+         serial0.frameMissed = false;
+@@ -268,7 +270,9 @@ void sendImmediateRC()
+         (*(serial0.io))->sendRCFrame(sendChannels, missed, ChannelData);
+     }
+ #if defined(PLATFORM_ESP32)
+-    if (*(serial1.io) != nullptr && (*(serial1.io))->sendImmediateRC() && connectionState != serialUpdate)
++    if (aerialkit_serial_io_ready(serial1.io) &&
++        (*(serial1.io))->sendImmediateRC() &&
++        connectionState != serialUpdate)
+     {
+         const bool missed = serial1.frameMissed;
+         serial1.frameMissed = false;
+@@ -297,12 +301,12 @@ void handleSerialIO()
+ {
+     // still get telemetry and send link stats if there's no model match
+-    if (*(serial0.io) != nullptr)
++    if (aerialkit_serial_io_ready(serial0.io))
+     {
+         (*(serial0.io))->processSerialInput();
+         (*(serial0.io))->sendQueuedData((*(serial0.io))->getMaxSerialWriteSize());
+     }
+ #if defined(PLATFORM_ESP32)
+-    if (*(serial1.io) != nullptr)
++    if (aerialkit_serial_io_ready(serial1.io))
+     {
+         (*(serial1.io))->processSerialInput();
+         (*(serial1.io))->sendQueuedData((*(serial1.io))->getMaxSerialWriteSize());
+diff --git a/src/src/rx_main.cpp b/src/src/rx_main.cpp
+index 7777777..8888888 100644
+--- a/src/src/rx_main.cpp
++++ b/src/src/rx_main.cpp
+@@ -3,4 +3,7 @@
+ #include "rxtx_common.h"
++#if defined(AERIALKIT_DUAL_ROLE)
++#include "aerialkit_boot_diagnostics.h"
++#endif
+ 
+ #include "crc.h"
+ #include "stubborn_sender.h"
+@@ -1995,20 +1999,12 @@ void resetConfigAndReboot()
+ 
+ void setup()
+ {
++#if defined(AERIALKIT_DUAL_ROLE)
++    aerialkitBootPreflight();
++#endif
+     if (!options_init())
+     {
+-        // In the failure case we set the logging to the null logger so nothing crashes
+-        // if it decides to log something
+-        BackpackOrLogStrm = new NullStream();
+-
+-        // Register the WiFi with the framework
+-        static device_affinity_t wifi_device[] = {
+-            {&WIFI_device, 1}
+-        };
+-        devicesRegister(wifi_device, ARRAY_SIZE(wifi_device));
+-        devicesInit();
+-
+-        setConnectionState(hardwareUndefined);
++        aerialkitHardwareUndefinedFault();
+     }
+     else
+     {
+diff --git a/src/src/tx_main.cpp b/src/src/tx_main.cpp
+index 9999999..aaaaaaa 100644
+--- a/src/src/tx_main.cpp
++++ b/src/src/tx_main.cpp
+@@ -1,4 +1,7 @@
+ #include "rxtx_common.h"
++#if defined(AERIALKIT_DUAL_ROLE)
++#include "aerialkit_boot_diagnostics.h"
++#endif
+ 
+ #include "CRSFHandset.h"
+ #include "CRSFParameters.h"
+@@ -1341,15 +1344,7 @@ bool setupHardwareFromOptions()
+ {
+   if (!options_init())
+   {
+-    // Register the WiFi with the framework
+-    static device_affinity_t wifi_device[] = {
+-        {&WIFI_device, 1}
+-    };
+-    devicesRegister(wifi_device, ARRAY_SIZE(wifi_device));
+-    devicesInit();
+-
+-    setConnectionState(hardwareUndefined);
+-    return false;
++    aerialkitHardwareUndefinedFault();
+   }
+   return true;
+ }
+@@ -1419,6 +1414,9 @@ static void checkSendLinkStatsToHandset(uint32_t now)
+ 
+ void setup()
+ {
++#if defined(AERIALKIT_DUAL_ROLE)
++  aerialkitBootPreflight();
++#endif
+   if (setupHardwareFromOptions())
+   {
+     setupTarget();
+diff --git a/src/targets/esp32s3-rx.ini b/src/targets/esp32s3-rx.ini
+index bbbbbbb..ccccccc 100644
+--- a/src/targets/esp32s3-rx.ini
++++ b/src/targets/esp32s3-rx.ini
+@@ -21,7 +21,9 @@ build_flags =
+ 	${env:Unified_ESP32S3_2400_RX_via_UART.build_flags}
+ 	-D Regulatory_Domain_ISM_2400
+ 	-D WS2812_BRIGHTNESS=26
++	-D CORE_DEBUG_LEVEL=0
+ 	-D AERIALKIT_ROLE_SELECT_PIN=4
+ 	-D AERIALKIT_DUAL_ROLE=1
+ 	-include ${PROJECT_DIR}/include/aerialkit_dual_role_ota.h
++	-include ${PROJECT_DIR}/include/aerialkit_boot_diagnostics.h
+ board_build.partitions = ${PROJECT_DIR}/aerialkit_dual_role.csv
+diff --git a/src/targets/esp32s3-tx.ini b/src/targets/esp32s3-tx.ini
+index ddddddd..eeeeeee 100644
+--- a/src/targets/esp32s3-tx.ini
++++ b/src/targets/esp32s3-tx.ini
+@@ -22,7 +22,9 @@ build_flags =
+ 	${env:Unified_ESP32S3_2400_TX_via_ETX.build_flags}
+ 	-D Regulatory_Domain_ISM_2400
+ 	-D WS2812_BRIGHTNESS=26
++	-D CORE_DEBUG_LEVEL=0
+ 	-D AERIALKIT_ROLE_SELECT_PIN=4
+ 	-D AERIALKIT_DUAL_ROLE=1
+ 	-include ${PROJECT_DIR}/include/aerialkit_dual_role_ota.h
++	-include ${PROJECT_DIR}/include/aerialkit_boot_diagnostics.h
+ board_build.partitions = ${PROJECT_DIR}/aerialkit_dual_role.csv

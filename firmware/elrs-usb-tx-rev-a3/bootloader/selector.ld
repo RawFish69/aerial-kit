@@ -2,7 +2,7 @@ ENTRY(aerialkit_select_boot_partition)
 
 SECTIONS
 {
-    .trampoline 0x403cd868 : {
+    .trampoline @BOOTLOADER_SELECT_FUNCTION@ : {
         KEEP(*(.trampoline))
     }
 
@@ -18,5 +18,5 @@ SECTIONS
     }
 }
 
-bootloader_mmap = 0x403cd374;
-bootloader_munmap = 0x403cd3dc;
+bootloader_mmap = @BOOTLOADER_MMAP@;
+bootloader_munmap = @BOOTLOADER_MUNMAP@;

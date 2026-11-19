@@ -20,8 +20,8 @@ roles while retaining the UART path.
 
 ## LED diagnostics
 
-The WS2812 initializes a short role heartbeat before the normal ExpressLRS
-state machine:
+Before target options are loaded, both FEM enables are driven low and the
+WS2812 emits a short role heartbeat over RMT:
 
 - TX: one green pulse.
 - RX: two blue pulses.
@@ -29,17 +29,32 @@ state machine:
 The existing disconnected, bind and connected patterns follow. The global
 WS2812 brightness remains 26/255 (about 10%).
 
+A role mismatch or missing hardware layout holds both FEM enables low and
+enters a slow red fault pattern. Hardware-layout failure also prints
+`AK-FAULT hardware layout not loaded` periodically on native USB.
+
+## Bootloader correction
+
+The first factory image paired a DIO bootloader with applications linked
+against the QIO SDK. It produced invalid flash reads, LittleFS failures and an
+RX panic loop. The assembler now derives the SDK memory type from each
+application map, selects `bootloader_qio_80m.elf`, derives all selector symbols
+from that ELF, and requires the unpatched generated bootloader to match
+PlatformIO's `bootloader.bin` byte-for-byte.
+
 ## Validation
 
 - ExpressLRS 4.1.0 TX build completed with the native USB bridge.
 - ExpressLRS 4.1.0 RX build completed with the native USB bridge.
-- Native USB transport tests: 3 passed (RC input, telemetry output routing,
-  telemetry input).
-- Role/factory-image tests: 5 passed, including CRSF channel framing.
+- Native USB/CRSF tests: 6 passed (RC input, telemetry output routing,
+  telemetry input, device information, heartbeat/role logic and serial guards).
+- Role/selector/factory-image tests: 8 passed, including independent QIO
+  selection, a deliberate bootloader-mode mismatch, CRSF framing and appended
+  target trailers.
 - Factory artifact: 8,331,264 bytes.
 - SHA-256:
-  `7210b9ff0600c2458e3fc3f429c0bbb6a9d282f1ddbe5ad4bd9c0bcb23a6cca7`.
+  `aef3e31a4d89e662af275439dd8cf11da3f11807164455293747f5de69a21f77`.
 - No physical board was flashed or powered during this code change.
 
-The hardware run is gated on the replacement artifact hash and the USB-only
-bench checklist.
+The earlier `7210…` image is invalid and must not be flashed. Hardware
+acceptance remains gated on the `aef3…` image and the USB-only bench checklist.

@@ -124,6 +124,76 @@ def test_serial_transport_is_lazy_and_reconnects(monkeypatch: pytest.MonkeyPatch
     transport.close()
 
 
+def test_serial_transport_deasserts_modem_lines_before_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, object]] = []
+
+    class NoTogglePort:
+        def __init__(self) -> None:
+            self.is_open = False
+            self.in_waiting = 0
+            self.timeout = 0.0
+            self._dtr = True
+            self._rts = True
+
+        @property
+        def dtr(self) -> bool:
+            return self._dtr
+
+        @dtr.setter
+        def dtr(self, value: bool) -> None:
+            events.append(("dtr", value))
+            self._dtr = value
+
+        @property
+        def rts(self) -> bool:
+            return self._rts
+
+        @rts.setter
+        def rts(self, value: bool) -> None:
+            events.append(("rts", value))
+            self._rts = value
+
+        def open(self) -> None:
+            assert not self.dtr
+            assert not self.rts
+            events.append(("open", True))
+            self.is_open = True
+
+        def close(self) -> None:
+            self.is_open = False
+
+        def read(self, size: int) -> bytes:
+            return b""
+
+        def write(self, data: bytes) -> int:
+            return len(data)
+
+    def serial_for_url(port: str, **kwargs: object) -> NoTogglePort:
+        assert kwargs.pop("do_not_open") is True
+        instance = NoTogglePort()
+        events.append(("port", port))
+        return instance
+
+    fake = SimpleNamespace(
+        serial_for_url=serial_for_url,
+        EIGHTBITS=8,
+        PARITY_NONE="N",
+        STOPBITS_ONE=1,
+    )
+    monkeypatch.setitem(sys.modules, "serial", fake)
+    transport = SerialTransport("/dev/radio", auto_open=False)
+    transport.open()
+    assert events == [
+        ("port", "/dev/radio"),
+        ("dtr", False),
+        ("rts", False),
+        ("open", True),
+    ]
+    transport.close()
+
+
 def test_serial_transport_requires_optional_dependency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
