@@ -55,6 +55,8 @@ jobs:
         run: python -m pytest test_benchmarks.py -q
       - name: CRSF barometer codec
         run: python -m pytest test_crsf_barometer.py -q
+      - name: Protocol vectors
+        run: python protocols/check_vectors.py
 
   ros-packages:
     name: ROS 2 package logic (no ROS)

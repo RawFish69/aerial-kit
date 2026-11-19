@@ -1,0 +1,90 @@
+{
+  "cases": [
+    {
+      "akp_hex": "aa550101009dc8",
+      "crsf_frame_types": [
+        122,
+        122
+      ],
+      "crsf_frames_hex": [
+        "c80c7aeac8a1074007aa55010137",
+        "c80b7aeac8a1078107009dc893"
+      ],
+      "delivery_order": [
+        1,
+        0
+      ],
+      "name": "hello_uplink_reassembled_out_of_order",
+      "reassembled_hex": "aa550101009dc8",
+      "segments_hex": [
+        "a1074007aa550101",
+        "a1078107009dc8"
+      ],
+      "session": 7
+    },
+    {
+      "akp_hex": "aa550101009dc8",
+      "crsf_frame_types": [
+        123
+      ],
+      "crsf_frames_hex": [
+        "ea0f7bc8eaa107c007aa550101009dc8a2"
+      ],
+      "delivery_order": [
+        0
+      ],
+      "name": "hello_downlink_single_frame",
+      "reassembled_hex": "aa550101009dc8",
+      "segments_hex": [
+        "a107c007aa550101009dc8"
+      ],
+      "session": 7
+    },
+    {
+      "akp_hex": "aa550101009dc8",
+      "crsf_frame_types": [
+        122,
+        122
+      ],
+      "crsf_frames_hex": [
+        "c80c7aeac8a1074007aa55010137",
+        "c80b7aeac8a1078107009dc893"
+      ],
+      "delivery_order": [
+        1
+      ],
+      "expected_error": "missing-first-segment",
+      "name": "lost_first_segment",
+      "segments_hex": [
+        "a1074007aa550101",
+        "a1078107009dc8"
+      ],
+      "session": 7
+    }
+  ],
+  "protocol": "akp-over-crsf",
+  "schema_version": 1,
+  "source": {
+    "akp": "firmware/src/core/ak_proto.h",
+    "crsf": "ExpressLRS 4.1.0 src/include/crsf_protocol.h MSP frame types"
+  },
+  "tunnel": {
+    "downlink_max_chunk_bytes": 54,
+    "forwarding_status": "candidate; verify TX/RX MSP forwarding before Phase 5 lands",
+    "header_fields": [
+      "magic",
+      "session",
+      "seq_flags",
+      "total_length"
+    ],
+    "magic": 161,
+    "seq_flags": {
+      "first": 64,
+      "last": 128,
+      "sequence_mask": 63
+    },
+    "session_bytes": 1,
+    "total_length_bytes": 1,
+    "uplink_max_chunk_bytes": 4
+  }
+}

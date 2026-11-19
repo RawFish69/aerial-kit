@@ -1,0 +1,401 @@
+{
+  "cases": [
+    {
+      "command": 1,
+      "decoded": {},
+      "name": "request_hello",
+      "payload_hex": "",
+      "raw_hex": "aa550101009dc8",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 2,
+      "decoded": {
+        "index": 0
+      },
+      "name": "request_param_get",
+      "payload_hex": "00",
+      "raw_hex": "aa550102010025af",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 3,
+      "decoded": {
+        "index": 0,
+        "value": "0.250"
+      },
+      "name": "request_param_set",
+      "payload_hex": "00302e32353000",
+      "raw_hex": "aa5501030700302e32353000f166",
+      "response": false,
+      "write": true
+    },
+    {
+      "command": 4,
+      "decoded": {},
+      "name": "request_param_save",
+      "payload_hex": "",
+      "raw_hex": "aa550104006837",
+      "response": false,
+      "write": true
+    },
+    {
+      "command": 5,
+      "decoded": {},
+      "name": "request_status",
+      "payload_hex": "",
+      "raw_hex": "aa550105005904",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 6,
+      "decoded": {},
+      "name": "request_log_info",
+      "payload_hex": "",
+      "raw_hex": "aa550106000a51",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 7,
+      "decoded": {
+        "index": 0
+      },
+      "name": "request_log_get",
+      "payload_hex": "0000",
+      "raw_hex": "aa5501070200001084",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 8,
+      "decoded": {
+        "rate_hz": 10
+      },
+      "name": "request_telemetry",
+      "payload_hex": "0a",
+      "raw_hex": "aa550108010aaec9",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 9,
+      "decoded": {
+        "source": 0
+      },
+      "name": "request_log_source",
+      "payload_hex": "00",
+      "raw_hex": "aa5501090100d45f",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 10,
+      "decoded": {
+        "first": 0
+      },
+      "name": "request_param_info",
+      "payload_hex": "00",
+      "raw_hex": "aa55010a01008406",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 11,
+      "decoded": {
+        "index": 0,
+        "offset": 0
+      },
+      "name": "request_param_help",
+      "payload_hex": "000000",
+      "raw_hex": "aa55010b03000000933c",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 12,
+      "decoded": {
+        "index": 0,
+        "mode": "one"
+      },
+      "name": "request_param_default",
+      "payload_hex": "0100",
+      "raw_hex": "aa55010c0201003ea9",
+      "response": false,
+      "write": true
+    },
+    {
+      "command": 13,
+      "decoded": {},
+      "name": "request_rc_channels",
+      "payload_hex": "",
+      "raw_hex": "aa55010d00f08d",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 14,
+      "decoded": {
+        "topic": "imu"
+      },
+      "name": "request_sensor_info",
+      "payload_hex": "00",
+      "raw_hex": "aa55010e010044da",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 15,
+      "decoded": {},
+      "name": "request_output_info",
+      "payload_hex": "",
+      "raw_hex": "aa55010f0092eb",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 16,
+      "decoded": {
+        "index": 0,
+        "kind": "motor",
+        "op": "hold",
+        "percent": 5
+      },
+      "name": "request_output_test",
+      "payload_hex": "00000005",
+      "raw_hex": "aa5501100400000005888a",
+      "response": false,
+      "write": true
+    },
+    {
+      "command": 17,
+      "decoded": {
+        "count": 4,
+        "rate_hz": 10,
+        "source": 0,
+        "start": 0
+      },
+      "name": "request_log_stream",
+      "payload_hex": "00000004000a",
+      "raw_hex": "aa5501110600000004000a9955",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 18,
+      "decoded": {
+        "index": 0,
+        "offset": 0
+      },
+      "name": "request_preflight",
+      "payload_hex": "000000",
+      "raw_hex": "aa55011203000000b590",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 19,
+      "decoded": {
+        "verb": "status"
+      },
+      "name": "request_calibrate",
+      "payload_hex": "00",
+      "raw_hex": "aa550113010076db",
+      "response": false,
+      "write": true
+    },
+    {
+      "command": 20,
+      "decoded": {
+        "verb": "status"
+      },
+      "name": "request_mission",
+      "payload_hex": "00",
+      "raw_hex": "aa5501140100e65e",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 21,
+      "decoded": {},
+      "name": "request_perf",
+      "payload_hex": "",
+      "raw_hex": "aa550115002a07",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 22,
+      "decoded": {},
+      "name": "request_motor_telemetry",
+      "payload_hex": "",
+      "raw_hex": "aa550116007952",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 1,
+      "decoded": {
+        "meaning": "version, product, parameter count"
+      },
+      "name": "captured_hello",
+      "payload_hex": "",
+      "raw_hex": "aa550101009dc8",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 129,
+      "decoded": {
+        "meaning": "version, product, parameter count"
+      },
+      "name": "captured_hello_reply",
+      "payload_hex": "0161657269616c6b69742d66343035002d003000c1010000920638cf",
+      "raw_hex": "aa5501811c0161657269616c6b69742d66343035002d003000c1010000920638cf4fa6",
+      "response": true,
+      "write": false
+    },
+    {
+      "command": 5,
+      "decoded": {
+        "meaning": "flight state, link, fix, attitude, position, motors"
+      },
+      "name": "captured_status",
+      "payload_hex": "",
+      "raw_hex": "aa550105005904",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 133,
+      "decoded": {
+        "meaning": "flight state, link, fix, attitude, position, motors"
+      },
+      "name": "captured_status_reply",
+      "payload_hex": "0101030b7d00d8ff84038768111f3f0ef90228283c3c",
+      "raw_hex": "aa550185160101030b7d00d8ff84038768111f3f0ef90228283c3c8598",
+      "response": true,
+      "write": false
+    },
+    {
+      "command": 2,
+      "decoded": {
+        "meaning": "the first parameter"
+      },
+      "name": "captured_param_get",
+      "payload_hex": "00",
+      "raw_hex": "aa550102010025af",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 130,
+      "decoded": {
+        "meaning": "the first parameter"
+      },
+      "name": "captured_param_get_reply",
+      "payload_hex": "00726174655f6b705f726f6c6c00302e32353000",
+      "raw_hex": "aa5501821400726174655f6b705f726f6c6c00302e32353000ccb5",
+      "response": true,
+      "write": false
+    },
+    {
+      "command": 2,
+      "decoded": {
+        "meaning": "an index one past the table: status 1, and nothing else"
+      },
+      "name": "captured_param_get_refused",
+      "payload_hex": "2d",
+      "raw_hex": "aa550102012dea5a",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 130,
+      "decoded": {
+        "meaning": "an index one past the table: status 1, and nothing else"
+      },
+      "name": "captured_param_get_refused_reply",
+      "payload_hex": "01",
+      "raw_hex": "aa55018201015e84",
+      "response": true,
+      "write": false
+    },
+    {
+      "command": 3,
+      "decoded": {
+        "meaning": "a value above rate_kp_roll's 0.000..3.000: the table's own words come back"
+      },
+      "name": "captured_param_set_refused",
+      "payload_hex": "00393939393939",
+      "raw_hex": "aa5501030700393939393939013b",
+      "response": false,
+      "write": true
+    },
+    {
+      "command": 131,
+      "decoded": {
+        "meaning": "a value above rate_kp_roll's 0.000..3.000: the table's own words come back"
+      },
+      "name": "captured_param_set_refused_reply",
+      "payload_hex": "026f7574206f662072616e676520302e3030302e2e332e30303000",
+      "raw_hex": "aa5501831b026f7574206f662072616e676520302e3030302e2e332e303030002a7f",
+      "response": true,
+      "write": false
+    },
+    {
+      "command": 4,
+      "decoded": {
+        "meaning": "persist, or say there is nowhere to"
+      },
+      "name": "captured_param_save",
+      "payload_hex": "",
+      "raw_hex": "aa550104006837",
+      "response": false,
+      "write": true
+    },
+    {
+      "command": 132,
+      "decoded": {
+        "meaning": "persist, or say there is nowhere to"
+      },
+      "name": "captured_param_save_reply",
+      "payload_hex": "00",
+      "raw_hex": "aa5501840100df26",
+      "response": true,
+      "write": false
+    },
+    {
+      "command": 8,
+      "decoded": {
+        "meaning": "asked for 10 Hz over the console; refused, see anomalies"
+      },
+      "name": "captured_telemetry_refused",
+      "payload_hex": "0a",
+      "raw_hex": "aa550108010aaec9",
+      "response": false,
+      "write": false
+    },
+    {
+      "command": 136,
+      "decoded": {
+        "meaning": "asked for 10 Hz over the console; refused, see anomalies"
+      },
+      "name": "captured_telemetry_refused_reply",
+      "payload_hex": "00",
+      "raw_hex": "aa5501880100be53",
+      "response": true,
+      "write": false
+    }
+  ],
+  "protocol": "akp",
+  "schema_version": 1,
+  "source": {
+    "captured_fixtures": "apps/configurator/tests/fixtures/aerialkit.json",
+    "semantics": "firmware/docs/16-protocol.md",
+    "wire": "firmware/src/core/ak_proto.h"
+  }
+}

@@ -25,7 +25,7 @@ ROS mission: arms, takes off, flies, never flips or runs away: max tilt 28.9 deg
 ## What does not work yet: completing the autonomous mission
 The bringup demo mission (~200 m) does **not** reach the goal with the firmware flying. The quad oscillates
 (position +/- 6 m, altitude 3-10 m, ~9 s period) and the 240 s mission timeout ends it 180 m short.
-`flight_controller:=sim` completes the same mission (Codex's runs: closest approach 0.41 m).
+`flight_controller:=sim` completes the same mission (agent runs: closest approach 0.41 m).
 
 Causes, measured:
 1. **The host closes the velocity and altitude loops over telemetry.** The AK firmware has no velocity or
@@ -65,7 +65,7 @@ altitude and stays stable through that delay.
 So the remaining blocker is architectural, as above: **altitude hold on the FC** (it has the
 baro/IMU at 1 kHz), or put a baro/vario frame in the downlink so the host estimate is usable.
 
-## Update: barometer downlink (Codex PR #26 codec + sim agent hw_bridge), same day
+## Update: barometer downlink (firmware-agent PR #26 codec + sim-agent hw_bridge), same day
 The simulated receiver now sends CRSF 0x09 (baro altitude, vertical speed) and the radio
 backend publishes it on `/uav/hw/baro` for the EKF (`send_barometer`, default on).
 On PR #26's firmware (gyro-carried attitude in powered flight):

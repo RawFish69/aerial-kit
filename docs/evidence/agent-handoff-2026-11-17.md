@@ -1,4 +1,4 @@
-# Sim agent changes on 2026-11-17 (uncommitted, for Codex to commit)
+# Sim-agent changes on 2026-11-17 (uncommitted, for the firmware agent to commit)
 
 Please commit these as their own commit(s), separate from the radio-link work.
 Suggested message: "sim: fix MuJoCo divergence after crashes; guard against silent resets".
@@ -18,7 +18,7 @@ Docs / evidence
 - `docs/MULTIROTOR_MUJOCO.md` (Crashes limitation)
 - `docs/evidence/mujoco-divergence-2026-11-17.txt`, `docs/evidence/multirotor-gazebo-*-demo.{log,json}`, this file
 
-Verified: sim_py 526 passed (includes Codex's new tests at the time); sim_bridge + teleop + sim_fast ROS tests 107+ passed; asset checks pass.
+Verified: sim_py 526 passed (includes the firmware agent's new tests at the time); sim_bridge + teleop + sim_fast ROS tests 107+ passed; asset checks pass.
 Note: the RK4 switch changes multirotor numerics slightly; SIL results recorded before it are still valid
 for the guard but should be re-run if you need bit-exact comparisons.
 
