@@ -77,3 +77,19 @@ throttle-low/armed frame followed by an arm-low frame before returning.
 
 Use antennas or 50-ohm loads and minimum RF power for physical testing. Do not
 change the Rev A3 role switch while powered.
+
+## Current Rev A3 candidate
+
+The current locally generated full factory image observed on 2026-11-19 is:
+
+```text
+size: 8331264 bytes
+sha256: 5e9d6c6165bd2698239931da49f2bb1a7043b5847eb1ca764d8e72f6212ebb5e
+flash offset: 0x0
+bootloader: bootloader_qio_80m.elf / qio_qspi
+```
+
+The manifest and `SHA256SUMS` agree. See
+[`evidence/rev-a3-usb-bench-artifact-2026-11-19.md`](evidence/rev-a3-usb-bench-artifact-2026-11-19.md).
+This is a candidate identity, not hardware acceptance. The firmware owner must
+freeze the artifact before the bench operator flashes it.
