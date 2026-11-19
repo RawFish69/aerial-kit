@@ -12,8 +12,6 @@ from .crsf import (
     FlightModeTelemetry,
     GpsTelemetry,
     LinkStatisticsTelemetry,
-    MemoryTransport,
-    SerialTransport,
     crc8_dvb_s2,
     decode_telemetry,
     make_attitude_frame,
@@ -25,6 +23,19 @@ from .crsf import (
     make_rc_channels_frame,
     pack_channels,
     unpack_channels,
+)
+from .transport import (
+    Link,
+    LoopbackTransport,
+    MemoryTransport,
+    SerialTransport,
+    TcpTransport,
+    Transport,
+    TransportClosed,
+    TransportError,
+    TransportTimeout,
+    UdpTransport,
+    loopback_pair,
 )
 
 __all__ = [
@@ -39,8 +50,16 @@ __all__ = [
     "FlightModeTelemetry",
     "GpsTelemetry",
     "LinkStatisticsTelemetry",
+    "Link",
+    "LoopbackTransport",
     "MemoryTransport",
     "SerialTransport",
+    "TcpTransport",
+    "Transport",
+    "TransportClosed",
+    "TransportError",
+    "TransportTimeout",
+    "UdpTransport",
     "crc8_dvb_s2",
     "decode_telemetry",
     "make_attitude_frame",
@@ -51,5 +70,6 @@ __all__ = [
     "make_link_statistics_frame",
     "make_rc_channels_frame",
     "pack_channels",
+    "loopback_pair",
     "unpack_channels",
 ]

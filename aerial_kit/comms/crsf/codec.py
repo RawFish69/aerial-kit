@@ -8,10 +8,12 @@ machine with no serial devices.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Protocol, Sequence
+from typing import Iterable, Sequence
 
 import math
 import struct
+
+from ..transport import Transport
 
 CRSF_BAUD = 400_000
 CRSF_RX_FC_BAUD = 420_000
@@ -373,91 +375,6 @@ def decode_telemetry(
         return FlightModeTelemetry(payload.split(b"\0", 1)[0].decode("ascii", "replace"))
 
     return None
-
-
-class Transport(Protocol):
-    def read(self, size: int = -1) -> bytes: ...
-
-    def write(self, data: bytes) -> int: ...
-
-    def close(self) -> None: ...
-
-
-class MemoryTransport:
-    """A deterministic byte transport for tests and software-in-the-loop links."""
-
-    def __init__(self) -> None:
-        self._rx = bytearray()
-        self._tx = bytearray()
-        self.closed = False
-
-    def feed(self, data: bytes | bytearray | memoryview) -> None:
-        if self.closed:
-            raise RuntimeError("transport is closed")
-        self._rx.extend(data)
-
-    def read(self, size: int = -1) -> bytes:
-        if self.closed or not self._rx:
-            return b""
-        count = len(self._rx) if size < 0 else min(size, len(self._rx))
-        output = bytes(self._rx[:count])
-        del self._rx[:count]
-        return output
-
-    def write(self, data: bytes) -> int:
-        if self.closed:
-            raise RuntimeError("transport is closed")
-        self._tx.extend(data)
-        return len(data)
-
-    def drain_tx(self) -> bytes:
-        output = bytes(self._tx)
-        self._tx.clear()
-        return output
-
-    @property
-    def available(self) -> int:
-        return len(self._rx)
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class SerialTransport:
-    """CRSF serial transport; pyserial is imported only when this is created."""
-
-    def __init__(
-        self,
-        port: str,
-        *,
-        baudrate: int = CRSF_BAUD,
-        timeout: float = 0.05,
-    ) -> None:
-        import serial  # type: ignore[import-not-found]
-
-        self.port = serial.Serial(
-            port=port,
-            baudrate=baudrate,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=timeout,
-        )
-
-    def read(self, size: int = -1) -> bytes:
-        if size < 0:
-            size = self.port.in_waiting
-        return self.port.read(size)
-
-    def write(self, data: bytes) -> int:
-        return self.port.write(data)
-
-    def close(self) -> None:
-        self.port.close()
-
-    @property
-    def available(self) -> int:
-        return int(self.port.in_waiting)
 
 
 class CrsfLink:

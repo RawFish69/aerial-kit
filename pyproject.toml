@@ -33,6 +33,16 @@ viz = ["matplotlib>=3.5"]
 sim = ["matplotlib>=3.5", "pyyaml>=6.0"]
 rotorpy = ["matplotlib>=3.5", "pyyaml>=6.0", "rotorpy>=2.0.0"]
 mujoco = ["mujoco>=3.0"]
+radio = ["pyserial>=3.5"]
+mavlink = ["pymavlink>=2.4.49,<3"]
+all = [
+    "matplotlib>=3.5",
+    "pyyaml>=6.0",
+    "rotorpy>=2.0.0",
+    "mujoco>=3.0",
+    "pyserial>=3.5",
+    "pymavlink>=2.4.49,<3",
+]
 
 [project.scripts]
 aerial-kit-sim = "aerial_kit.sim.cli:main"
@@ -49,6 +59,10 @@ sim_py = ["sim_config.yaml"]
 [tool.mypy]
 python_version = "3.10"
 files = [
+    "aerial_kit/comms/__init__.py",
+    "aerial_kit/comms/crsf/__init__.py",
+    "aerial_kit/comms/crsf/codec.py",
+    "aerial_kit/comms/transport.py",
     "aerial_kit/__init__.py",
     "aerial_kit/interfaces.py",
     "aerial_kit/types.py",

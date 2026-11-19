@@ -57,6 +57,8 @@ jobs:
         run: python -m pytest test_crsf_barometer.py -q
       - name: Protocol vectors
         run: python protocols/check_vectors.py
+      - name: Shared communications transports
+        run: python -m pytest test_comms_transports.py -q
 
   ros-packages:
     name: ROS 2 package logic (no ROS)
@@ -122,6 +124,8 @@ jobs:
           assert importlib.util.find_spec("mujoco") is None
           assert importlib.util.find_spec("matplotlib") is None
           assert importlib.util.find_spec("yaml") is None
+          assert importlib.util.find_spec("serial") is None
+          assert importlib.util.find_spec("pymavlink") is None
           assert importlib.util.find_spec("sim_py.tests") is None
           print("base import:", aerial_kit.__name__, sim_py.__name__)
           PY
@@ -141,8 +145,32 @@ jobs:
 
           assert importlib.util.find_spec("rclpy") is None
           assert importlib.util.find_spec("mujoco") is None
+          assert importlib.util.find_spec("serial") is None
+          assert importlib.util.find_spec("pymavlink") is None
           assert importlib.util.find_spec("sim_py.tests") is None
           print("sim import:", aerial_kit.__name__, sim_py.__name__, yaml.__version__)
+          PY
+
+      - name: Protocol extras install only their declared dependencies
+        run: |
+          python -m venv /tmp/aerial-kit-radio
+          /tmp/aerial-kit-radio/bin/python -m pip install --upgrade pip
+          /tmp/aerial-kit-radio/bin/python -m pip install "${GITHUB_WORKSPACE}[radio]"
+          /tmp/aerial-kit-radio/bin/python - <<'PY'
+          import importlib.util
+          import serial
+
+          assert importlib.util.find_spec("pymavlink") is None
+          print("radio extra:", serial.__version__)
+          PY
+
+          python -m venv /tmp/aerial-kit-mavlink
+          /tmp/aerial-kit-mavlink/bin/python -m pip install --upgrade pip
+          /tmp/aerial-kit-mavlink/bin/python -m pip install "${GITHUB_WORKSPACE}[mavlink]"
+          /tmp/aerial-kit-mavlink/bin/python - <<'PY'
+          import pymavlink
+
+          print("mavlink extra:", pymavlink.__file__)
           PY
 
       - name: Packaged FC-SIL explains that firmware sources are absent
