@@ -6,18 +6,40 @@
 #include "aerialkit_boot_logic.h"
 
 #include <Arduino.h>
-#include <esp32-hal-rmt.h>
+#include <esp_ota_ops.h>
+#include <esp_system.h>
+
+#include "aerialkit_led_state_machine.h"
+
+#include <stdio.h>
 
 #include <stddef.h>
 
 namespace
 {
+bool roleHighAtBoot;
+
+const char *resetReasonName(esp_reset_reason_t reason)
+{
+    switch (reason)
+    {
+    case ESP_RST_POWERON: return "poweron";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "int_wdt";
+    case ESP_RST_TASK_WDT: return "task_wdt";
+    case ESP_RST_WDT: return "wdt";
+    case ESP_RST_DEEPSLEEP: return "deepsleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    default: return "unknown";
+    }
+}
+
 constexpr int ROLE_PIN = 4;
 constexpr int TX_ENABLE_PIN = 6;
 constexpr int RX_ENABLE_PIN = 7;
-constexpr int LED_PIN = 21;
-constexpr int RMT_TICK_NS = 100;
-constexpr int WS2812_ITEMS = 24;
 constexpr uint32_t FAULT_ON_MS = 100;
 constexpr uint32_t FAULT_OFF_MS = 100;
 
@@ -37,31 +59,7 @@ void setFemEnablesLow()
 
 bool writeColor(uint8_t green, uint8_t red, uint8_t blue)
 {
-    rmt_obj_t *rmt = rmtInit(LED_PIN, RMT_TX_MODE, RMT_MEM_64);
-    if (rmt == nullptr)
-    {
-        return false;
-    }
-
-    bool ok = rmtSetTick(rmt, RMT_TICK_NS) > 0.0f;
-    rmt_data_t data[WS2812_ITEMS] {};
-    const uint8_t channels[] = {green, red, blue};
-    size_t index = 0;
-    for (uint8_t channel : channels)
-    {
-        for (uint8_t mask = 0x80; mask != 0; mask >>= 1)
-        {
-            const bool high = (channel & mask) != 0;
-            data[index].level0 = 1;
-            data[index].duration0 = high ? 8 : 4;
-            data[index].level1 = 0;
-            data[index].duration1 = high ? 4 : 8;
-            ++index;
-        }
-    }
-    ok = ok && rmtWriteBlocking(rmt, data, WS2812_ITEMS);
-    ok = rmtDeinit(rmt) && ok;
-    return ok;
+    return aerialkitWs2812ShowCapped({red, green, blue});
 }
 
 void serialLine(const char *message)
@@ -106,6 +104,7 @@ void aerialkitBootPreflight()
     setFemEnablesLow();
     pinMode(ROLE_PIN, INPUT);
     const bool roleHigh = digitalRead(ROLE_PIN) == HIGH;
+    roleHighAtBoot = roleHigh;
     if (!aerialkit_role_matches(roleHigh, RX_ROLE))
     {
         faultLoop(
@@ -135,6 +134,34 @@ void aerialkitBootPreflight()
             return;
         }
         delay(heartbeat.off_ms);
+    }
+}
+
+void aerialkitBootReport()
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    char elf[9] = "unknown";
+    (void)esp_ota_get_app_elf_sha256(elf, sizeof(elf));
+    char line[160];
+    const int length = snprintf(
+        line,
+        sizeof(line),
+        "AK-BOOT role=%s slot=%s gpio4=%s reset=%s(%d) elf=%s led=%s led_failures=%u led_error=0x%x ws2812_t0h=300ns t1h=750ns latch=300us\r\n",
+        RX_ROLE ? "rx" : "tx",
+        running != nullptr ? running->label : "unknown",
+        roleHighAtBoot ? "high" : "low",
+        resetReasonName(esp_reset_reason()),
+        static_cast<int>(esp_reset_reason()),
+        elf,
+        aerialkitWs2812Healthy() ? "rmt-ok" : "rmt-fail",
+        static_cast<unsigned>(aerialkitWs2812Failures()),
+        static_cast<unsigned>(aerialkitWs2812LastError()));
+    if (length > 0)
+    {
+        USBSerial.write(reinterpret_cast<const uint8_t *>(line),
+                        static_cast<size_t>(length) < sizeof(line)
+                            ? static_cast<size_t>(length)
+                            : sizeof(line) - 1);
     }
 }
 

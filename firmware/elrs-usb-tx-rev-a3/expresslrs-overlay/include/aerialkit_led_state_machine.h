@@ -203,5 +203,110 @@ inline AerialKitLedRgb aerialkit_led_frame(
     return color;
 }
 
+constexpr uint8_t aerialkit_led_scale(uint8_t value, uint8_t brightness)
+{
+    return static_cast<uint8_t>(
+        (static_cast<uint16_t>(value) * brightness) / 255U);
+}
+
+// The 24-bit word sent to the LED, MSB first, after the global brightness
+// cap. LED1 on the assembled Rev A3 boards clocks bytes in B-R-G order: with
+// the datasheet G-R-B order, red was correct but green and blue were swapped
+// on hardware (2026-11-19, candidate 5576f902). Keep the order in this one
+// table so hardware revisions with a different LED change only this.
+constexpr uint8_t AERIALKIT_WS2812_WIRE_FIRST = 2;  // blue
+constexpr uint8_t AERIALKIT_WS2812_WIRE_SECOND = 0; // red
+constexpr uint8_t AERIALKIT_WS2812_WIRE_THIRD = 1;  // green
+
+constexpr uint8_t aerialkit_led_channel(const AerialKitLedRgb &color, uint8_t channel)
+{
+    return channel == 0 ? color.red : channel == 1 ? color.green : color.blue;
+}
+
+constexpr uint32_t aerialkit_ws2812_wire_word(
+    const AerialKitLedRgb &color,
+    uint8_t brightness)
+{
+    return (static_cast<uint32_t>(aerialkit_led_scale(
+                aerialkit_led_channel(color, AERIALKIT_WS2812_WIRE_FIRST), brightness)) << 16) |
+           (static_cast<uint32_t>(aerialkit_led_scale(
+                aerialkit_led_channel(color, AERIALKIT_WS2812_WIRE_SECOND), brightness)) << 8) |
+           aerialkit_led_scale(aerialkit_led_channel(color, AERIALKIT_WS2812_WIRE_THIRD), brightness);
+}
+
+// WS2812B-2020 (V6) waveform. Its limits are tighter than the classic
+// WS2812 timing used by Arduino neopixelWrite() (0.4/0.8 us), which violates
+// T0H <= 380 ns, T1L >= 580 ns and the 1.25 us minimum bit period:
+//   T0H 220-380 ns, T0L/T1H/T1L 580-1000 ns, bit >= 1.25 us, reset > 280 us.
+// RMT runs at 80 MHz APB / 2 = 25 ns per tick.
+constexpr uint8_t AERIALKIT_WS2812_RMT_CLK_DIV = 2;
+constexpr uint16_t AERIALKIT_WS2812_TICK_NS = 25;
+constexpr uint16_t AERIALKIT_WS2812_T0H_TICKS = 12;  // 300 ns
+constexpr uint16_t AERIALKIT_WS2812_T0L_TICKS = 38;  // 950 ns
+constexpr uint16_t AERIALKIT_WS2812_T1H_TICKS = 30;  // 750 ns
+constexpr uint16_t AERIALKIT_WS2812_T1L_TICKS = 24;  // 600 ns
+constexpr uint16_t AERIALKIT_WS2812_RESET_HALF_TICKS = 6000;  // 2 x 150 us low
+constexpr uint8_t AERIALKIT_WS2812_DATA_ITEMS = 24;
+constexpr uint8_t AERIALKIT_WS2812_FRAME_ITEMS = AERIALKIT_WS2812_DATA_ITEMS + 1;
+
+struct AerialKitRmtItem
+{
+    uint16_t duration0;
+    uint8_t level0;
+    uint16_t duration1;
+    uint8_t level1;
+};
+
+// Item 0..23: one data bit, MSB first. Item 24: the low latch/reset period,
+// always sent so a frame never depends on the idle gap before the next one.
+constexpr AerialKitRmtItem aerialkit_ws2812_item(uint32_t wire_word, uint8_t index)
+{
+    return index >= AERIALKIT_WS2812_DATA_ITEMS
+               ? AerialKitRmtItem{AERIALKIT_WS2812_RESET_HALF_TICKS, 0,
+                                  AERIALKIT_WS2812_RESET_HALF_TICKS, 0}
+           : ((wire_word >> (23 - index)) & 1U) != 0
+               ? AerialKitRmtItem{AERIALKIT_WS2812_T1H_TICKS, 1,
+                                  AERIALKIT_WS2812_T1L_TICKS, 0}
+               : AerialKitRmtItem{AERIALKIT_WS2812_T0H_TICKS, 1,
+                                  AERIALKIT_WS2812_T0L_TICKS, 0};
+}
+
+// Hardware LED self-test: pure red, green, blue for one second each, at the
+// same brightness cap, through the operational driver.
+constexpr uint32_t AERIALKIT_LED_SELFTEST_STEP_MS = 1000;
+constexpr uint8_t AERIALKIT_LED_SELFTEST_TYPE = 0x7F;
+
+inline bool aerialkit_led_selftest_frame(
+    const uint8_t *frame, uint8_t own_address)
+{
+    // C8 08 7F <dest=own address> <origin> 'A' 'K' 'L' 'T' <crc>, CRC already
+    // checked by the CRSF parser.
+    return frame[1] == 8 && frame[2] == AERIALKIT_LED_SELFTEST_TYPE &&
+           frame[3] == own_address && frame[5] == 'A' && frame[6] == 'K' &&
+           frame[7] == 'L' && frame[8] == 'T';
+}
+
+inline bool aerialkit_led_selftest_color(uint32_t elapsed_ms, AerialKitLedRgb &color)
+{
+    switch (elapsed_ms / AERIALKIT_LED_SELFTEST_STEP_MS)
+    {
+    case 0: color = {AERIALKIT_LED_RAW_MAX, 0, 0}; return true;
+    case 1: color = {0, AERIALKIT_LED_RAW_MAX, 0}; return true;
+    case 2: color = {0, 0, AERIALKIT_LED_RAW_MAX}; return true;
+    default: return false;
+    }
+}
+
 void aerialkitLedMarkSerialInput();
+void aerialkitLedObserveFrame(const void *frame);
 int aerialkitLedTimeout();
+
+// Shared WS2812 driver (aerialkit_ws2812.cpp), IDF RMT with checked returns.
+bool aerialkitWs2812Begin();
+// Show() applies the global WS2812_BRIGHTNESS cap; ShowCapped() sends values
+// that are already final (boot identity and fault loops).
+bool aerialkitWs2812Show(const AerialKitLedRgb &color);
+bool aerialkitWs2812ShowCapped(const AerialKitLedRgb &color);
+bool aerialkitWs2812Healthy();
+uint32_t aerialkitWs2812Failures();
+int aerialkitWs2812LastError();

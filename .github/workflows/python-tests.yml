@@ -51,6 +51,8 @@ jobs:
       - name: Firmware example tests
         working-directory: examples/firmware
         run: python -m pytest test_examples.py -q
+      - name: ELRS USB TX Rev A3 dual-role firmware host tests
+        run: python -m pytest firmware/elrs-usb-tx-rev-a3/tests -q -rs
       - name: Controller benchmark harness
         run: python -m pytest test_benchmarks.py -q
       - name: CRSF barometer codec

@@ -22,16 +22,24 @@ for both roles and does not require a USB-UART adapter or Wi-Fi:
 
 Two boards enumerate as two distinct `/dev/ttyACM*` devices.
 
-Open native USB without asserting DTR or RTS. The Python `SerialTransport`
-does this by default. If another tool resets the board while opening the port,
-the ROM banner and bootloader `load:` text may precede CRSF. Resynchronize on
-sync byte `0xC8`; do not parse that text as CRSF. Arduino core logging is
-disabled in these target images so post-boot serial output remains CRSF.
+The ESP32-S3 USB Serial/JTAG resets the chip while RTS is asserted and DTR
+is not. Linux asserts both lines on `open()`; pyserial then clears DTR before
+RTS, which presents the reset state for a moment, so setting `dtr=False,
+rts=False` before opening still reboots the board. Clear RTS first, then DTR
+(`tools/usb_crsf_bench.py` does). After a reset the ROM banner, bootloader
+`load:` text and the `AK-BOOT` line precede CRSF. Resynchronize on a CRSF sync
+byte (`0xC8`, or `0xEA`/`0xEC`/`0xEE` for addressed frames) and validate the
+CRC; do not parse that text as CRSF. Arduino core logging is disabled in these
+target images.
 
 ## LED state
 
-Color identifies the role: TX is blue and RX is green. Patterns identify state,
-and the upstream rainbow/packet-rate hue sequence is disabled.
+Color identifies the role: TX is blue and RX is green. Patterns identify state.
+The upstream LED animation code and its I2S WS2812 driver are not compiled into
+dual-role builds; one IDF RMT channel drives GPIO21 with WS2812B-2020 timing
+and an explicit 300 µs latch. A CRSF frame `C8 08 7F <own addr> EA "AKLT"
+<crc>` runs a red/green/blue self-test, one second each, and prints
+`AK-LEDTEST` lines.
 
 | State | TX | RX |
 | --- | --- | --- |
@@ -136,8 +144,11 @@ commit `a9d4a9cb5b5687c4c9d7e9e7fbdf44ad93651da6`. It:
 - preformats LittleFS for the full factory image;
 - bridges CRSF over native USB-CDC in both roles;
 - emits a one-blue-pulse TX or two-green-pulse RX boot identity;
-- replaces the upstream rainbow and packet-rate hue animations with the
-  documented role-color/state-pattern renderer;
+- replaces the upstream LED animations and I2S WS2812 driver with an IDF RMT
+  role-color/state-pattern renderer using WS2812B-2020 timing (both upstream
+  files are compiled out), plus a USB-triggered red/green/blue self-test;
+- writes one `AK-BOOT` diagnostic line with role, slot, reset reason and LED
+  driver health after setup;
 - samples GPIO4 again before radio setup and fails safe on a role mismatch.
 - derives the QIO bootloader and selector addresses from the actual build
   instead of pairing a DIO bootloader with QIO libraries;
