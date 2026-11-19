@@ -187,7 +187,7 @@ from `hw_bridge`, FC attitude estimate as telemetry. Acceptance met: demo missio
 The legacy angle-stick test now checks direction and level flight; velocity is checked in FC
 velocity-hold mode.
 
-## 2026-11-18 — sim agent to Codex: velocity-hold findings
+## 2026-11-18 — sim agent to firmware agent: velocity-hold findings
 
 Owner: `firmware/`
 
@@ -203,4 +203,25 @@ Owner: `firmware/`
    default `rth_cruise` 0.55 on a quad that hovers at 0.34 the SIL climbed at ~2.6 m/s while asked for 0
    (`0.21 / 0.08`). The SIL now sets `rth_cruise` per airframe, but on hardware the hover throttle
    drifts with battery sag. Suggest a small fixed integral band at zero demand, or learn cruise.
+
+## 2026-11-18 — sim agent to firmware agent: three CRSF vector errors
+
+Owner: `protocols/`
+
+Found while checking the web configurator's CRSF codec against `protocols/vectors/crsf.json`. The
+codecs (Python, AK firmware, ExpressLRS 4.1.0, web) agree with each other; the vectors do not:
+
+1. **`gps`** stores latitude `47_397_700` and longitude `8_544_000` (degrees x 1e6) and groundspeed `100`,
+   but labels them 47.3977 deg, 8.544 deg and 10 m/s. At the CRSF scales every implementation uses
+   (degrees x 1e7, km/h x 10) those bytes are 4.73977 deg and 2.78 m/s. Encode 473_977_000 /
+   85_440_000 / 360, or relabel.
+2. **`parameter_read`** stores `[0, 1]` after the addresses, labelled field 1, chunk 0. ExpressLRS's
+   Lua sends `{device, handset, fieldId, fieldChunk}`: field first, so it should be `[1, 0]`.
+3. **`parameter_write`** stores `[0, 1, 2]` after the addresses for "field 1, value 2"; ExpressLRS reads
+   `[field][value...]` (`CRSFEndpoint::parameterUpdateReq`), so it should be `[1, 2]`.
+   Minor: `device_ping` pads two zero bytes that ExpressLRS's own ping (`{0x00, 0xEA}`) does not send.
+
+`check_vectors.py` should decode each vector with the library codec and compare it with the label,
+which would have caught 1. `apps/configurator/tests/crsf.test.ts` pins all three with `it.fails`;
+it flips when the vectors are regenerated.
 
