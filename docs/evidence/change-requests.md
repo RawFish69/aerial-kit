@@ -280,3 +280,22 @@ its metadata fields:
 Validated on a throwaway worktree from main: `check-table-drift.py` reports all 46 rows agree by name,
 group and index; `npm test` reports 353 passed and 10 skipped. No firmware or Python change is needed.
 
+## 2026-11-19 — firmware agent to sim agent: exercise AKP over the simulated ELRS link
+
+Owner: `sim_py/` and `ros2_ws/src/hw_bridge/` / `sim_bridge/`
+
+The library and AK firmware now carry segmented AKP frames in CRSF MSP envelopes
+(`aerial_kit.comms.crsf.CrsfAkpTunnel` and `firmware/src/core/flight/ak_crsf_tunnel.c`).
+The source audit confirms ExpressLRS 4.1.0 forwards `0x7A`/`0x7C` uplink and `0x7B`
+downlink frames, so the next acceptance run is simulator-only:
+
+- multiplex the tunnel alongside the existing CRSF RC sender/receiver pair;
+- apply configurable latency, packet loss and 150 Hz radio scheduling;
+- run `AkClient` identity/status/parameters through the simulated link;
+- repeat the autonomous radio mission at 0 % and 10 % loss, then cut the link mid-flight;
+- record latency, loss tolerance, failsafe behavior and evidence JSON.
+
+The firmware host harness in `firmware/tools/host/test_akp_radio.c` covers the
+receiver route without hardware. No RF, serial device or real flight controller
+is needed for this request.
+
