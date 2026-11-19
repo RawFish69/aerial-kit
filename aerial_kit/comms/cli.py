@@ -18,10 +18,13 @@ from .crsf import (
     CRSF_BAUD,
     CRSF_RX_FC_BAUD,
     CrsfAkpTunnel,
+    CaptureReport,
+    DriveReport,
     CrsfLink,
     CrsfParameter,
     CrsfParameterClient,
     CrsfError,
+    MonitorReport,
     SerialTransport,
     capture_link,
     drive_link,
@@ -86,7 +89,7 @@ def _write_json(path: str | None, value: object) -> None:
         Path(path).write_text(text, encoding="utf-8")
 
 
-def _print_monitor(report) -> None:
+def _print_monitor(report: MonitorReport) -> None:
     print(
         f"status={report.status} duration={report.duration_sec:.3f}s "
         f"bytes={report.bytes_read} frames={report.frames} "
@@ -98,7 +101,7 @@ def _print_monitor(report) -> None:
         print(f"{name:20s} {count:8d} last_seen={age:.3f}s")
 
 
-def _print_capture(report) -> None:
+def _print_capture(report: CaptureReport) -> None:
     channels = (
         " ".join(str(value) for value in report.channels)
         if report.channels is not None
@@ -114,7 +117,7 @@ def _print_capture(report) -> None:
     print(f"channels={channels}")
 
 
-def _print_drive(report) -> None:
+def _print_drive(report: DriveReport) -> None:
     print(
         f"pattern={report.pattern} sent={report.frames_sent} "
         f"rate={report.actual_hz:.3f}Hz requested={report.requested_hz:.3f}Hz "
@@ -232,7 +235,7 @@ def _radio(args: argparse.Namespace) -> int:
             for frame in frames:
                 if frame.frame_type == 0x16 and len(frame.payload) == 22:
                     print(" ".join(map(str, unpack_channels(frame.payload))))
-                    return
+                    return 0
             raise TimeoutError("no RC_CHANNELS_PACKED frame arrived")
         elif args.radio_action == "monitor":
             report = monitor_link(transport, duration=args.duration)
