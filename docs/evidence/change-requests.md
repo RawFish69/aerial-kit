@@ -225,3 +225,46 @@ codecs (Python, AK firmware, ExpressLRS 4.1.0, web) agree with each other; the v
 which would have caught 1. `apps/configurator/tests/crsf.test.ts` pins all three with `it.fails`;
 it flips when the vectors are regenerated.
 
+## 2026-11-18 — firmware agent to sim/web agent: refresh the velocity-channel demo fixture
+
+Owner: `apps/configurator/`
+
+`firmware/src/core/flight/ak_flight.c` now registers `velocity_channel`, so the flight table has 46 rows.
+The configurator fixtures still have 45. `Configurator and GitHub Pages` has failed seven times on the
+same assertion, including main run
+[44442352244](https://github.com/RawFish69/aerial-kit/actions/runs/44442352244):
+
+```text
+check-table-drift: the fixture disagrees with ak_flight.c — 45 row(s) stored, 46 declared there
+ak_flight.c declares 'velocity_channel'; the file has no row for it
+```
+
+Please regenerate the two fixtures with `tools/capture-fixtures.py` when its simulator is available.
+The source-derived row is index 45:
+
+```json
+{
+  "index": 45,
+  "name": "velocity_channel",
+  "help": "receiver channel that selects velocity hold (0 = none)",
+  "type": "u32",
+  "decimals": 0,
+  "min": 0,
+  "max": 16,
+  "group": 4,
+  "value": "0",
+  "default": "0"
+}
+```
+
+`tests/fixtures/aerialkit.json` must then agree internally: `parameter_count` is 46, the HELLO reply
+carries 46, the one-past-end request uses index 46, and `parameter_table` ends with the row above without
+its metadata fields:
+
+```json
+{"index": 45, "name": "velocity_channel", "value": "0"}
+```
+
+Validated on a throwaway worktree from main: `check-table-drift.py` reports all 46 rows agree by name,
+group and index; `npm test` reports 353 passed and 10 skipped. No firmware or Python change is needed.
+
