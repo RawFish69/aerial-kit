@@ -81,7 +81,9 @@ def board(argv):
     """A pipe and the MSP client on it, ready to ask."""
     transport = Pipe(argv)
     reader = msp.Deadline(transport)
-    return transport, msp.Msp(reader.read_some, transport.write, timeout=2.0)
+    return transport, msp.MspClient(
+        reader.read_some, transport.write, timeout=2.0
+    )
 
 
 def main():

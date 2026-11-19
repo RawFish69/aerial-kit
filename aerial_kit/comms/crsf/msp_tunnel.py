@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import cast
 
 from ..transport import Link
 from .codec import (
@@ -13,6 +14,7 @@ from .codec import (
     CRSF_FRAMETYPE_MSP_RESPONSE,
     CRSF_FRAMETYPE_MSP_WRITE,
     CrsfFrame,
+    CrsfLink,
     crc8_dvb_s2,
 )
 from .radio import CrsfRadio
@@ -171,7 +173,7 @@ class CrsfAkpTunnel(Link):
 
     def __init__(
         self,
-        radio: CrsfRadio,
+        source: CrsfRadio | CrsfLink,
         *,
         chunk_size: int = AKP_MSP_REQUEST_CHUNK,
         send_interval_s: float = AKP_MSP_SEND_INTERVAL_S,
@@ -180,7 +182,12 @@ class CrsfAkpTunnel(Link):
         super().__init__(timeout=0.05)
         if send_interval_s < 0:
             raise ValueError("send_interval_s must be non-negative")
-        self.radio = radio
+        if hasattr(source, "add_frame_callback") and hasattr(source, "link"):
+            self.radio: CrsfRadio | None = cast(CrsfRadio, source)
+            self.link: CrsfLink = source.link
+        else:
+            self.radio = None
+            self.link = source
         self.chunk_size = int(chunk_size)
         self.send_interval_s = float(send_interval_s)
         self.reassembler = AkpTunnelReassembler(max_payload=max_payload)
@@ -192,7 +199,8 @@ class CrsfAkpTunnel(Link):
         self.dropped_segments = 0
         self.sent_frames = 0
         self.received_frames = 0
-        self.radio.add_frame_callback(self._observe)
+        if self.radio is not None:
+            self.radio.add_frame_callback(self._observe)
 
     @property
     def available(self) -> int:
@@ -245,7 +253,7 @@ class CrsfAkpTunnel(Link):
             self.reassembler.reset()
         segments = split_akp_frame(data, session=session, chunk_size=self.chunk_size)
         for index, segment in enumerate(segments):
-            self.radio.link.send_frame(encode_msp_request(segment.encode()))
+            self.link.send_frame(encode_msp_request(segment.encode()))
             self.sent_frames += 1
             if self.send_interval_s and index + 1 < len(segments):
                 time.sleep(self.send_interval_s)
@@ -258,11 +266,20 @@ class CrsfAkpTunnel(Link):
                 left = deadline - time.monotonic()
                 if left <= 0:
                     return b""
-                self._condition.wait(left)
+                if self.radio is not None:
+                    self._condition.wait(left)
+                    continue
+                # A pure link has no owner polling it for us. Poll in short
+                # slices so one caller can still be interrupted by close.
+                for frame in self.link.poll(512, min(left, 0.05)):
+                    self._observe(frame)
+                if not self._buffer and time.monotonic() < deadline:
+                    continue
             count = len(self._buffer) if size < 0 else min(size, len(self._buffer))
             output = bytes(self._buffer[:count])
             del self._buffer[:count]
             return output
 
     def _close(self) -> None:
-        self.radio.remove_frame_callback(self._observe)
+        if self.radio is not None:
+            self.radio.remove_frame_callback(self._observe)

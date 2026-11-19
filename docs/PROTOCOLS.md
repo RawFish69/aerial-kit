@@ -82,6 +82,13 @@ telemetry and download parameters/missions. Mutating operations require both
 `allow_write=True` and a success acknowledgement before they are reported as
 applied.
 
+### MSP
+
+`aerial_kit.comms.msp` is a read-only client for Betaflight/INAV-style MSP
+devices. Its API deliberately exposes queries and captured metadata rather
+than parameter mutation. The firmware tool wrapper remains compatible for
+existing scripts; new code should import the library client.
+
 ## What runs over what
 
 | route | transport | carried protocols |

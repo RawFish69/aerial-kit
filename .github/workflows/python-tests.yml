@@ -65,6 +65,8 @@ jobs:
         run: python -m pytest test_crsf_radio.py -q
       - name: AKP segmentation over CRSF and the firmware receiver route
         run: python -m pytest test_crsf_akp_tunnel.py -q
+      - name: MSP read-only client and fake board
+        run: python -m pytest test_msp.py -q
       - name: AKP typed client and host firmware
         run: python -m pytest test_akp_client.py test_akp_host.py -q
       - name: AKP client and host protocol engine
@@ -252,6 +254,8 @@ jobs:
         run: python -m mypy
       - name: Public API and README quickstart
         run: python -m pytest test_public_api.py -q
+      - name: Protocol examples
+        run: python -m pytest test_comms_examples.py -q
 
   ros2-jazzy:
     # The tests above skip anything that needs rclpy. This job runs them for
