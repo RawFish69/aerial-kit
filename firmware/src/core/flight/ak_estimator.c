@@ -85,10 +85,20 @@ static float att_sync_eps_yaw(float yaw)
  * 2.0 m from home against 0.5 m at three.
  */
 #define AK_TRACK_MIN_SPEED 3.0f
-/* The time constant of the pull toward the track, and how long the pull has to
- * have been possible before the yaw counts as aligned. */
+/* The time constant of the pull toward the track, how close the residual has
+ * to be before the aircraft may steer by it, and how long that agreement has
+ * to hold. Time spent moving is not time spent aligned: a velocity-hold
+ * controller flies along its current yaw estimate, so the ground track can
+ * agree with an estimate that is still tens of degrees from the nose. */
 #define AK_TRACK_TAU 3.0f
+#define AK_TRACK_ACQUIRE_TAU 0.75f
 #define AK_TRACK_ALIGNED_S 2.0f
+#define AK_TRACK_ALIGNED_RAD 0.2094395f /* 12 degrees */
+#define AK_TRACK_RELOSE_RAD 0.5235988f  /* 30 degrees */
+#define AK_TRACK_RELOSE_S 1.0f
+/* A course swinging faster than this is a turn or noise, not the straight leg
+ * the alignment is allowed to learn from. */
+#define AK_TRACK_MAX_COURSE_RATE 0.6108652f /* 35 degrees/s */
 
 /*
  * ---------------------------------------------------------------------------
@@ -327,6 +337,9 @@ void ak_estimator_init(ak_estimator_t *est, float tau)
     est->accel_used = 0;
     est->track_aligned_s = 0.0f;
     est->track_aligned = 0;
+    est->track_last_course = 0.0f;
+    est->track_have_course = 0;
+    est->track_misaligned_s = 0.0f;
 }
 
 void ak_estimator_aid_heading(ak_estimator_t *est, float course_rad,
@@ -352,15 +365,51 @@ void ak_estimator_aid_heading(ak_estimator_t *est, float course_rad,
      * wrap has to cope with that. */
     error = ak_wrap_pi(course_rad - est->yaw);
 
-    alpha = dt / (AK_TRACK_TAU + dt);
+    float tau = est->track_aligned ? AK_TRACK_TAU : AK_TRACK_ACQUIRE_TAU;
+    alpha = dt / (tau + dt);
     est->yaw += error * alpha;
 
     /* The quaternion is not touched here. This adjusts the published heading,
      * and ak_estimator_update() folds that back into the attitude on its next
      * call (est_resync) - which is also what lets a caller set est->yaw by
      * hand and have it mean something. */
-    est->track_aligned_s += dt;
-    if (est->track_aligned_s >= AK_TRACK_ALIGNED_S) {
+    /*
+     * Alignment is permission to use the estimate for control, not merely a
+     * duration. Until the residual is small the navigator keeps making the
+     * deliberate forward alignment leg; once it is small, a straight course
+     * has to agree for two seconds before the aircraft may translate on it.
+     *
+     * The estimate then flies along its own heading, so GPS course cannot
+     * independently reveal a remaining offset: both agree by construction.
+     * The residual at the moment this permission is granted is therefore the
+     * evidence, and it is why the old "moving for two seconds" rule could
+     * lock in a heading that was almost fifty degrees out.
+     */
+    float course_rate = 0.0f;
+    if (est->track_have_course) {
+        course_rate = ak_absf(ak_wrap_pi(course_rad - est->track_last_course)) / dt;
+    }
+    est->track_last_course = course_rad;
+    est->track_have_course = 1;
+
+    if (ak_absf(error) <= AK_TRACK_ALIGNED_RAD &&
+        course_rate <= AK_TRACK_MAX_COURSE_RATE) {
+        est->track_aligned_s += dt;
+    } else {
+        est->track_aligned_s = 0.0f;
+    }
+
+    if (ak_absf(error) > AK_TRACK_RELOSE_RAD) {
+        est->track_misaligned_s += dt;
+    } else {
+        est->track_misaligned_s = 0.0f;
+    }
+    if (est->track_aligned &&
+        est->track_misaligned_s >= AK_TRACK_RELOSE_S) {
+        est->track_aligned = 0;
+    }
+    if (!est->track_aligned &&
+        est->track_aligned_s >= AK_TRACK_ALIGNED_S) {
         est->track_aligned = 1;
     }
 }

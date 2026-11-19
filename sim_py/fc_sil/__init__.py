@@ -57,6 +57,8 @@ def _load():
     lib.akfc_velocity_mode.argtypes = [ctypes.c_void_p]
     lib.akfc_track_aligned.argtypes = [ctypes.c_void_p]
     lib.akfc_set_nav_cruise.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.akfc_nav_climb_integral.argtypes = [ctypes.c_void_p]
+    lib.akfc_nav_climb_integral.restype = ctypes.c_float
     for name in ("akfc_rc_channels", "akfc_max_motors", "akfc_max_servos"):
         getattr(lib, name).restype = ctypes.c_uint
     if lib.akfc_abi_version() != 3:
@@ -149,6 +151,11 @@ class AkFlightCore:
     def set_nav_cruise(self, throttle: float) -> None:
         """The navigator's hover throttle (firmware parameter ``rth_cruise``)."""
         self._lib.akfc_set_nav_cruise(self._h, float(throttle))
+
+    @property
+    def nav_climb_integral(self) -> float:
+        """The vertical loop's learned zero-climb trim (motor command units)."""
+        return float(self._lib.akfc_nav_climb_integral(self._h))
 
     @property
     def velocity_mode(self) -> bool:

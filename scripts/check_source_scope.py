@@ -46,7 +46,12 @@ def main():
         rel = name[len("firmware/"):]
         if rel.startswith("src/") and not rel.startswith(ALLOWED_RUNTIME):
             failures.append("runtime outside public scope: " + name)
+        # `tools/host/` is the public host-test implementation: it builds and
+        # drives the same protocol code the board uses. It is not a second
+        # firmware tree, but its C sources still need to be visible here so the
+        # protocol tests are real builds rather than Python reimplementations.
         if (rel.startswith(("tests/", "tools/")) and
+                not rel.startswith("tools/host/") and
                 path.suffix in {".c", ".h", ".cpp"}):
             failures.append("C host suite/simulator outside public scope: " + name)
         if rel.startswith("linker/") and rel != "linker/stm32f405rg.ld":

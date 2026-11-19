@@ -50,6 +50,14 @@
 /* Limits used when a host sends velocity setpoints. */
 #define AK_NAV_QUAD_MAX_CLIMB_MPS 3.0f
 #define AK_NAV_QUAD_MAX_YAW_RATE_RPS 1.5f
+/* The standing throttle the vertical loop may learn even at a zero climb
+ * demand. This is what trims a hover against battery sag and against a
+ * configured cruise throttle that is not the aircraft's true hover. */
+#define AK_NAV_QUAD_CLIMB_I_FLOOR 0.20f
+/* A velocity-hold aircraft without a heading makes a straight forward
+ * alignment leg. Hold that leg near this speed: the point is a usable GPS
+ * course, not maximum acceleration while the estimate converges. */
+#define AK_NAV_QUAD_ALIGN_SPEED_MPS 3.5f
 
 /*
  * The longest interval one guidance step will integrate over, in milliseconds.

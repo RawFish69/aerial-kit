@@ -76,11 +76,10 @@ describe('CRSF against the shared vectors', () => {
       expect(att.yawRad).toBeCloseTo(1.2, 4);
     }
     expect(t('battery')).toEqual({ kind: 'battery', voltageV: 16.8, currentA: 12.3, capacityMah: 1500, remainingPercent: 88 });
-    // GPS by the CRSF / ExpressLRS / AK-firmware scales (degrees * 1e7, km/h * 10).
     const gps = t('gps');
     if (gps?.kind !== 'gps') throw new Error('gps');
-    expect(gps.latitudeDeg).toBeCloseTo(4.73977, 6);
-    expect(gps.groundspeedMps).toBeCloseTo(100 / 36, 6);
+    expect(gps.latitudeDeg).toBeCloseTo(47.3977, 6);
+    expect(gps.groundspeedMps).toBeCloseTo(10, 6);
     expect([gps.headingDeg, gps.altitudeM, gps.satellites]).toEqual([90, 450, 12]);
     const baro = t('barometer');
     if (baro?.kind !== 'barometer') throw new Error('baro');
@@ -92,26 +91,19 @@ describe('CRSF against the shared vectors', () => {
       uplinkTxPower: 3, downlinkRssiDbm: -80, downlinkLinkQuality: 70, downlinkSnrDb: 4 } });
   });
 
-  // KNOWN VECTOR ERROR (filed in change-requests.md): the GPS case stores 47 397 700 and 100, which
-  // are 4.73977 deg and 2.78 m/s at the CRSF scales every implementation uses, but labels them
-  // 47.3977 deg and 10 m/s. Flips to passing when the vector is regenerated; then drop `.fails`.
-  it.fails('the GPS vector label matches its bytes', () => {
+  it('the GPS vector label matches its bytes', () => {
     const gps = decodeTelemetry(one(fromHex(byName('gps').raw_hex)));
     if (gps?.kind !== 'gps') throw new Error('gps');
     expect(gps.latitudeDeg).toBeCloseTo(byName('gps').decoded.latitude_deg as number, 6);
     expect(gps.groundspeedMps).toBeCloseTo(byName('gps').decoded.groundspeed_mps as number, 1);
   });
 
-  // KNOWN VECTOR ERROR (filed): parameter_read stores [0, 1] after the addresses and labels it
-  // field 1, chunk 0; ExpressLRS orders field then chunk, so those bytes are field 0, chunk 1.
-  it.fails('the parameter_read vector label matches its bytes', () => {
+  it('the parameter_read vector label matches its bytes', () => {
     const f = one(fromHex(byName('parameter_read').raw_hex));
     expect([f.payload[2], f.payload[3]]).toEqual([byName('parameter_read').decoded.field, byName('parameter_read').decoded.chunk]);
   });
 
-  // KNOWN VECTOR ERROR (filed): parameter_write stores [0, 1, 2] after the addresses (a leading
-  // byte ExpressLRS does not read) for "field 1, value 2"; ExpressLRS reads [field][value].
-  it.fails('the parameter_write vector is laid out as ExpressLRS reads it', () => {
+  it('the parameter_write vector is laid out as ExpressLRS reads it', () => {
     const f = one(fromHex(byName('parameter_write').raw_hex));
     expect([f.payload[2], f.payload[3]]).toEqual([1, 2]);
   });

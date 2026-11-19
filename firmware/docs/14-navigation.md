@@ -772,3 +772,24 @@ because a host closing those loops over a radio telemetry downlink has seconds
 of delay; the firmware has the same measurements at control rate. A loss of
 velocity measurements holds level at `cruise` throttle, which is also the
 configured hover throttle for a quadrotor in this mode.
+
+The heading permission is earned by the residual, not by elapsed motion. A
+velocity-hold controller steers along its own yaw estimate, so after
+translation starts the GPS course can agree with a heading that is still tens
+of degrees away from the nose. The estimator now waits until the course
+residual is within 12 degrees and the course is steady, then requires that
+agreement for two seconds. A sustained 30-degree residual clears the
+permission again. This is deliberately conservative: the alignment leg takes
+longer, but it cannot grant itself a heading it never measured.
+
+The alignment leg is speed-governed. It uses the body-forward nudge to reach
+3.5 m/s, then adds or removes tilt around that speed instead of holding a fixed
+forward command until alignment. This is what keeps the deliberate straight leg
+a measurement rather than a long acceleration.
+
+The quadrotor vertical loop also carries a fixed 0.20 throttle integral band
+when the requested climb is zero. Without it, `cruise + proportional(error)`
+could not learn the difference between the configured cruise value and the
+aircraft's actual hover throttle, so battery sag or a stale `rth_cruise`
+became a standing climb or sink. A 0.05 m/s deadband keeps barometer
+quantisation out of the integrator.

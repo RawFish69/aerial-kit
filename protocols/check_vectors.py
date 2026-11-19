@@ -4,11 +4,29 @@
 from __future__ import annotations
 
 import json
+import math
 import struct
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 VECTORS = HERE / "vectors"
+
+# Decode with the library codec as well as checking structure here. The two
+# statements are deliberately separate: the structural checks describe the wire,
+# and the label checks keep a vector's human-readable meaning from drifting away
+# from the bytes every implementation actually decodes.
+sys.path.insert(0, str(HERE.parent))
+from aerial_kit.comms.crsf.codec import (  # noqa: E402
+    AttitudeTelemetry,
+    BarometerTelemetry,
+    BatteryTelemetry,
+    CrsfFrame,
+    FlightModeTelemetry,
+    GpsTelemetry,
+    LinkStatisticsTelemetry,
+    decode_telemetry,
+)
 
 
 def crc8_dvb_s2(data: bytes) -> int:
@@ -56,6 +74,65 @@ def check_crsf(document: dict[str, object]) -> None:
         assert raw[1] == len(raw) - 2
         assert raw[3:-1] == payload
         assert raw[-1] == crc8_dvb_s2(raw[2:-1])
+        decoded = case.get("decoded", {})
+        if case["name"] in {
+            "attitude", "battery", "gps", "barometer", "flight_mode",
+            "link_statistics",
+        }:
+            value = decode_telemetry(CrsfFrame(raw[0], raw[2], payload))
+            assert value is not None
+            check_crsf_label(case["name"], value, decoded)
+        elif case["name"] == "parameter_read":
+            assert list(payload[2:4]) == [decoded["field"], decoded["chunk"]]
+        elif case["name"] == "parameter_write":
+            assert payload[2] == decoded["field"]
+            assert payload[3] == decoded["value"]
+
+
+def close(actual: float, expected: float, digits: int) -> bool:
+    return math.isclose(actual, expected, abs_tol=10.0 ** -digits)
+
+
+def check_crsf_label(name: str, value: object, decoded: dict[str, object]) -> None:
+    """Compare a decoded telemetry object with the vector's stated meaning."""
+    if name == "attitude":
+        assert isinstance(value, AttitudeTelemetry)
+        assert close(value.pitch_rad, decoded["pitch_rad"], 4)
+        assert close(value.roll_rad, decoded["roll_rad"], 4)
+        assert close(value.yaw_rad, decoded["yaw_rad"], 4)
+    elif name == "battery":
+        assert isinstance(value, BatteryTelemetry)
+        assert close(value.voltage_v, decoded["voltage_v"], 3)
+        assert close(value.current_a, decoded["current_a"], 3)
+        assert value.capacity_mah == decoded["capacity_mah"]
+        assert value.remaining_percent == decoded["remaining_percent"]
+    elif name == "gps":
+        assert isinstance(value, GpsTelemetry)
+        assert close(value.latitude_deg, decoded["latitude_deg"], 6)
+        assert close(value.longitude_deg, decoded["longitude_deg"], 6)
+        assert close(value.groundspeed_mps, decoded["groundspeed_mps"], 3)
+        assert close(value.heading_deg, decoded["heading_deg"], 3)
+        assert close(value.altitude_m, decoded["altitude_m"], 3)
+        assert value.satellites == decoded["satellites"]
+    elif name == "barometer":
+        assert isinstance(value, BarometerTelemetry)
+        assert close(value.altitude_m, decoded["altitude_m"], 3)
+        assert close(value.vertical_speed_mps, decoded["vertical_speed_mps"], 3)
+    elif name == "flight_mode":
+        assert isinstance(value, FlightModeTelemetry)
+        assert value.mode == decoded["mode"]
+    elif name == "link_statistics":
+        assert isinstance(value, LinkStatisticsTelemetry)
+        assert value.uplink_rssi_1_dbm == decoded["uplink_rssi_1_dbm"]
+        assert value.uplink_rssi_2_dbm == decoded["uplink_rssi_2_dbm"]
+        assert value.uplink_link_quality == decoded["uplink_link_quality"]
+        assert value.uplink_snr_db == decoded["uplink_snr_db"]
+        assert value.active_antenna == decoded["active_antenna"]
+        assert value.rf_mode == decoded["rf_mode"]
+        assert value.uplink_tx_power == decoded["uplink_tx_power"]
+        assert value.downlink_rssi_dbm == decoded["downlink_rssi_dbm"]
+        assert value.downlink_link_quality == decoded["downlink_link_quality"]
+        assert value.downlink_snr_db == decoded["downlink_snr_db"]
 
 
 def check_akp(document: dict[str, object]) -> None:
