@@ -17,16 +17,26 @@ application. Moving SW2 and rebooting changes roles without reflashing.
 | `tx` | Optional role-only development image | RFX2401C controlled by ELRS |
 | `rx` | Optional role-only development image | RFX2401C controlled by ELRS |
 
-The TX and RX applications remain separate ExpressLRS builds in app0 and app1.
-Only a small bootloader selector is custom. It runs before partition selection
-on every boot and does not depend on OTA state. Each application also checks
-GPIO4 at startup and holds both FEM enables low if it was booted in the wrong
-role, covering a damaged or unexpected image-selection path.
+The TX and RX applications remain separate ExpressLRS builds. The flash has
+two update slots per role:
 
-Firmware updates use the full dual-role artifact. Do not use the module's
-single-application Wi-Fi OTA path: it would update only the inactive role slot.
-The ExpressLRS Wi-Fi configuration page remains available and does not update
-the application.
+| Partition | Offset | Purpose |
+| --- | ---: | --- |
+| `tx_0` | `0x10000` | initial TX application |
+| `tx_1` | `0x2b0000` | TX Wi-Fi OTA target |
+| `rx_0` | `0x450000` | initial RX application |
+| `rx_1` | `0x590000` | RX Wi-Fi OTA target |
+| `role_state` | `0x6d0000` | active TX and RX slot records |
+| `spiffs` | `0x6d2000` | preformatted LittleFS |
+
+Only a small bootloader selector is custom. It runs before partition selection
+on every boot, reads the role-state records, and falls back only to the other
+slot for the same role. Each application also checks GPIO4 at startup and
+holds both FEM enables low if it was booted in the wrong role.
+
+Wi-Fi OTA updates the inactive slot for the running role and records the new
+slot only after `Update.end()` succeeds. Use the full factory artifact for the
+initial install and recovery.
 
 ## Hardware mapping
 
@@ -61,7 +71,8 @@ is elsewhere.
 ```
 
 `./scripts/build.sh` (or `./scripts/build.sh dual`) builds both ExpressLRS
-applications and produces:
+applications, creates the role-state records and an empty LittleFS image, and
+produces:
 
 - `dist/aerialkit-rev-a3-elrs-dual-role.bin`, the single full-flash image;
 - `dist/aerialkit-rev-a3-elrs-dual-role.json`, role mapping, offsets and hashes.
@@ -81,9 +92,10 @@ overlay. No upstream source is vendored into Git.
 ./scripts/flash.sh rx /dev/ttyACM0
 ```
 
-With no mode, `flash.sh` writes the dual-role artifact at offset `0x0`. This is
-a normal USB/ROM flash, not an OTA update. It preserves NVS, SPIFFS and the
-partition table exactly as included in the artifact.
+With no mode, `flash.sh` writes the factory artifact at offset `0x0`. This is
+a normal USB/ROM flash, not an OTA update. It replaces the partition table,
+NVS, initial role slots, role state and LittleFS. The unused per-role OTA slots
+are left erased.
 
 The diagnostic image should be flashed first with the antenna disconnected.
 It verifies boot, USB, UART, SX1280 SPI and firmware version, BUSY/DIO1 idle

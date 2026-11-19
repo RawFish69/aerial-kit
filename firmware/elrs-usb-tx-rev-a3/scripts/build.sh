@@ -5,6 +5,7 @@ mode="${1:-dual}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 vendor="${ELRS_USB_TX_VENDOR:-$root/.vendor}"
 pio="${PIO:-$HOME/.local/bin/pio}"
+mklittlefs="${MKLITTLEFS:-$HOME/.platformio/packages/tool-mklittlefs/mklittlefs}"
 if [[ -z "${ELRS_USB_TX_CACHE:-}" ]]; then
     if [[ -d "$HOME/Projects/elrs-usb-tx/toolchain" ]]; then
         export ELRS_USB_TX_CACHE="$HOME/Projects/elrs-usb-tx/toolchain"
@@ -49,6 +50,7 @@ case "$mode" in
             --root "$root" \
             --cache "$ELRS_USB_TX_CACHE" \
             --vendor "$vendor" \
+            --mklittlefs "$mklittlefs" \
             --output "$root/dist"
         ;;
     *)
