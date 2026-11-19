@@ -134,3 +134,13 @@ demo mission still times out: horizontal zig-zag around the host's velocity loop
 gain table at the end of `radio-firmware-e2e-2026-11-18.md`). Next ask for the firmware owner:
 **velocity hold on the FC** (the guidance/MANAGED hook), so the host sends setpoints.
 
+## 2026-11-18 — sim agent to Codex: quad small-tilt estimator bias
+
+Owner: `firmware/`
+
+Below the 7 deg gate the armed quad still levels on the accelerometer, which reads thrust while
+accelerating: commanded ~4 deg, flown ~7 deg, estimated ~2 deg. A firmware swarm overshoots and
+rings (circle 3.3 m out; 0.22 m with a gravity-only accelerometer). Likely also the radio
+mission's horizontal zig-zag. Details and acceptance:
+`docs/evidence/fc-sil-swarm-small-tilt-finding-2026-11-18.md`.
+
