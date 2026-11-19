@@ -42,7 +42,7 @@ That diagnostic image is not a release and must not be used.
   prints `AK-FAULT hardware layout not loaded`; it no longer crashes on a null
   serial endpoint.
 - The role heartbeat runs before target options and before the normal LED
-  driver: one green pulse for TX and two blue pulses for RX at 26/255.
+  driver: one blue pulse for TX and two green pulses for RX at 26/255.
 - The normal LED driver checks I2S calls and falls back to RMT if I2S cannot
   initialize or write.
 - Arduino core logging is disabled for these target environments so text does
@@ -53,7 +53,7 @@ That diagnostic image is not a release and must not be used.
 ## Validation
 
 - TX and RX ExpressLRS builds: passed.
-- Native USB/CRSF tests: 6 passed.
+- Native USB/CRSF and LED tests: 9 passed.
 - Role, selector, trailer and factory-image tests: 8 passed.
 - Source bootloader byte comparison: passed.
 - Factory image assembler: passed.
@@ -64,7 +64,7 @@ That diagnostic image is not a release and must not be used.
 ```text
 path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
 size: 8331264 bytes
-sha256: aef3e31a4d89e662af275439dd8cf11da3f11807164455293747f5de69a21f77
+sha256: c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4
 flash offset: 0x0
 bootloader: bootloader_qio_80m.elf
 SDK memory type: qio_qspi

@@ -60,6 +60,27 @@ The SX1280 power table is `[-18, -14, -10, -6, +5]` dBm and defaults to the
 lowest entry. The +5 dBm maximum is the documented input limit of the
 RFX2401C, not a measured board output.
 
+## LED state
+
+TX is always blue. RX is always green. State is shown only by pulse or
+breathing pattern; the firmware bypasses the upstream rainbow startup and
+packet-rate hue animation.
+
+| State | TX | RX |
+| --- | --- | --- |
+| Boot identity | One 350 ms pulse | Two 350 ms pulses |
+| Bind | Breathing, 3 s cycle | Breathing, 3 s cycle |
+| Searching / no RF peer | Breathing, 1 s cycle | Breathing, 1 s cycle |
+| Host/FC present, RF disconnected | Two 100 ms pulses/s | Two 100 ms pulses/s |
+| RF connected | Steady | Steady |
+| No sufficient serial input | One 100 ms pulse every 2 s | One 100 ms pulse every 2 s |
+| Radio/SX1280 fault | Fast red, 100 ms on/off | Fast red, 100 ms on/off |
+| Role/model mismatch | Three amber pulses, 1 s pause | Three amber pulses, 1 s pause |
+
+Breathing stays in the role color, updates every 20 ms, and fades from
+approximately 2% to 10% brightness. Bind persists for at least one complete
+three-second cycle after it is observed.
+
 The native USB CDC path is a CRSF transport in both roles. TX accepts
 `RC_CHANNELS_PACKED` from the host and starts the normal ExpressLRS scheduling
 path. RX emits `RC_CHANNELS_PACKED` to the host and accepts host telemetry.
@@ -146,7 +167,7 @@ builds that pairing permanently. The corrected release is:
 
 ```text
 size: 8331264 bytes
-sha256: aef3e31a4d89e662af275439dd8cf11da3f11807164455293747f5de69a21f77
+sha256: c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4
 ```
 
 TX CRSF behavior with the corrected bootloader, exact LED pulse counts, device

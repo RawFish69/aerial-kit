@@ -15,13 +15,13 @@ It caused an RX LittleFS format failure and invalid-image panic.
 Use the four-slot factory artifact whose manifest records SHA-256:
 
 ```text
-aef3e31a4d89e662af275439dd8cf11da3f11807164455293747f5de69a21f77
+c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4
 ```
 
 Do not use `7210b9ff…`: it paired a DIO bootloader with QIO-built
 applications and caused invalid flash reads, LittleFS failures and an RX panic.
 
-The `aef3e31a…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
+The `c1668c40…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
 its manifest must record `bootloader_qio_80m.elf`, SDK memory type
 `qio_qspi`, application header mode `dio` and bootloader mode `dio`.
 
@@ -160,11 +160,18 @@ Expected USB behavior:
 - Telemetry frames written by the RX host are forwarded over RF.
 - The two devices remain distinct `/dev/ttyACM*` endpoints.
 
-At boot, expect one green pulse for TX or two blue pulses for RX at the
-configured low brightness, followed by the normal ExpressLRS LED state.
+At boot, expect one blue pulse for TX or two green pulses for RX at the
+configured low brightness, followed directly by the fixed role/state pattern.
 The TX heartbeat is one pulse, not two. Stop if both LEDs are dark, colors or
 pulse counts disagree with the selected role, or a slow red fault pattern
 appears.
+
+Use the LED state table in
+[`elrs-led-state-machine-2026-11-19.md`](elrs-led-state-machine-2026-11-19.md).
+There must be no rainbow, packet-rate hue, random gradient or unrelated-color
+flicker after boot. Bind is slow role-color breathing, searching is faster
+role-color breathing, and connected is steady in the role color. A model/role
+mismatch is three amber pulses; a radio fault is fast red.
 
 Open the host port with DTR and RTS deasserted. `aerial_kit.comms`
 `SerialTransport` does this by default. If a tool nevertheless resets the
@@ -298,10 +305,12 @@ are three separate operations:
    successful bind until both endpoints connect and report link statistics.
 3. **Wi-Fi.** **Enable module Wi-Fi** asks the TX to enter Wi-Fi update mode;
    **Enable receiver Wi-Fi** asks a connected TX to relay that request to the
-   RX. Confirm the link-loss warning first. Expected module LED is the
-   yellow-to-green Wi-Fi cross-fade. Join `ExpressLRS TX` or `ExpressLRS RX`
-   with password `expresslrs`, then open `http://10.0.0.1/`. The configurator
-   cannot switch the host's Wi-Fi network or embed that native page.
+   RX. Confirm the link-loss warning first. The fixed LED state machine does
+   not use the upstream yellow-to-green cross-fade; keep role color as the
+   identity and use the web page for mode confirmation. Join `ExpressLRS TX`
+   or `ExpressLRS RX` with password `expresslrs`, then open
+   `http://10.0.0.1/`. The configurator cannot switch the host's Wi-Fi network
+   or embed that native page.
 
 If a module's parameter menu does not advertise a bind entry or its role does
 not advertise Wi-Fi, the page says so. The stock direct bind command remains

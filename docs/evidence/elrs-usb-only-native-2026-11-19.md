@@ -23,8 +23,8 @@ roles while retaining the UART path.
 Before target options are loaded, both FEM enables are driven low and the
 WS2812 emits a short role heartbeat over RMT:
 
-- TX: one green pulse.
-- RX: two blue pulses.
+- TX: one blue pulse.
+- RX: two green pulses.
 
 The existing disconnected, bind and connected patterns follow. The global
 WS2812 brightness remains 26/255 (about 10%).
@@ -46,15 +46,16 @@ PlatformIO's `bootloader.bin` byte-for-byte.
 
 - ExpressLRS 4.1.0 TX build completed with the native USB bridge.
 - ExpressLRS 4.1.0 RX build completed with the native USB bridge.
-- Native USB/CRSF tests: 6 passed (RC input, telemetry output routing,
-  telemetry input, device information, heartbeat/role logic and serial guards).
+- Native USB/CRSF tests: 9 passed (RC input, telemetry output routing,
+  telemetry input, device information, heartbeat/role logic, LED priorities,
+  color locking, pulse timing and serial guards).
 - Role/selector/factory-image tests: 8 passed, including independent QIO
   selection, a deliberate bootloader-mode mismatch, CRSF framing and appended
   target trailers.
 - Factory artifact: 8,331,264 bytes.
 - SHA-256:
-  `aef3e31a4d89e662af275439dd8cf11da3f11807164455293747f5de69a21f77`.
+  `c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4`.
 - No physical board was flashed or powered during this code change.
 
 The earlier `7210…` image is invalid and must not be flashed. Hardware
-acceptance remains gated on the `aef3…` image and the USB-only bench checklist.
+acceptance remains gated on the `c166…` image and the USB-only bench checklist.

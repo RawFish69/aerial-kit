@@ -1,0 +1,115 @@
+diff --git a/src/lib/LED/devRGB.cpp b/src/lib/LED/devRGB.cpp
+index 1111111..2222222 100644
+--- a/src/lib/LED/devRGB.cpp
++++ b/src/lib/LED/devRGB.cpp
+@@ -9,6 +9,9 @@
+ 
+ #include "crsf_protocol.h"
+ #include "POWERMGNT.h"
++#if defined(AERIALKIT_DUAL_ROLE)
++#include "aerialkit_led_state_machine.h"
++#endif
+ 
+ static uint8_t pixelCount;
+ static uint8_t *statusLEDs;
+@@ -380,6 +383,9 @@ static bool initialize()
+ 
+ static int start()
+ {
++#if defined(AERIALKIT_DUAL_ROLE)
++    return DURATION_IMMEDIATELY;
++#else
+     blinkyState = STARTUP;
+     #if defined(PLATFORM_ESP32)
+     // Only do the blinkies if it was NOT a software reboot
+@@ -395,9 +399,13 @@ static int start()
+     #endif
+     return DURATION_IMMEDIATELY;
++#endif
+ }
+ 
+ static int timeout()
+ {
++#if defined(AERIALKIT_DUAL_ROLE)
++    return aerialkitLedTimeout();
++#else
+     if (blinkyState == STARTUP && connectionState < FAILURE_STATES)
+     {
+         return blinkyUpdate();
+@@ -461,6 +470,7 @@ static int timeout()
+     default:
+         return DURATION_NEVER;
+     }
++#endif
+ }
+ 
+ device_t RGB_device = {
+diff --git a/src/lib/Handset/CRSFHandset.cpp b/src/lib/Handset/CRSFHandset.cpp
+index 3333333..4444444 100644
+--- a/src/lib/Handset/CRSFHandset.cpp
++++ b/src/lib/Handset/CRSFHandset.cpp
+@@ -4,7 +4,8 @@
+ #include "CRSFEndpoint.h"
+ #include "CRSFRouter.h"
+ #include "FIFO.h"
+ #include "helpers.h"
+ #include "logging.h"
++#include "aerialkit_led_state_machine.h"
+ 
+ #if defined(PLATFORM_ESP32)
+@@ -203,5 +204,8 @@ bool CRSFHandset::ProcessPacket()
+ {
+     dataLastRecv = micros();
++#if defined(AERIALKIT_DUAL_ROLE)
++    aerialkitLedMarkSerialInput();
++#endif
+ 
+     if (!controllerConnected)
+     {
+diff --git a/src/src/rx-serial/SerialCRSF.cpp b/src/src/rx-serial/SerialCRSF.cpp
+index 5555555..6666666 100644
+--- a/src/src/rx-serial/SerialCRSF.cpp
++++ b/src/src/rx-serial/SerialCRSF.cpp
+@@ -1,8 +1,9 @@
+ #include "SerialCRSF.h"
+ 
+ #include "OTA.h"
+ #include "common.h"
+ #include "device.h"
+ #include "msp2crsf.h"
++#include "aerialkit_led_state_machine.h"
+ 
+ extern void reset_into_bootloader();
+@@ -86,6 +87,9 @@ void SerialCRSF::processBytes(uint8_t *bytes, const uint16_t size)
+ void SerialCRSF::processBytes(uint8_t *bytes, const uint16_t size)
+ {
+     crsfParser.processBytes(this, bytes, size, [](const crsf_header_t *message) {
++#if defined(AERIALKIT_DUAL_ROLE)
++        aerialkitLedMarkSerialInput();
++#endif
+         if (message->type == CRSF_FRAMETYPE_BATTERY_SENSOR)
+         {
+             crsfBatterySensorDetected = true;
+diff --git a/src/src/tx_main.cpp b/src/src/tx_main.cpp
+index 7777777..8888888 100644
+--- a/src/src/tx_main.cpp
++++ b/src/src/tx_main.cpp
+@@ -36,7 +36,8 @@
+ #include "MAVLink.h"
+ #include "TXModuleEndpoint.h"
+ #include "TXOTAConnector.h"
+ #include "TXUSBConnector.h"
++#include "aerialkit_led_state_machine.h"
+ 
+ #if defined(PLATFORM_ESP8266)
+ #include <user_interface.h>
+@@ -1178,6 +1179,9 @@ static void HandleUARTin()
+     else
+     {
+       crsfParser.processBytes(&usbConnector, buf, size, [](const crsf_header_t *message) {
++#if defined(AERIALKIT_DUAL_ROLE)
++        aerialkitLedMarkSerialInput();
++#endif
+         if (message->type == CRSF_FRAMETYPE_RC_CHANNELS_PACKED)
+         {
+           UsbCrsfLastRecv = micros();

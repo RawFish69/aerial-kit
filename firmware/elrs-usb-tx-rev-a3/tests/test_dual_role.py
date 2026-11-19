@@ -127,6 +127,27 @@ class DualRoleArtifactTests(unittest.TestCase):
             self.assertIn(required, patch)
         self.assertNotIn("aerialkitRoleHeartbeat", patch)
 
+        led_patch = (
+            ROOT / "patches" / "expresslrs-4.1.0-led-state.patch"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "return aerialkitLedTimeout()",
+            "aerialkitLedMarkSerialInput",
+        ):
+            self.assertIn(required, led_patch)
+        self.assertIn(
+            "return DURATION_IMMEDIATELY;",
+            led_patch,
+        )
+        led_state = (
+            ROOT
+            / "expresslrs-overlay"
+            / "include"
+            / "aerialkit_led_state_machine.h"
+        ).read_text(encoding="utf-8")
+        for required in ("SlowBreath", "FastBreath", "AmberTriple"):
+            self.assertIn(required, led_state)
+
     def test_selector_linker_script_is_parameterized(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "selector.ld"
