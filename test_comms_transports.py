@@ -177,3 +177,22 @@ def test_udp_transport_round_trip() -> None:
         transport.close()
         server.close()
     thread.join(1.0)
+
+
+def test_udp_transport_buffers_one_datagram_for_small_reads() -> None:
+    receiver_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver_socket.bind(("127.0.0.1", 0))
+    receiver = UdpTransport(receiver_socket, timeout=1.0)
+    port = receiver.socket.getsockname()[1]
+    sender = UdpTransport.connect(
+        "127.0.0.1", port, local_addr=("127.0.0.1", 0), timeout=1.0
+    )
+    try:
+        sender.write(b"abcdef")
+        assert receiver.read(1, timeout=1.0) == b"a"
+        assert receiver.available == 5
+        assert receiver.read(5, timeout=0.0) == b"bcdef"
+        assert receiver.available == 0
+    finally:
+        receiver.close()
+        sender.close()
