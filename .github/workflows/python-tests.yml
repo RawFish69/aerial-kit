@@ -59,6 +59,8 @@ jobs:
         run: python protocols/check_vectors.py
       - name: Shared communications transports
         run: python -m pytest test_comms_transports.py -q
+      - name: CRSF radio and parameters
+        run: python -m pytest test_crsf_radio.py -q
 
   ros-packages:
     name: ROS 2 package logic (no ROS)

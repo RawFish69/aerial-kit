@@ -10,12 +10,12 @@ if TYPE_CHECKING:  # ROS message types; imported lazily so the mapping logic tes
     from geometry_msgs.msg import Twist
 
 from aerial_kit.comms.crsf import (
-    CRSF_CHANNEL_COUNT,
-    CRSF_CHANNEL_MAX,
-    CRSF_CHANNEL_MID,
-    CRSF_CHANNEL_MIN,
+    BackendArmSequencer,
+    CrsfChannelMap as LibraryCrsfChannelMap,
+    CrsfStickState,
+    RcSticks,
 )
-from hw_bridge.rc_mapping import RcMapParams, RcSticks
+from hw_bridge.rc_mapping import RcMapParams
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -54,40 +54,6 @@ def velocity_to_manual_sticks(
     )
 
 
-@dataclass(frozen=True)
-class CrsfStickState:
-    arm_request: bool
-    sticks: RcSticks
-    angle_mode: bool
-
-
-@dataclass
-class BackendArmSequencer:
-    """Hold arm high at minimum throttle before handing over controller sticks."""
-
-    arm_hold_sec: float = 1.0
-    throttle_min: float = 0.0
-    armed: bool = False
-    hold_started: float | None = None
-
-    def reset(self) -> None:
-        self.armed = False
-        self.hold_started = None
-
-    def update(self, enabled: bool, sticks: RcSticks, now: float) -> tuple[RcSticks, bool]:
-        if not enabled:
-            self.reset()
-            return RcSticks(0.0, 0.0, 0.0, self.throttle_min), False
-        if self.armed:
-            return sticks, True
-        if self.hold_started is None:
-            self.hold_started = now
-        if now - self.hold_started >= self.arm_hold_sec:
-            self.armed = True
-            return sticks, True
-        return RcSticks(0.0, 0.0, 0.0, self.throttle_min), True
-
-
 @dataclass
 class ReceiverArmingGate:
     """Model the FC rule: arm high and throttle low for a continuous hold."""
@@ -117,81 +83,8 @@ class ReceiverArmingGate:
         return self.armed
 
 
-@dataclass(frozen=True)
-class CrsfChannelMap:
+class CrsfChannelMap(LibraryCrsfChannelMap):
     """AETR + arm + flight mode channels, using one-based channel numbers."""
-
-    roll: int = 1
-    pitch: int = 2
-    throttle: int = 3
-    yaw: int = 4
-    arm: int = 6
-    mode: int = 5
-    arm_threshold: int = 1300
-    angle_mode_count: int = CRSF_CHANNEL_MAX
-    disabled_mode_count: int = CRSF_CHANNEL_MIN
-
-    def __post_init__(self) -> None:
-        channels = (self.roll, self.pitch, self.throttle, self.yaw, self.arm, self.mode)
-        if any(channel < 1 or channel > CRSF_CHANNEL_COUNT for channel in channels):
-            raise ValueError(f"CRSF channel numbers must be 1..{CRSF_CHANNEL_COUNT}, got {channels}")
-        if len(set(channels)) != len(channels):
-            raise ValueError(f"CRSF channel map uses a channel twice: {channels}")
-
-    @classmethod
-    def from_mapping(cls, values: dict[str, int]) -> "CrsfChannelMap":
-        return cls(**{name: int(values.get(name, getattr(cls(), name))) for name in (
-            "roll", "pitch", "throttle", "yaw", "arm", "mode"
-        )})
-
-    @staticmethod
-    def _stick_count(value: float) -> int:
-        normalized = _clamp(value, -1.0, 1.0)
-        return round(CRSF_CHANNEL_MID + normalized * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MID))
-
-    @staticmethod
-    def _throttle_count(value: float) -> int:
-        normalized = _clamp(value, 0.0, 1.0)
-        return round(CRSF_CHANNEL_MIN + normalized * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN))
-
-    def encode(self, sticks: RcSticks, *, enabled: bool) -> tuple[int, ...]:
-        channels = [CRSF_CHANNEL_MID] * CRSF_CHANNEL_COUNT
-        channels[self.roll - 1] = self._stick_count(sticks.roll)
-        channels[self.pitch - 1] = self._stick_count(sticks.pitch)
-        channels[self.yaw - 1] = self._stick_count(sticks.yaw)
-        channels[self.throttle - 1] = self._throttle_count(sticks.throttle)
-        channels[self.arm - 1] = CRSF_CHANNEL_MAX if enabled else CRSF_CHANNEL_MIN
-        channels[self.mode - 1] = self.angle_mode_count if enabled else self.disabled_mode_count
-        return tuple(channels)
-
-    def decode_sticks(self, channels: Sequence[int]) -> CrsfStickState:
-        if len(channels) != CRSF_CHANNEL_COUNT:
-            raise ValueError(f"expected {CRSF_CHANNEL_COUNT} CRSF channels, got {len(channels)}")
-
-        def stick(number: int) -> float:
-            return _clamp(
-                (float(channels[number - 1]) - CRSF_CHANNEL_MID)
-                / (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MID),
-                -1.0,
-                1.0,
-            )
-
-        throttle = _clamp(
-            (float(channels[self.throttle - 1]) - CRSF_CHANNEL_MIN)
-            / (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN),
-            0.0,
-            1.0,
-        )
-        return CrsfStickState(
-            arm_request=int(channels[self.arm - 1]) >= self.arm_threshold,
-            sticks=RcSticks(
-                roll=stick(self.roll),
-                pitch=stick(self.pitch),
-                yaw=stick(self.yaw),
-                throttle=throttle,
-            ),
-            angle_mode=int(channels[self.mode - 1]) >= self.angle_mode_count,
-        )
 
     def decode(self, channels: Sequence[int], params: RcMapParams) -> tuple[bool, "Twist"]:
         from geometry_msgs.msg import Twist

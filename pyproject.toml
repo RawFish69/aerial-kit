@@ -62,6 +62,8 @@ files = [
     "aerial_kit/comms/__init__.py",
     "aerial_kit/comms/crsf/__init__.py",
     "aerial_kit/comms/crsf/codec.py",
+    "aerial_kit/comms/crsf/parameters.py",
+    "aerial_kit/comms/crsf/radio.py",
     "aerial_kit/comms/transport.py",
     "aerial_kit/__init__.py",
     "aerial_kit/interfaces.py",

@@ -17,6 +17,7 @@ import math
 from dataclasses import dataclass
 from typing import Optional
 
+from aerial_kit.comms.crsf import RcSticks
 from aerial_kit.registry import create_airframe, register_builtin_components
 
 
@@ -33,14 +34,6 @@ class RcMapParams:
     # so a tilted multirotor in a plain angle mode (no FC altitude hold) keeps
     # its lift. Thrust ~ throttle^2. Off keeps the original mapping.
     tilt_compensation: bool = False
-
-
-@dataclass(frozen=True)
-class RcSticks:
-    roll: float
-    pitch: float
-    yaw: float
-    throttle: float
 
 
 def params_from_airframe(

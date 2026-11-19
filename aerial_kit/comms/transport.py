@@ -63,7 +63,8 @@ class Link(ABC):
         if timeout < 0:
             raise ValueError("timeout must be non-negative")
         self.timeout = float(timeout)
-        self._io_lock = threading.RLock()
+        self._read_lock = threading.RLock()
+        self._write_lock = threading.RLock()
         self._reader_thread: threading.Thread | None = None
         self._reader_stop = threading.Event()
         self._closed = False
@@ -81,7 +82,7 @@ class Link(ABC):
             raise TransportClosed("transport is closed")
         if size == 0:
             return b""
-        with self._io_lock:
+        with self._read_lock:
             return self._read(size, self.timeout if timeout is None else timeout)
 
     def read_exact(self, size: int, timeout: float | None = None) -> bytes:
@@ -107,7 +108,7 @@ class Link(ABC):
     def write(self, data: bytes) -> int:
         if self._closed:
             raise TransportClosed("transport is closed")
-        with self._io_lock:
+        with self._write_lock:
             return self._write(bytes(data))
 
     def poll(self, size: int = 4096, timeout: float | None = None) -> bytes:
