@@ -112,7 +112,7 @@ The ROS-free control package is also on [PyPI](https://pypi.org/project/aerial-k
 | PX4 | MAVLink over USB / UART / telemetry radio | [Guide](ros2_ws/src/mavlink_bridge/README.md) |
 | ArduPilot | MAVLink through the same backend | [Guide](ros2_ws/src/mavlink_bridge/README.md) |
 | ESP32 radio links | ESP-NOW, ELRS, LoRa and GPS | [Guide](firmware/legacy/README.md) |
-| **Aerial Kit ELRS USB TX Rev A3** | Custom hardware, RF-off diagnostic, ELRS TX and RX images | [Guide](firmware/elrs-usb-tx-rev-a3/README.md) |
+| **Aerial Kit ELRS USB TX Rev A3** | Custom hardware, RF-off diagnostic, ELRS TX/RX images and native-USB bench tools | [Firmware](firmware/elrs-usb-tx-rev-a3/README.md) · [Bench](docs/RADIO-BENCH.md) |
 | **Python protocol clients** | CRSF, Aerial Kit, MAVLink and read-only MSP | [Protocol guide](docs/PROTOCOLS.md) |
 
 ## Start here
@@ -138,6 +138,8 @@ The console can query a radio or flight controller directly:
 ```bash
 pip install "aerial-kit[radio,mavlink]"
 aerial-kit-link --port /dev/ttyACM0 radio status
+aerial-kit-link radio monitor --port /dev/ttyACM0 --duration 5 --json monitor.json
+aerial-kit-link radio drive --port /dev/ttyACM0 --hz 150 --duration 10 --write
 aerial-kit-link --port /dev/ttyACM0 fc hello
 aerial-kit-link --port /dev/ttyACM0 fc params
 ```
@@ -145,7 +147,9 @@ aerial-kit-link --port /dev/ttyACM0 fc params
 Use `--radio /dev/ttyUSB0` with `fc` to carry Aerial Kit requests over an ELRS
 link. Mutations require `--write`; omitting it refuses the operation before a
 frame is sent. See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for framing,
-transport and safety details.
+transport and safety details. Native-USB radio monitor, drive, capture,
+telemetry injection and two-board evidence are covered in
+[docs/RADIO-BENCH.md](docs/RADIO-BENCH.md).
 
 ## Licence
 

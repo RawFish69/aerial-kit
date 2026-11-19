@@ -12,6 +12,7 @@ from typing import Iterable, Sequence
 
 import math
 import struct
+import time
 
 from ..transport import Transport
 
@@ -145,28 +146,67 @@ def make_rc_channels_frame(
     return make_frame(CRSF_FRAMETYPE_RC_CHANNELS_PACKED, pack_channels(channels), address=address)
 
 
+def make_device_ping(
+    *,
+    destination: int = CRSF_ADDRESS_CRSF_TRANSMITTER,
+    origin: int = CRSF_ADDRESS_RADIO_TRANSMITTER,
+) -> bytes:
+    return make_frame(
+        CRSF_FRAMETYPE_DEVICE_PING,
+        bytes((destination, origin)),
+        address=CRSF_ADDRESS_FLIGHT_CONTROLLER,
+    )
+
+
 class CrsfParser:
     """Incremental byte-stream parser that survives partial data and bad CRCs."""
 
     def __init__(self) -> None:
         self._buffer = bytearray()
+        self._discarding = False
+        self.reset_diagnostics()
 
-    def reset(self) -> None:
+    def reset(self, *, diagnostics: bool = True) -> None:
         self._buffer.clear()
+        self._discarding = False
+        if diagnostics:
+            self.reset_diagnostics()
+
+    def reset_diagnostics(self) -> None:
+        self.bytes_received = 0
+        self.valid_frames = 0
+        self.crc_errors = 0
+        self.resyncs = 0
+        self.framing_errors = 0
+        self.last_frame_at: float | None = None
+
+    @property
+    def pending_bytes(self) -> int:
+        return len(self._buffer)
+
+    def _discarded(self, *, framing: bool = False) -> None:
+        if framing:
+            self.framing_errors += 1
+        if not self._discarding:
+            self.resyncs += 1
+            self._discarding = True
 
     def feed(self, data: bytes | bytearray | memoryview) -> list[CrsfFrame]:
+        self.bytes_received += len(data)
         self._buffer.extend(data)
         frames: list[CrsfFrame] = []
 
         while len(self._buffer) >= 2:
             if self._buffer[0] not in _VALID_ADDRESSES:
                 del self._buffer[0]
+                self._discarded()
                 continue
 
             length = self._buffer[1]
             total = length + 2
             if length < 2 or total > CRSF_MAX_FRAME_LEN:
                 del self._buffer[0]
+                self._discarded(framing=True)
                 continue
             if len(self._buffer) < total:
                 break
@@ -174,10 +214,15 @@ class CrsfParser:
             raw = bytes(self._buffer[:total])
             body = raw[2:-1]
             if crc8_dvb_s2(body) != raw[-1]:
+                self.crc_errors += 1
                 del self._buffer[0]
+                self._discarded(framing=True)
                 continue
 
+            self._discarding = False
             frames.append(CrsfFrame(address=raw[0], frame_type=raw[2], payload=raw[3:-1]))
+            self.valid_frames += 1
+            self.last_frame_at = time.monotonic()
             del self._buffer[:total]
 
         return frames
