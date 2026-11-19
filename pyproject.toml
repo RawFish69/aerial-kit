@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aerial-kit"
-version = "0.2.1"
+version = "0.3.0"
 description = "Aerial-robot control stack with optional simulation and visualization."
 readme = "aerial_kit/README.md"
 license = "MIT"
