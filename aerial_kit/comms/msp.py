@@ -129,6 +129,10 @@ class Error(IOError):
     """
 
 
+class MspWriteRefused(Error):
+    """The library-facing MSP client is query-only."""
+
+
 # Stable library-facing names. The legacy tools already import the short
 # names, so they remain aliases rather than being removed.
 MspTimeout = Timeout
@@ -316,7 +320,7 @@ class Deadline:
                 return data
 
 
-class Msp:
+class MspClient:
     """One request and its answer, over a byte stream.
 
     `read` is a callable taking `(count, timeout)` and returning up to `count`
@@ -553,6 +557,25 @@ class Msp:
             if not window or offset >= total:
                 break
         return text
+
+
+class ReadOnlyMsp:
+    """Library-facing MSP client with no mutation surface."""
+
+    _WRITE_METHODS = frozenset(("set_setting", "save"))
+
+    def __init__(self, read, write, timeout=1.0):
+        self._client = MspClient(read, write, timeout=timeout)
+
+    def __getattr__(self, name):
+        if name in self._WRITE_METHODS:
+            raise MspWriteRefused(
+                "MSP mutations are unavailable through the library client"
+            )
+        return getattr(self._client, name)
+
+
+Msp = ReadOnlyMsp
 
 
 # --- the commands this file reads, and what their answers mean -------------

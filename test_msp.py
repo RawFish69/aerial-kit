@@ -8,8 +8,8 @@ import pytest
 
 from aerial_kit.comms import (
     Msp,
-    MspError,
     MspProtocolError,
+    MspWriteRefused,
     build_msp,
     describe_msp,
     identify_msp,
@@ -68,10 +68,10 @@ def test_msp_settings_and_refusal_are_typed() -> None:
     pipe, client = open_board()
     try:
         assert client.setting("failsafe_throttle") == "failsafe_throttle = 1050"
-        assert client.set_setting("failsafe_throttle", 1200) == \
-            "failsafe_throttle = 1200"
-        with pytest.raises(MspError):
-            client.set_setting("failsafe_throttle", 9999)
+        with pytest.raises(MspWriteRefused):
+            client.set_setting("failsafe_throttle", 1200)
+        with pytest.raises(MspWriteRefused):
+            client.save()
     finally:
         pipe.close()
 

@@ -113,6 +113,7 @@ The ROS-free control package is also on [PyPI](https://pypi.org/project/aerial-k
 | ArduPilot | MAVLink through the same backend | [Guide](ros2_ws/src/mavlink_bridge/README.md) |
 | ESP32 radio links | ESP-NOW, ELRS, LoRa and GPS | [Guide](firmware/legacy/README.md) |
 | **Aerial Kit ELRS USB TX Rev A3** | Custom hardware, RF-off diagnostic, ELRS TX and RX images | [Guide](firmware/elrs-usb-tx-rev-a3/README.md) |
+| **Python protocol clients** | CRSF, Aerial Kit, MAVLink and read-only MSP | [Protocol guide](docs/PROTOCOLS.md) |
 
 ## Start here
 
@@ -125,7 +126,26 @@ The ROS-free control package is also on [PyPI](https://pypi.org/project/aerial-k
 | Hardware designs and overlays | [Hardware workspace](hardware/) |
 | Understand the stack | [Architecture, airframes, ROS 2 and roadmap](docs/STACK-GUIDE.md) |
 | Connect hardware | [Hardware guide](docs/HARDWARE.md) · [Radio firmware](firmware/legacy/README.md) |
+| Query radios and vehicles from Python | [Protocol examples](examples/comms/) · [Protocol guide](docs/PROTOCOLS.md) |
 | Use the logo | [Branding & SVG assets](docs/branding.md) |
+
+## Python protocol client
+
+`aerial_kit.comms` provides one Python boundary for ELRS/CRSF radios, Aerial
+Kit flight controllers, PX4/ArduPilot over MAVLink, and read-only MSP devices.
+The console can query a radio or flight controller directly:
+
+```bash
+pip install "aerial-kit[radio,mavlink]"
+aerial-kit-link --port /dev/ttyACM0 radio status
+aerial-kit-link --port /dev/ttyACM0 fc hello
+aerial-kit-link --port /dev/ttyACM0 fc params
+```
+
+Use `--radio /dev/ttyUSB0` with `fc` to carry Aerial Kit requests over an ELRS
+link. Mutations require `--write`; omitting it refuses the operation before a
+frame is sent. See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for framing,
+transport and safety details.
 
 ## Licence
 
