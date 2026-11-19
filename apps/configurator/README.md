@@ -214,12 +214,19 @@ connection. It speaks to the module the way a radio's ExpressLRS script does, ov
 | changes | **off until "Allow changes" is on**; a write is range-checked and the field read back |
 | commands | Bind and the like run through their steps (click, poll, confirm when the module asks) |
 | link | live link statistics (LQ, RSSI, SNR, rate) while a receiver is connected, and how long since the last |
+| Bench | bounded TX drive, 16-channel RX capture, telemetry injection, CRC/resync/rate counters and JSON evidence |
 
-Connections: **USB serial at 400000 baud** (the Rev A3 takes CRSF on UART0, J3, through a 3.3 V USB-UART
-adapter; its USB-C port is for flashing and does not carry CRSF in ExpressLRS 4.1.0), or **Demo radio**,
-a simulated module inside the page that answers the same frames (`src/transport/demo-radio.ts`).
+Connections: **native USB serial at logical 400000 baud for TX and 420000 for RX**; CDC may ignore the
+requested rate. **Demo radio** and **Demo RX radio** exercise the same frames without hardware
+(`src/transport/demo-radio.ts`). Web Serial does not expose pre-open DTR/RTS control; the CRSF decoder
+discards ROM text and resynchronizes on `0xC8`.
 
-Verified against the demo radio and the shared vectors only; *no physical module yet*.
+The Bench page requires **Allow changes** and a separate arm confirmation for motion. Stop, timeout and
+disconnect paths send or request a safe disarm. A drive can pass its USB-write requirement, but RF remains
+`NOT TESTED` until receiver RC frames and LINK_STATISTICS are observed.
+
+Verified against the demo radios, memory/loopback transports and shared vectors; hardware verification is
+still separate.
 
 ## Flashing firmware
 

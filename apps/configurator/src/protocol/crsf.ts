@@ -99,16 +99,31 @@ export function encodeExtended(type: number, destination: number, origin: number
 /** Byte-fed: a truncated or corrupted frame is a nothing, never a wrong answer. */
 export class CrsfDecoder {
   private buf: number[] = [];
+  private discarding = false;
   crcErrors = 0;
+  resyncs = 0;
+  framingErrors = 0;
+  frames = 0;
+  bytesReceived = 0;
 
   push(chunk: Uint8Array): CrsfFrame[] {
     const out: CrsfFrame[] = [];
+    this.bytesReceived += chunk.length;
     for (const b of chunk) this.buf.push(b);
     for (;;) {
-      while (this.buf.length > 0 && !SYNC_BYTES.has(this.buf[0]!)) this.buf.shift();
+      while (this.buf.length > 0 && !SYNC_BYTES.has(this.buf[0]!)) {
+        if (!this.discarding) {
+          this.resyncs++;
+          this.discarding = true;
+        }
+        this.buf.shift();
+      }
       if (this.buf.length < 2) break;
       const len = this.buf[1]!;
       if (len < 2 || len > CRSF_MAX_FRAME - 2) {
+        this.framingErrors++;
+        if (!this.discarding) this.resyncs++;
+        this.discarding = true;
         this.buf.shift();
         continue;
       }
@@ -116,10 +131,15 @@ export class CrsfDecoder {
       const raw = Uint8Array.from(this.buf.slice(0, len + 2));
       if (crc8DvbS2(raw.subarray(2, raw.length - 1)) !== u8(raw, raw.length - 1)) {
         this.crcErrors++;
+        this.framingErrors++;
+        if (!this.discarding) this.resyncs++;
+        this.discarding = true;
         this.buf.shift();
         continue;
       }
+      this.discarding = false;
       this.buf.splice(0, len + 2);
+      this.frames++;
       out.push({ address: u8(raw, 0), type: u8(raw, 2), payload: raw.slice(3, raw.length - 1) });
     }
     return out;
@@ -174,6 +194,45 @@ export type Telemetry =
       altitudeM: number; satellites: number }
   | { kind: 'barometer'; altitudeM: number; verticalSpeedMps: number }
   | { kind: 'flightMode'; mode: string };
+
+/** Valid representative telemetry used by the RX bench injection control. */
+export function encodeDefaultTelemetryFrames(): Uint8Array[] {
+  const attitude = new Uint8Array(6);
+  const av = new DataView(attitude.buffer);
+  av.setInt16(0, 1_000);       // pitch 0.1 rad
+  av.setInt16(2, -5_000);      // roll -0.5 rad
+  av.setInt16(4, 12_000);      // yaw 1.2 rad
+
+  const battery = new Uint8Array(8);
+  const bv = new DataView(battery.buffer);
+  bv.setUint16(0, 168);        // 16.8 V
+  bv.setUint16(2, 123);        // 12.3 A
+  battery[4] = 0;
+  battery[5] = 0x05;
+  battery[6] = 0xdc;           // 1500 mAh
+  battery[7] = 88;
+
+  const gps = new Uint8Array(15);
+  const gv = new DataView(gps.buffer);
+  gv.setInt32(0, 473_977_000);
+  gv.setInt32(4, 85_456_000);
+  gv.setUint16(8, 360);        // 10 m/s as km/h * 10
+  gv.setUint16(10, 9_000);     // 90 degrees
+  gv.setUint16(12, 1_450);     // 450 m above 1000 m offset
+  gps[14] = 12;
+
+  const barometer = new Uint8Array(4);
+  const mv = new DataView(barometer.buffer);
+  mv.setUint16(0, 11_234);     // 123.4 m
+  mv.setInt16(2, -250);        // -2.5 m/s
+
+  return [
+    encodeFrame(FrameType.ATTITUDE, attitude, Address.RADIO_TRANSMITTER),
+    encodeFrame(FrameType.BATTERY, battery, Address.RADIO_TRANSMITTER),
+    encodeFrame(FrameType.GPS, gps, Address.RADIO_TRANSMITTER),
+    encodeFrame(FrameType.BARO_ALTITUDE, barometer, Address.RADIO_TRANSMITTER),
+  ];
+}
 
 const i8 = (b: number) => (b > 127 ? b - 256 : b);
 

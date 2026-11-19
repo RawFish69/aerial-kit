@@ -2347,6 +2347,13 @@ html[data-theme~="og"] .xp-notepad-text { box-shadow: var(--og-sunken); border: 
 .radio-page .binding-row .bp5-button { justify-self: start; white-space: nowrap; }
 .radio-page .radio-folder { border: 1px solid var(--pt-divider-black, rgba(17, 20, 24, 0.15)); border-radius: 4px; padding: 6px 10px; display: grid; gap: 6px; }
 .radio-page .radio-folder legend { padding: 0 4px; font-weight: 600; }
+.radio-page .bench-controls { display: grid; gap: 10px; max-width: 760px; margin: 12px 0; }
+.radio-page .bench-controls > label { display: grid; grid-template-columns: minmax(11rem, 0.35fr) minmax(0, 1fr); gap: 12px; align-items: center; }
+.radio-page .bench-buttons { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.radio-page .bench-evidence { display: grid; gap: 10px; margin-top: 14px; }
+.radio-page .bench-counters, .radio-page .bench-requirements, .radio-page .bench-channels { display: flex; flex-wrap: wrap; gap: 6px 14px; font-variant-numeric: tabular-nums; }
+.radio-page .bench-telemetry { display: grid; gap: 4px; }
+.radio-page .bench-channels span { min-width: 6.5rem; padding: 3px 6px; border-radius: 3px; background: var(--pt-code-background-color, rgba(17, 20, 24, 0.06)); }
 
 @media (max-width: 620px) {
   .radio-page .binding-row { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 6px; }

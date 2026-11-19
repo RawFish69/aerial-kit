@@ -2,17 +2,17 @@ import { Button, Callout, HTMLSelect, InputGroup, ProgressBar, Switch, Tag } fro
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CommandStep, type Parameter } from '../protocol/crsf';
 import { bindingUid, isUnboundUid, parseUid, uidText } from '../protocol/elrs-binding';
-import { RadioSession, type RadioSnapshot } from '../session/radio';
+import { RadioSession, type BenchRequirementStatus, type RadioSnapshot } from '../session/radio';
 import { DemoRadioTransport } from '../transport/demo-radio';
 import type { Transport } from '../transport/types';
 import { WebSerialTransport } from '../transport/webserial';
 import { Panel } from './panels';
 
-/** An ExpressLRS module's handset port (UART0 on the Aerial Kit Rev A3, J3) runs CRSF at this rate. */
+/** Logical native-USB CRSF rates for the Aerial Kit Rev A3 endpoints. */
 export const RADIO_BAUD = 400000;
 export const RADIO_RX_BAUD = 420000;
 
-type RadioKind = 'serial-tx' | 'serial-rx' | 'demo';
+type RadioKind = 'serial-tx' | 'serial-rx' | 'demo' | 'demo-rx';
 
 const RF_MODES: Record<number, string> = { 0: '4 Hz', 1: '50 Hz', 2: '150 Hz', 3: '250 Hz', 4: '500 Hz' };
 const MANAGED_RADIO_COMMANDS = new Set(['Bind', 'Enter Bind Mode', 'Enable WiFi', 'Enable Rx WiFi']);
@@ -41,6 +41,12 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
   const [uidInput, setUidInput] = useState('');
   const [confirmAction, setConfirmAction] = useState<'bind' | 'phrase' | 'uid' | 'wifi' | 'rx-wifi' | null>(null);
   const [bindingMessage, setBindingMessage] = useState<string | null>(null);
+  const [benchPattern, setBenchPattern] = useState<'disarmed' | 'arm-test' | 'channel-test'>('disarmed');
+  const [benchHz, setBenchHz] = useState(150);
+  const [benchDriveSec, setBenchDriveSec] = useState(10);
+  const [benchCaptureSec, setBenchCaptureSec] = useState(10);
+  const [benchArmConfirmed, setBenchArmConfirmed] = useState(false);
+  const [benchInject, setBenchInject] = useState(true);
   const transport = useRef<Transport | null>(null);
   const [, tick] = useState(0);
 
@@ -50,7 +56,7 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
   }, []);
 
   const disconnect = useCallback(async () => {
-    session?.dispose();
+    await session?.dispose();
     setSession(null);
     setSnapshot(null);
     setAllow(false);
@@ -58,16 +64,25 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
     transport.current = null;
   }, [session]);
 
+  useEffect(() => {
+    const onBeforeUnload = () => { void session?.stopBench('navigation'); };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      void session?.stopBench('navigation');
+    };
+  }, [session]);
+
   const connect = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      const t: Transport = kind === 'demo'
-        ? new DemoRadioTransport()
+      const t: Transport = kind === 'demo' || kind === 'demo-rx'
+        ? new DemoRadioTransport(kind === 'demo-rx' ? { role: 'rx' } : {})
         : new WebSerialTransport(true, kind === 'serial-rx' ? RADIO_RX_BAUD : RADIO_BAUD);
       await t.open();
       transport.current = t;
-      const s = new RadioSession(t, kind === 'demo' ? 300 : 800);
+      const s = new RadioSession(t, kind === 'demo' || kind === 'demo-rx' ? 300 : 800);
       s.subscribe(setSnapshot);
       setSession(s);
       await s.identify();
@@ -147,11 +162,10 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
             radio's ExpressLRS script does.
           </p>
           <p className="bp5-text-muted">
-            The Aerial Kit ELRS USB TX Rev A3 takes CRSF on UART0 (J3: pin 4 board RX, pin 3 board TX, pin 2 GND)
-            through a 3.3 V USB-UART adapter: {RADIO_BAUD} baud for a TX image, {RADIO_RX_BAUD} for an RX image.
-            Set SW2 to match the image and verify continuity; ExpressLRS does not select TX/RX from GPIO4 at
-            runtime, and this connection choice only selects the baud. The board's USB-C port is for flashing and
-            the native ExpressLRS Wi-Fi workflow, not stock CRSF configuration.
+            The Aerial Kit ELRS USB TX Rev A3 uses its native USB-CDC endpoint: logical {RADIO_BAUD} baud for
+            a TX image and {RADIO_RX_BAUD} for an RX image. USB CDC may ignore the requested rate. GPIO4 is
+            sampled at boot: low selects TX and high selects RX. Verify the electrical switch position; do not
+            rely on the printed label or change it while powered.
           </p>
           {error !== null && <Callout intent="danger">{error}</Callout>}
           <div className="connectbar">
@@ -164,9 +178,10 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
                 USB serial RX ({RADIO_RX_BAUD} baud){serialAvailable ? '' : ' (not available in this browser)'}
               </option>
               <option value="demo">Demo radio</option>
+              <option value="demo-rx">Demo RX radio</option>
             </HTMLSelect>
             <Button intent="primary" icon="link" loading={busy}
-              disabled={busy || (kind !== 'demo' && !serialAvailable)}
+              disabled={busy || (!kind.startsWith('demo') && !serialAvailable)}
               onClick={() => void connect()}>
               Connect radio
             </Button>
@@ -374,6 +389,151 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
         {!allow && <p className="bp5-text-muted">Read-only. Turn on “Allow changes” to set values or run Bind.</p>}
         <div className="radio-menu">{top.map(row)}</div>
       </Panel>
+      <Panel title="Bench" note="bounded native-USB CRSF drive, capture and evidence">
+        <Callout intent="primary">
+          Color identifies the role: TX is blue and RX is green. This Bench page never treats a sent frame as RF
+          proof. LINK_STATISTICS and receiver RC frames must be observed before the RF link can pass.
+        </Callout>
+        {s?.role === 'tx' && (
+          <div className="bench-controls">
+            <label>
+              Stream rate
+              <InputGroup type="number" value={String(benchHz)} min={1} max={500}
+                onChange={(e) => setBenchHz(Math.max(1, Math.min(500, Number(e.currentTarget.value))))} />
+            </label>
+            <label>
+              Duration seconds
+              <InputGroup type="number" value={String(benchDriveSec)} min={1} max={300}
+                onChange={(e) => setBenchDriveSec(Math.max(1, Math.min(300, Number(e.currentTarget.value))))} />
+            </label>
+            <label>
+              Pattern
+              <HTMLSelect aria-label="Pattern" value={benchPattern}
+                onChange={(e) => {
+                  setBenchPattern(e.currentTarget.value as typeof benchPattern);
+                  setBenchArmConfirmed(false);
+                }}>
+                <option value="disarmed">Disarmed centered</option>
+                <option value="arm-test">Arm hold then low throttle</option>
+                <option value="channel-test">Arm hold then channel test</option>
+              </HTMLSelect>
+            </label>
+            {benchPattern !== 'disarmed' && (
+              <Switch checked={benchArmConfirmed}
+                label="I confirm the controlled arm sequence and safe area"
+                onChange={(e) => setBenchArmConfirmed(e.currentTarget.checked)} />
+            )}
+            <div className="bench-buttons">
+              <Button intent="primary"
+                disabled={!allow || busy || s?.bench.running || (benchPattern !== 'disarmed' && !benchArmConfirmed)}
+                onClick={() => void act(() => session.startBenchDrive({
+                  hz: benchHz,
+                  durationSec: benchDriveSec,
+                  pattern: benchPattern,
+                  armHoldSec: 0.75,
+                }))}>
+                Start continuous drive
+              </Button>
+              <Button intent="danger" disabled={!s?.bench.running}
+                onClick={() => void act(() => session.stopBench('operator stop'))}>
+                Stop and disarm
+              </Button>
+            </div>
+          </div>
+        )}
+        {s?.role === 'rx' && (
+          <div className="bench-controls">
+            <label>
+              Capture seconds
+              <InputGroup type="number" value={String(benchCaptureSec)} min={1} max={300}
+                onChange={(e) => setBenchCaptureSec(Math.max(1, Math.min(300, Number(e.currentTarget.value))))} />
+            </label>
+            <Switch checked={benchInject} label="Inject representative attitude, battery, GPS and barometer telemetry"
+              onChange={(e) => setBenchInject(e.currentTarget.checked)} />
+            <div className="bench-buttons">
+              <Button intent="primary" disabled={!allow || busy || s?.bench.running}
+                onClick={() => void act(() => session.startBenchCapture({
+                  durationSec: benchCaptureSec,
+                  injectTelemetry: benchInject,
+                }))}>
+                Start capture
+              </Button>
+              <Button disabled={!allow || busy} onClick={() => void act(() => session.injectBenchTelemetry())}>
+                Inject telemetry
+              </Button>
+              <Button intent="danger" disabled={!s?.bench.running}
+                onClick={() => void act(() => session.stopBench('operator stop'))}>
+                Stop capture
+              </Button>
+            </div>
+          </div>
+        )}
+        {s?.role === 'unknown' && <p className="bp5-text-muted">Identify the radio before starting a Bench operation.</p>}
+        {s?.bench && (
+          <div className="bench-evidence" aria-label="Bench evidence">
+            <div className="bench-buttons">
+              <Tag intent={s.bench.result === 'PASS' ? 'success' : s.bench.result === 'FAIL' ? 'danger' : 'none'}>
+                {s.bench.result}
+              </Tag>
+              <Button small icon="download" disabled={s.bench.running}
+                onClick={() => {
+                  const blob = new Blob([JSON.stringify(session.benchEvidence(), null, 2)], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const anchor = document.createElement('a');
+                  anchor.href = url;
+                  anchor.download = `aerialkit-radio-bench-${Date.now()}.json`;
+                  anchor.click();
+                  URL.revokeObjectURL(url);
+                }}>
+                Download evidence
+              </Button>
+            </div>
+            <p>{s.bench.summary}</p>
+            <div className="bench-counters">
+              <span>sent {s.bench.framesSent}</span>
+              <span>rate {s.bench.observedHz === null ? '—' : `${s.bench.observedHz.toFixed(1)} Hz`}</span>
+              <span>RC captured {s.bench.rcFramesCaptured}</span>
+              <span>link stats {s.bench.linkStatistics}</span>
+              <span>CRC {s.bench.crcErrors}</span>
+              <span>resyncs {s.bench.resyncs}</span>
+              <span>framing {s.bench.framingErrors}</span>
+              <span>injected {s.bench.telemetryInjected}</span>
+            </div>
+            {s.bench.channels !== null && (
+              <div className="bench-channels" aria-label="Captured channels">
+                {s.bench.channels.map((value, index) => <span key={index}>CH{index + 1} {value}</span>)}
+              </div>
+            )}
+            {Object.keys(s.bench.frameCounts).length > 0 && (
+              <div className="bench-counters">
+                {Object.entries(s.bench.frameCounts).map(([name, count]) => <span key={name}>{name} {count}</span>)}
+              </div>
+            )}
+            {Object.keys(s.telemetry).length > 0 && (
+              <div className="bench-telemetry" aria-label="Bench telemetry">
+                {Object.entries(s.telemetry).map(([kind, value]) => (
+                  <code key={kind}>{kind}: {JSON.stringify(value)}</code>
+                ))}
+              </div>
+            )}
+            <div className="bench-requirements">
+              {Object.entries(s.bench.requirements).map(([name, status]) => (
+                <span key={name}>{name}: <RequirementTag status={status} /></span>
+              ))}
+            </div>
+            {s.bench.error !== null && <Callout intent="danger">{s.bench.error}</Callout>}
+          </div>
+        )}
+      </Panel>
     </main>
   );
+}
+
+function RequirementTag({ status }: { status: BenchRequirementStatus }) {
+  return <Tag minimal intent={
+    status === 'PASS' ? 'success'
+      : status === 'FAIL' ? 'danger'
+        : status === 'SENT / NOT VERIFIED' ? 'warning'
+          : 'none'
+  }>{status}</Tag>;
 }

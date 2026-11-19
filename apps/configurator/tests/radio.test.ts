@@ -125,4 +125,72 @@ describe('radio session against the demo ExpressLRS module', () => {
     await t.close();
     await expect(s.identify(1)).rejects.toThrow(/did not answer a device ping/);
   });
+
+  it('drives bounded RC, disarms on stop, and does not claim RF from writes alone', async () => {
+    const { t, s } = await connect();
+    await s.identify();
+    await expect(s.startBenchDrive({ durationSec: 1 })).rejects.toBeInstanceOf(RadioWriteRefused);
+    s.allowWrites = true;
+    await s.startBenchDrive({
+      hz: 100,
+      durationSec: 2,
+      pattern: 'arm-test',
+      armHoldSec: 0.75,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(s.snapshot().bench.framesSent).toBeGreaterThan(3);
+    expect(t.radio.lastRcChannels?.[5]).toBeGreaterThan(1300); // arm high during hold
+    await s.stopBench('test stop');
+    const bench = s.snapshot().bench;
+    expect(bench.running).toBe(false);
+    expect(bench.safeDisarmSent).toBe(true);
+    expect(bench.requirements.rc_drive).toBe('PASS');
+    expect(bench.requirements.rx_rc_capture).toBe('NOT TESTED');
+    expect(bench.requirements.rf_link).toBe('NOT TESTED');
+    expect(t.radio.lastRcChannels?.[5]).toBeLessThan(1300);
+  });
+
+  it('captures RX RC at a live cadence and injects validated telemetry', async () => {
+    const { s } = await connect({ role: 'rx', linkStatsMs: 20 });
+    await s.identify();
+    s.allowWrites = true;
+    await s.startBenchCapture({ durationSec: 0.15, injectTelemetry: true });
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    const bench = s.snapshot().bench;
+    expect(bench.running).toBe(false);
+    expect(bench.rcFramesCaptured).toBeGreaterThan(2);
+    expect(bench.channels).toHaveLength(16);
+    expect(bench.telemetryInjected).toBe(4);
+    expect(bench.requirements.rx_rc_capture).toBe('PASS');
+    expect(bench.requirements.telemetry_injection).toBe('SENT / NOT VERIFIED');
+    expect(bench.result).toBe('PASS');
+  });
+
+  it('safe-disarms before navigation or disconnect closes the port', async () => {
+    const { t, s } = await connect();
+    await s.identify();
+    s.allowWrites = true;
+    await s.startBenchDrive({ hz: 50, durationSec: 2, pattern: 'arm-test', armHoldSec: 0.75 });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await s.dispose();
+    expect(s.snapshot().bench.safeDisarmSent).toBe(true);
+    expect(t.radio.lastRcChannels?.[5]).toBeLessThan(1300);
+  });
+
+  it('safe-disarms when the bounded drive timeout expires', async () => {
+    const { t, s } = await connect();
+    await s.identify();
+    s.allowWrites = true;
+    await s.startBenchDrive({
+      hz: 100,
+      durationSec: 0.62,
+      pattern: 'arm-test',
+      armHoldSec: 0.55,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 760));
+    const bench = s.snapshot().bench;
+    expect(bench.running).toBe(false);
+    expect(bench.safeDisarmSent).toBe(true);
+    expect(t.radio.lastRcChannels?.[5]).toBeLessThan(1300);
+  });
 });
