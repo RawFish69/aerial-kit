@@ -544,6 +544,18 @@
       "group": 4,
       "value": "5",
       "default": "5"
+    },
+    {
+      "index": 45,
+      "name": "velocity_channel",
+      "help": "receiver channel that selects velocity hold (0 = none)",
+      "type": "u32",
+      "decimals": 0,
+      "min": 0,
+      "max": 16,
+      "group": 4,
+      "value": "0",
+      "default": "0"
     }
   ]
 }

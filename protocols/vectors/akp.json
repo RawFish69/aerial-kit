@@ -253,8 +253,8 @@
         "meaning": "version, product, parameter count"
       },
       "name": "captured_hello_reply",
-      "payload_hex": "0161657269616c6b69742d66343035002d003000c1010000920638cf",
-      "raw_hex": "aa5501811c0161657269616c6b69742d66343035002d003000c1010000920638cf4fa6",
+      "payload_hex": "0161657269616c6b69742d66343035002e003000c1010000920638cf",
+      "raw_hex": "aa5501811c0161657269616c6b69742d66343035002e003000c1010000920638cfd0a3",
       "response": true,
       "write": false
     },
@@ -308,8 +308,8 @@
         "meaning": "an index one past the table: status 1, and nothing else"
       },
       "name": "captured_param_get_refused",
-      "payload_hex": "2d",
-      "raw_hex": "aa550102012dea5a",
+      "payload_hex": "2e",
+      "raw_hex": "aa550102012e896a",
       "response": false,
       "write": false
     },

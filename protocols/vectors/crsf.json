@@ -93,8 +93,8 @@
       },
       "frame_type": 2,
       "name": "gps",
-      "payload_hex": "02d33b4400825f000064232805aa0c",
-      "raw_hex": "ea110202d33b4400825f000064232805aa0c05"
+      "payload_hex": "1c4050a80517b6000168232805aa0c",
+      "raw_hex": "ea11021c4050a80517b6000168232805aa0cbd"
     },
     {
       "address": 234,
@@ -182,8 +182,8 @@
       },
       "frame_type": 44,
       "name": "parameter_read",
-      "payload_hex": "eac80001",
-      "raw_hex": "c8062ceac8000178"
+      "payload_hex": "eac80100",
+      "raw_hex": "c8062ceac80100a6"
     },
     {
       "address": 200,
@@ -195,8 +195,8 @@
       },
       "frame_type": 45,
       "name": "parameter_write",
-      "payload_hex": "eac800010264",
-      "raw_hex": "c8082deac800010264a7"
+      "payload_hex": "eac80102",
+      "raw_hex": "c8062deac801026f"
     },
     {
       "address": 200,

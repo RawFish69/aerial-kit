@@ -2,11 +2,11 @@
   "captured_from": "aerialkit-sim",
   "protocol_version": 1,
   "product": "aerialkit-f405",
-  "parameter_count": 45,
+  "parameter_count": 46,
   "frames": {
     "hello": {
       "request": "aa550101009dc8",
-      "reply": "aa5501811c0161657269616c6b69742d66343035002d003000c1010000920638cf4fa6",
+      "reply": "aa5501811c0161657269616c6b69742d66343035002e003000c1010000920638cfd0a3",
       "note": "version, product, parameter count"
     },
     "status": {
@@ -20,7 +20,7 @@
       "note": "the first parameter"
     },
     "param_get_past_end": {
-      "request": "aa550102012dea5a",
+      "request": "aa550102012e896a",
       "reply": "aa55018201015e84",
       "note": "an index one past the table: status 1, and nothing else"
     },
@@ -295,6 +295,11 @@
       "index": 44,
       "name": "mode_channel",
       "value": "5"
+    },
+    {
+      "index": 45,
+      "name": "velocity_channel",
+      "value": "0"
     }
   ],
   "anomalies": [
