@@ -221,6 +221,24 @@ a simulated module inside the page that answers the same frames (`src/transport/
 
 Verified against the demo radio and the shared vectors only; *no physical module yet*.
 
+## Flashing firmware
+
+**Device → Flash firmware** chooses what a board runs and writes it over Web Serial with Espressif's
+`esptool-js` (pinned, Apache-2.0, loaded only when flashing). Targets today are ESP32-S3: the Aerial Kit
+ELRS USB TX Rev A3 as an **ExpressLRS transmitter**, an **ExpressLRS receiver**, or its **RF-off
+diagnostic** image. The images are the build's own files (`.pio/build/<env>/`: bootloader.bin,
+partitions.bin, boot_app0.bin, firmware.bin) and before anything is written (`src/firmware/flash.ts`):
+
+- each file is placed where **its own partition table** says (app and otadata offsets are read, not assumed);
+- bootloader and app must be ESP images (magic 0xE9) **built for ESP32-S3** (chip id 9), and the app must fit;
+- the board must report itself as ESP32-S3 before a byte is written;
+- the target's safety note (antenna fitted for TX, SW2 checked for RX, diagnostic first on a new board)
+  must be acknowledged.
+
+Checked against the repository's real build outputs (RX and diagnostic plan to 0x0/0x8000/0xE000/0x10000,
+as PlatformIO's upload writes them) and a simulated loader; *not yet run against a board from this page*.
+STM32 flight controllers (DFU) are not here yet.
+
 ## Transports
 
 | | what it is | needs |

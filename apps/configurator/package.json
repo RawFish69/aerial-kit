@@ -22,6 +22,7 @@
   "dependencies": {
     "@blueprintjs/core": "^5.19.1",
     "@blueprintjs/icons": "^5.23.0",
+    "esptool-js": "0.5.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "three": "^0.186.1"
