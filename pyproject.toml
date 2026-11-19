@@ -34,14 +34,14 @@ sim = ["matplotlib>=3.5", "pyyaml>=6.0"]
 rotorpy = ["matplotlib>=3.5", "pyyaml>=6.0", "rotorpy>=2.0.0"]
 mujoco = ["mujoco>=3.0"]
 radio = ["pyserial>=3.5"]
-mavlink = ["pymavlink>=2.4.49,<3"]
+mavlink = ["pymavlink==2.4.49"]
 all = [
     "matplotlib>=3.5",
     "pyyaml>=6.0",
     "rotorpy>=2.0.0",
     "mujoco>=3.0",
     "pyserial>=3.5",
-    "pymavlink>=2.4.49,<3",
+    "pymavlink==2.4.49",
 ]
 
 [project.scripts]
@@ -65,6 +65,8 @@ files = [
     "aerial_kit/comms/crsf/parameters.py",
     "aerial_kit/comms/crsf/radio.py",
     "aerial_kit/comms/akp/client.py",
+    "aerial_kit/comms/mavlink/client.py",
+    "aerial_kit/comms/mavlink/dialect.py",
     "aerial_kit/comms/transport.py",
     "aerial_kit/__init__.py",
     "aerial_kit/interfaces.py",

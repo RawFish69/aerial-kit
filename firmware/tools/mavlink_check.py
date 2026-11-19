@@ -46,8 +46,12 @@ sys.path.insert(0, HERE)
 import mavlink                                                  # noqa: E402
 import msp                                                      # noqa: E402
 
-ORACLE = os.path.normpath(os.path.join(HERE, "..", "..", "upstream",
-                                       "pymavlink-2.4.49"))
+ORACLE = os.environ.get(
+    "AK_PYMAVLINK_ORACLE",
+    os.path.normpath(
+        os.path.join(HERE, "..", "..", "upstream", "pymavlink-2.4.49")
+    ),
+)
 FAKE = os.path.join(HERE, "mavlink_fake_vehicle.py")
 
 #: The two commands the stand-in's fidelity is asserted with below: one it

@@ -418,6 +418,30 @@ class UdpTransport(_SocketTransport):
     sender.
     """
 
+    def __init__(self, sock: socket.socket, *, timeout: float = 0.05) -> None:
+        super().__init__(sock, timeout=timeout)
+        self._rx = bytearray()
+
+    @property
+    def available(self) -> int:
+        if self._rx:
+            return len(self._rx)
+        return super().available
+
+    def _read(self, size: int, timeout: float) -> bytes:
+        if not self._rx:
+            self.socket.settimeout(timeout)
+            try:
+                self._rx.extend(self.socket.recv(65535))
+            except socket.timeout:
+                return b""
+            except OSError as exc:
+                raise TransportError(str(exc)) from exc
+        count = len(self._rx) if size < 0 else min(size, len(self._rx))
+        output = bytes(self._rx[:count])
+        del self._rx[:count]
+        return output
+
     @classmethod
     def connect(
         cls,

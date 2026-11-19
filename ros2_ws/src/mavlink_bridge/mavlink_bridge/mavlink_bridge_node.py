@@ -12,23 +12,29 @@ from uav_msgs.msg import AirspeedNav, Telemetry
 
 from pymavlink import mavutil
 
-from mavlink_bridge.frame_transforms import (
+from aerial_kit.comms.mavlink.transforms import (
     ned_body_to_enu_quaternion,
     ned_to_enu_position,
     ned_to_enu_velocity,
 )
+from aerial_kit.comms.mavlink import MavlinkVehicle
 
-# Ignore position, acceleration, and yaw-angle fields; keep velocity + yaw_rate.
-_SETPOINT_TYPE_MASK = (
-    mavutil.mavlink.POSITION_TARGET_TYPEMASK_X_IGNORE
-    | mavutil.mavlink.POSITION_TARGET_TYPEMASK_Y_IGNORE
-    | mavutil.mavlink.POSITION_TARGET_TYPEMASK_Z_IGNORE
-    | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AX_IGNORE
-    | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AY_IGNORE
-    | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE
-    | mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_IGNORE
-)
 
+class _ConnectionTransport:
+    """Write-only transport over the incoming pymavlink connection."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def read(self, _size=-1, _timeout=None):
+        return b""
+
+    def write(self, data):
+        self.connection.write(data)
+        return len(data)
+
+    def close(self):
+        pass
 
 class MavlinkBridgeNode(Node):
     def __init__(self):
@@ -118,6 +124,14 @@ class MavlinkBridgeNode(Node):
             source_system=self.system_id,
             source_component=self.component_id,
         )
+        self.vehicle = MavlinkVehicle(
+            _ConnectionTransport(self.mav),
+            allow_write=True,
+            system=self.system_id,
+            component=self.component_id,
+            timeout=self.command_timeout_sec,
+        )
+        self.vehicle.mav.vehicle = (self.target_system, self.target_component)
 
         period = 1.0 / setpoint_rate_hz
         self.create_timer(period, self._tick)
@@ -187,16 +201,12 @@ class MavlinkBridgeNode(Node):
         vz_mav = max(-self.max_climb_rate_mps, min(self.max_climb_rate_mps, vz_mav))
         yaw_rate = max(-self.max_yaw_rate_rps, min(self.max_yaw_rate_rps, yaw_rate))
 
-        self.mav.mav.set_position_target_local_ned_send(
-            0,
-            self.target_system,
-            self.target_component,
-            mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
-            _SETPOINT_TYPE_MASK,
-            0.0, 0.0, 0.0,
-            vx_mav, vy_mav, vz_mav,
-            0.0, 0.0, 0.0,
-            0.0, yaw_rate,
+        self.vehicle.set_velocity_target(
+            vx_mav,
+            vy_mav,
+            vz_mav,
+            yaw_rate,
+            coordinate_frame=mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
         )
 
     def _send_airspeed_nav(self, msg):
@@ -213,43 +223,24 @@ class MavlinkBridgeNode(Node):
 
         # ArduPlane GUIDED body-frame velocity setpoint. Position/accel ignored;
         # forward airspeed and vertical climb are kept, plus bank-derived yaw rate.
-        mask = (
-            mavutil.mavlink.POSITION_TARGET_TYPEMASK_X_IGNORE
-            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_Y_IGNORE
-            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_Z_IGNORE
-            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AX_IGNORE
-            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AY_IGNORE
-            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE
-            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_IGNORE
-        )
-        self.mav.mav.set_position_target_local_ned_send(
-            0,
-            self.target_system,
-            self.target_component,
-            mavutil.mavlink.MAV_FRAME_BODY_NED,
-            mask,
-            0.0, 0.0, 0.0,
-            airspeed, 0.0, -climb,
-            0.0, 0.0, 0.0,
-            0.0, yaw_rate,
+        self.vehicle.set_velocity_target(
+            airspeed,
+            0.0,
+            -climb,
+            yaw_rate,
+            coordinate_frame=mavutil.mavlink.MAV_FRAME_BODY_NED,
         )
 
     def _send_heartbeat(self):
-        self.mav.mav.heartbeat_send(
-            mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,
-            mavutil.mavlink.MAV_AUTOPILOT_INVALID,
-            0, 0,
-            mavutil.mavlink.MAV_STATE_ACTIVE,
+        self.vehicle.send_heartbeat(
+            vehicle_type=mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,
+            system_status=mavutil.mavlink.MAV_STATE_ACTIVE,
         )
 
     def _send_arm(self, arm):
-        self.mav.mav.command_long_send(
-            self.target_system,
-            self.target_component,
+        self.vehicle.send_command_long(
             mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-            0,
-            1.0 if arm else 0.0,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            param1=1.0 if arm else 0.0,
         )
         self.get_logger().info(f'Sent {"arm" if arm else "disarm"} command')
 
