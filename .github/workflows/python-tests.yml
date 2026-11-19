@@ -274,8 +274,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
+          timeout 180s apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            update
+          timeout 180s apt-get install -y --no-install-recommends \
             python3-numpy python3-scipy python3-yaml python3-pytest \
             ros-jazzy-nav-msgs ros-jazzy-geometry-msgs ros-jazzy-sensor-msgs ros-jazzy-visualization-msgs
       # Only the message package needs building; the tests import the Python
