@@ -4,34 +4,6 @@
 
 ## Demo
 
-### Custom 2.4 GHz LoRa / ELRS radio hardware
-
-The Aerial Kit 2.4 GHz USB transceiver is a fabricated
-**ESP32-S3-MINI-1U + SX1280 + RFX2401C** four-layer board. Its paired firmware
-includes an RF-off hardware diagnostic plus separate ExpressLRS TX and RX
-images, all built from a pinned upstream revision.
-
-<p align="center">
-  <img src="hardware/overlays/elrs-usb-tx/rev-a3/previews/ak-tx-1200.png" alt="Fabricated Aerial Kit ELRS USB TX Rev A3 boards" width="82%">
-</p>
-
-Fabricated Rev A3 boards: ESP32-S3 module and USB-C side, alongside the
-SX1280/RFX2401C RF and control side.
-
-<table>
-  <tr>
-    <td width="50%" align="center"><img src="hardware/overlays/elrs-usb-tx/rev-a3/previews/ak-pcb-front-720.png" alt="Aerial Kit ELRS USB TX Rev A3 PCB front"></td>
-    <td width="50%" align="center"><img src="hardware/overlays/elrs-usb-tx/rev-a3/previews/ak-pcb-back-720.png" alt="Aerial Kit ELRS USB TX Rev A3 PCB back"></td>
-  </tr>
-  <tr>
-    <td valign="top"><em>Rev A3 front: USB-C, ESP32-S3 module, role select, boot control and breakout pads.</em></td>
-    <td valign="top"><em>Rev A3 back: SX1280 transceiver, RFX2401C front end, RF matching network and U.FL output.</em></td>
-  </tr>
-</table>
-
-[Hardware sources and pinout](hardware/overlays/elrs-usb-tx/rev-a3/) ·
-[Diagnostic, ExpressLRS TX and RX firmware](firmware/elrs-usb-tx-rev-a3/)
-
 ### Python simulation
 
 Autonomous flight - plan a path, then fly it:
@@ -59,6 +31,34 @@ Standalone Python sim (Matplotlib 3D, follow camera):
     <td valign="top"><em><a href="examples/fixed_wing">Twin-wing example</a> on the same renderer - banked 50° through the turn, flown path behind it, motors on the same colour map.</em></td>
   </tr>
 </table>
+
+### Custom 2.4 GHz LoRa / ELRS radio hardware
+
+The Aerial Kit 2.4 GHz USB transceiver is a fabricated
+**ESP32-S3-MINI-1U + SX1280 + RFX2401C** four-layer board. Its paired firmware
+includes an RF-off hardware diagnostic plus separate ExpressLRS TX and RX
+images, all built from a pinned upstream revision.
+
+<p align="center">
+  <img src="hardware/overlays/elrs-usb-tx/rev-a3/previews/ak-tx-1200.png" alt="Fabricated Aerial Kit ELRS USB TX Rev A3 boards" width="82%">
+</p>
+
+Fabricated Rev A3 boards: ESP32-S3 module and USB-C side, alongside the
+SX1280/RFX2401C RF and control side.
+
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="hardware/overlays/elrs-usb-tx/rev-a3/previews/ak-pcb-front-720.png" alt="Aerial Kit ELRS USB TX Rev A3 PCB front"></td>
+    <td width="50%" align="center"><img src="hardware/overlays/elrs-usb-tx/rev-a3/previews/ak-pcb-back-720.png" alt="Aerial Kit ELRS USB TX Rev A3 PCB back"></td>
+  </tr>
+  <tr>
+    <td valign="top"><em>Rev A3 front: USB-C, ESP32-S3 module, role select, boot control and breakout pads.</em></td>
+    <td valign="top"><em>Rev A3 back: SX1280 transceiver, RFX2401C front end, RF matching network and U.FL output.</em></td>
+  </tr>
+</table>
+
+[Hardware sources and pinout](hardware/overlays/elrs-usb-tx/rev-a3/) ·
+[Diagnostic, ExpressLRS TX and RX firmware](firmware/elrs-usb-tx-rev-a3/)
 
 ### Web configurator
 
