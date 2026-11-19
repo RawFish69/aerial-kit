@@ -42,11 +42,7 @@ function isPresent(value: unknown): boolean {
  * `choose: true` forces the chooser for a person who wants a different port.
  */
 export class WebSerialTransport implements Transport {
-  readonly info: TransportInfo = {
-    kind: 'serial',
-    label: 'USB serial',
-    detail: `Web Serial at ${DEFAULT_BAUD} baud`,
-  };
+  readonly info: TransportInfo;
 
   private port: SerialLike | null = null;
 
@@ -61,8 +57,12 @@ export class WebSerialTransport implements Transport {
   earlyLoss: string | null = null;
   private openedAt = 0;
 
-  /** Show the chooser even when a granted AerialKit port exists. */
-  constructor(private readonly choose = false) {}
+  /** Show the chooser even when a granted AerialKit port exists. `baudRate`
+   *  is the flight controller's console rate unless a caller needs another
+   *  (an ExpressLRS module's handset port runs at 400000). */
+  constructor(private readonly choose = false, private readonly baudRate = DEFAULT_BAUD) {
+    this.info = { kind: 'serial', label: 'USB serial', detail: `Web Serial at ${baudRate} baud` };
+  }
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private reading = false;
@@ -105,7 +105,7 @@ export class WebSerialTransport implements Transport {
     }
 
     try {
-      await port.open({ baudRate: DEFAULT_BAUD });
+      await port.open({ baudRate: this.baudRate });
     } catch (error) {
       // On Windows a COM port has one owner at a time, and this is what the
       // browser says when someone else is it.

@@ -7,6 +7,7 @@ import { MspBoard } from '../session/foreign';
 import { MavBoard } from '../session/mavlink';
 import type { Session } from '../session/types';
 import { BridgeTransport, DEFAULT_BRIDGE_URL } from '../transport/bridge';
+import { RadioApp } from './RadioApp';
 import { DemoTransport } from '../transport/demo';
 import { WebSerialTransport } from '../transport/webserial';
 import { TransportError, type Transport, type TransportKind } from '../transport/types';
@@ -47,6 +48,8 @@ const KINDS: ReadonlyArray<{ kind: TransportKind; label: string }> = [
 ];
 
 export function App() {
+  /** Which device this page is for: the flight controller, or a radio module (its own page and port). */
+  const [device, setDevice] = useState<'fc' | 'radio'>('fc');
   const [kind, setKind] = useState<TransportKind>(() => WebSerialTransport.supported() ? 'serial' : 'demo');
   const [reviewEdits, setReviewEdits] = useState(0);
   const [bridgeUrl, setBridgeUrl] = useState(DEFAULT_BRIDGE_URL);
@@ -283,6 +286,18 @@ export function App() {
         </Navbar.Group>
 
         {!open && (
+          <HTMLSelect
+            aria-label="Device"
+            className="device-select"
+            value={device}
+            onChange={(event) => setDevice(event.currentTarget.value as 'fc' | 'radio')}
+            disabled={busy}
+          >
+            <option value="fc">Flight controller</option>
+            <option value="radio">Radio module</option>
+          </HTMLSelect>
+        )}
+        {!open && device === 'fc' && (
           <ConnectBar
             kind={kind}
             setKind={setKind}
@@ -377,6 +392,8 @@ export function App() {
         <main className="page">
           <ForeignWorkspace board={foreign} />
         </main>
+      ) : device === 'radio' && !open ? (
+        <RadioApp serialAvailable={serialAvailable} />
       ) : session === null || snapshot === null ? (
         <StartPage
           serialAvailable={serialAvailable}
