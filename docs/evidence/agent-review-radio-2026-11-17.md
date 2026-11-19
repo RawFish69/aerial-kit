@@ -1,6 +1,6 @@
 # Review: overnight ELRS / CRSF radio work (Codex, 2026-11-17)
 
-Reviewer: Claude. Scope: commits `ce2c5ae`, `f8310cd`, `952b981` on `overnight-2026-11-17`
+Reviewer: agent. Scope: commits `ce2c5ae`, `f8310cd`, `952b981` on `overnight-2026-11-17`
 (`aerial_kit/comms/crsf.py`, `hw_bridge/crsf_*`, `sim_elrs_link_node.py`, `HOST-LINK.md`,
 bench checklist). References used: ExpressLRS 4.1.0 source in
 `~/Projects/elrs-usb-tx/ExpressLRS` (`src/include/crsf_protocol.h`,
@@ -92,7 +92,7 @@ AUX mapping set to the same channels).
   parser resync on bad CRC.
 - Disabled state sends arm low and minimum throttle; command timeout holds neutral hover.
 
-## Re-review of fixes (commits 40eb014, 96cf796), Claude, 2026-11-17
+## Re-review of fixes (commits 40eb014, 96cf796), agent review, 2026-11-17
 
 Verdict: **B1-B4 and S1-S4 accepted.** hw_bridge 38 passed, test_crsf + test_fc_sil 23 passed (ROS_DOMAIN_ID 88).
 

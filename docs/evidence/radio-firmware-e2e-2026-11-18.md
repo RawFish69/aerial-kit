@@ -1,4 +1,4 @@
-# Radio end to end with the real AK firmware (Claude, 2026-11-18)
+# Radio end to end with the real AK firmware (2026-11-18)
 
 Simulation only. Path under test, every stage real code except the link and the plant:
 

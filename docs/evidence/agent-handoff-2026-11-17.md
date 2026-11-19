@@ -1,4 +1,4 @@
-# Claude changes on 2026-11-17 (uncommitted, for Codex to commit)
+# Sim agent changes on 2026-11-17 (uncommitted, for Codex to commit)
 
 Please commit these as their own commit(s), separate from the radio-link work.
 Suggested message: "sim: fix MuJoCo divergence after crashes; guard against silent resets".
@@ -23,7 +23,7 @@ Note: the RK4 switch changes multirotor numerics slightly; SIL results recorded 
 for the guard but should be re-run if you need bit-exact comparisons.
 
 Note on MUJOCO_LOG.TXT: the warnings logged at the repo root on 2026-11-17
-were from Claude's deliberate reproductions (07:03-07:19) and from the guard
+were from the agent's deliberate reproductions (07:03-07:19) and from the guard
 test forcing a blow-up at t=0 on every suite run. The test now runs that step
 in a temporary directory; the stray log was deleted. Consider adding
 `MUJOCO_LOG.TXT` to `.gitignore`.
@@ -49,4 +49,4 @@ Docs / evidence
 - `docs/SOFTWARE_GUIDE.md`: "Flying the AK firmware itself" section
 - `docs/evidence/fc-sil-estimator-finding-2026-11-17.md` (for the firmware owner)
 - `docs/evidence/fc-sil-teleop-fpv-session.{log,json}`: live keyboard session, ROS_DOMAIN_ID 88
-- `docs/evidence/claude-review-radio-2026-11-17.md`: added B4 (arm/mode channel swap vs AK firmware)
+- `docs/evidence/agent-review-radio-2026-11-17.md`: added B4 (arm/mode channel swap vs AK firmware)

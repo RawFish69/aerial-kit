@@ -1,6 +1,6 @@
 # Radio review remediation — 2026-11-17
 
-Scope: findings in `claude-review-radio-2026-11-17.md`. All findings were
+Scope: findings in `agent-review-radio-2026-11-17.md`. All findings were
 confirmed against the pinned ELRS 4.1.0 and AerialKit firmware sources. None
 was disputed.
 
