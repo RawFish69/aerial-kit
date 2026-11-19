@@ -7,19 +7,26 @@ import {
   type CrsfFrame,
   FrameType,
   ParamType,
+  crc8DvbS2,
   decodeDeviceInfo,
   decodeParameter,
   decodeParameterChunk,
   decodeTelemetry,
+  encodeCrsfBindCommand,
   encodeDevicePing,
+  encodeMspV2Request,
+  encodeMspWrite,
   encodeExtended,
   encodeFrame,
   encodeParameterRead,
   encodeParameterWrite,
   fromHex,
   hex,
+  MSP_ELRS_RXTX_CONFIG,
   packChannels,
   parameterValueBytes,
+  decodeMspResponse,
+  RxtxConfigSubcommand,
   unpackChannels,
 } from '../src/protocol/crsf';
 
@@ -129,6 +136,55 @@ describe('CRSF against the shared vectors', () => {
     expect([...write.payload]).toEqual([Address.RADIO_TRANSMITTER, Address.FLIGHT_CONTROLLER, 1, 2]);
     expect(hex(encodeExtended(FrameType.COMMAND, Address.RADIO_TRANSMITTER, Address.FLIGHT_CONTROLLER,
       Uint8Array.of(0x10, 0x01)))).toBe(byName('command').raw_hex);
+  });
+
+  it('encodes the ExpressLRS RXTX UID request and write envelopes', () => {
+    const requestBytes = encodeMspV2Request(
+      Address.CRSF_TRANSMITTER,
+      Uint8Array.of(RxtxConfigSubcommand.UID),
+    );
+    const request = one(requestBytes);
+    expect(request.type).toBe(FrameType.MSP_REQ);
+    expect([...request.payload.subarray(0, 9)]).toEqual([
+      Address.CRSF_TRANSMITTER, Address.ELRS_LUA,
+      0x50, 0, MSP_ELRS_RXTX_CONFIG, 0, 1, 0, RxtxConfigSubcommand.UID,
+    ]);
+    expect(hex(requestBytes)).toBe('c80c7aeeef50002d000100001a14');
+
+    const writeBytes = encodeMspWrite(
+      Address.CRSF_TRANSMITTER,
+      Uint8Array.of(RxtxConfigSubcommand.BIND_PHRASE, ...new TextEncoder().encode('test')),
+    );
+    const write = one(writeBytes);
+    expect(write.type).toBe(FrameType.MSP_WRITE);
+    expect([...write.payload.subarray(0, 6)]).toEqual([
+      Address.CRSF_TRANSMITTER, Address.ELRS_LUA,
+      0x30, 5, MSP_ELRS_RXTX_CONFIG, RxtxConfigSubcommand.BIND_PHRASE,
+    ]);
+    expect(hex(writeBytes)).toBe('c80d7ceeef30052d0174657374f93f');
+  });
+
+  it('encodes the direct CRSF bind command for TX and RX destinations', () => {
+    const tx = one(encodeCrsfBindCommand(Address.CRSF_TRANSMITTER));
+    expect(tx.type).toBe(FrameType.COMMAND);
+    expect([...tx.payload]).toEqual([
+      Address.CRSF_TRANSMITTER, Address.ELRS_LUA, 0x10, 0x01,
+    ]);
+
+    const rx = one(encodeCrsfBindCommand(Address.CRSF_RECEIVER));
+    expect(rx.type).toBe(FrameType.COMMAND);
+    expect([...rx.payload]).toEqual([
+      Address.CRSF_RECEIVER, Address.ELRS_LUA, 0x10, 0x01,
+    ]);
+  });
+
+  it('decodes the ExpressLRS MSP response envelope', () => {
+    const uid = Uint8Array.of(1, 2, 3, 4, 5, 6);
+    const response = one(fromHex('c80f7befec30072d000102030405060a00'));
+    expect(decodeMspResponse(response)).toEqual({
+      functionCode: MSP_ELRS_RXTX_CONFIG,
+      payload: Uint8Array.from([RxtxConfigSubcommand.UID, ...uid]),
+    });
   });
 });
 
