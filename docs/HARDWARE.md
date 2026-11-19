@@ -31,6 +31,12 @@ reflash. Pin mapping, the need for a 3.3 V USB-UART adapter, role selection and
 native USB-CDC limits are in
 [`firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md`](../firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md).
 
+The Rev A3 firmware also exposes native USB-CDC as a CRSF transport in both
+roles. This is the bench path when no J3 adapter is available: the TX consumes
+host `RC_CHANNELS_PACKED` frames and the RX emits them for the FC side. The
+logical rates remain 400000 baud TX-host and 420000 baud RX-FC; CDC ignores
+the host's baud setting.
+
 The channel map is AETR on channels 1-4, flight mode on channel 5, and arm on
 channel 6, matching AerialKit firmware defaults. Switch values use the same
 1300-count threshold, and high on channel 5 selects Angle mode. A Betaflight

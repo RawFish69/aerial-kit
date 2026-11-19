@@ -1,0 +1,12 @@
+diff --git a/src/lib/Handset/CRSFHandset.h b/src/lib/Handset/CRSFHandset.h
+index 441c8ec..c874877 100644
+--- a/src/lib/Handset/CRSFHandset.h
++++ b/src/lib/Handset/CRSFHandset.h
+@@ -25,5 +25,7 @@ public:
+     static uint32_t GoodPktsCountResult; // need to latch the results
+     static uint32_t BadPktsCountResult;  // need to latch the results
++
++    static void SetUARTRequestedBaud(uint32_t baud) { UARTrequestedBaud = baud; }
+
+     void Begin() override;
+     void End() override;
