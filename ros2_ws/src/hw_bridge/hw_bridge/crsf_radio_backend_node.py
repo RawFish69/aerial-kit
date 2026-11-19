@@ -14,9 +14,10 @@ from geometry_msgs.msg import Quaternion, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState, Imu, NavSatFix, NavSatStatus
-from std_msgs.msg import Bool, String, UInt8MultiArray
+from std_msgs.msg import Bool, Float64, String, UInt8MultiArray
 
 from aerial_kit.comms.crsf import (
+    BarometerTelemetry,
     AttitudeTelemetry,
     BatteryTelemetry,
     CrsfFrame,
@@ -102,6 +103,7 @@ class CrsfRadioBackendNode(Node):
             'odom_topic': '/uav/backend/odom',
             'imu_topic': '/uav/hw/imu',
             'gps_topic': '/uav/hw/gps',
+            'baro_topic': '/uav/hw/baro',
             'battery_topic': '/uav/hw/battery',
             'flight_mode_topic': '/uav/radio/flight_mode',
             'link_stats_topic': '/uav/radio/link_stats',
@@ -174,6 +176,7 @@ class CrsfRadioBackendNode(Node):
 
         self.pub_imu = self.create_publisher(Imu, str(g('imu_topic').value), 20)
         self.pub_gps = self.create_publisher(NavSatFix, str(g('gps_topic').value), 20)
+        self.pub_baro = self.create_publisher(Float64, str(g('baro_topic').value), 20)
         self.pub_battery = self.create_publisher(BatteryState, str(g('battery_topic').value), 10)
         self.pub_mode = self.create_publisher(String, str(g('flight_mode_topic').value), 10)
         self.pub_link = self.create_publisher(String, str(g('link_stats_topic').value), 10)
@@ -404,6 +407,9 @@ class CrsfRadioBackendNode(Node):
             gps.longitude = telemetry.longitude_deg
             gps.altitude = telemetry.altitude_m
             self.pub_gps.publish(gps)
+        elif isinstance(telemetry, BarometerTelemetry):
+            # Barometric altitude for the state estimator (/uav/hw/baro, metres).
+            self.pub_baro.publish(Float64(data=float(telemetry.altitude_m)))
         elif isinstance(telemetry, BatteryTelemetry):
             battery = BatteryState()
             battery.header.stamp = stamp

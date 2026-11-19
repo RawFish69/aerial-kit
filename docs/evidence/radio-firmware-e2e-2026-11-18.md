@@ -64,3 +64,22 @@ altitude and stays stable through that delay.
 
 So the remaining blocker is architectural, as above: **altitude hold on the FC** (it has the
 baro/IMU at 1 kHz), or put a baro/vario frame in the downlink so the host estimate is usable.
+
+## Update: barometer downlink (Codex PR #26 codec + sim agent hw_bridge), same day
+The simulated receiver now sends CRSF 0x09 (baro altitude, vertical speed) and the radio
+backend publishes it on `/uav/hw/baro` for the EKF (`send_barometer`, default on).
+On PR #26's firmware (gyro-carried attitude in powered flight):
+
+| speed gain | max altitude | max tilt | progress | closest to goal |
+|---|---|---|---|---|
+| no baro (before) | 14.4 m (4-13 m oscillation) | 6 deg | ~15 m | 193 m |
+| 0.2 /s (default) | 4.5 m | 11 deg | ~28 m | 175 m |
+| 0.4 /s | 4.9 m | 17 deg | ~80 m | 129 m |
+| 0.8 /s | 5.0 m | 17 deg | ~45 m | 156 m |
+
+**Vertical is fixed**: altitude holds within ~1 m of the demand (acceptance condition for the
+oscillation met). **Horizontal still limits the mission**: the executor's position loop around the
+host's slow velocity loop zig-zags (+/-6 m, ~12 s period) and the 240 s timeout ends it. 0.4 /s
+went furthest but breaks the 1 s-lag robustness test (39 deg tilt), so the default stays 0.2 /s.
+The remaining fix is the same as for altitude: velocity hold on the FC (GPS + IMU at the FC's rate)
+so the host sends velocity setpoints, or a faster horizontal-velocity downlink.

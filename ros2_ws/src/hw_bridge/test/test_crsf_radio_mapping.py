@@ -226,3 +226,24 @@ def test_arm_sequence_arms_the_real_firmware_through_the_wire_format():
         assert firmware.state == 'armed'
     finally:
         firmware.close()
+
+
+def test_barometer_telemetry_reaches_the_estimator_topic():
+    pytest.importorskip('rclpy')
+    import rclpy
+    from std_msgs.msg import UInt8MultiArray
+
+    from aerial_kit.comms.crsf import BarometerTelemetry, make_barometer_frame
+    from hw_bridge import crsf_radio_backend_node as backend_module
+
+    rclpy.init(args=['--ros-args', '-p', 'transport:=ros'])
+    node = backend_module.CrsfRadioBackendNode()
+    try:
+        published = []
+        node.pub_baro.publish = lambda msg: published.append(msg.data)
+        frame = make_barometer_frame(BarometerTelemetry(altitude_m=512.3, vertical_speed_mps=-1.5))
+        node._on_host_rx(UInt8MultiArray(data=list(frame)))
+        assert published == [pytest.approx(512.3, abs=0.05)]
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()

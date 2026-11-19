@@ -302,20 +302,20 @@ class TestFirmwareFliesTheWings(unittest.TestCase):
         turned = np.unwrap(np.radians(headings))
         self.assertGreater(abs(math.degrees(turned[-1] - turned[0])), 90.0)
 
-    @unittest.expectedFailure
-    def test_known_gap_wing_holds_level_with_a_physical_accelerometer(self) -> None:
-        # KNOWN GAP (2026-11-18): the fixed-wing estimator trusts the
-        # accelerometer in flight (tau 0.5 s). Launch thrust (~5 m/s^2 along
-        # the body) tilts the measured specific force ~27 deg from gravity, the
-        # estimate reads nose-up while the wing is nose-down, and angle mode
-        # flies it into the ground (truth -29 deg, estimate +1 deg). Needs
-        # acceleration compensation (airspeed/GPS) or lower trust. See
-        # docs/evidence/fc-sil-wing-estimator-finding-2026-11-18.md.
-        w = _launched_wing("twin_wing", "physical")
-        w.step(6.0)
-        _, pitch, _ = _wing_eul(w.state.attitude_quat)
-        self.assertLess(abs(pitch), 5.0)
-        self.assertGreater(w.state.position[2], 50.0)
+    def test_wing_holds_level_with_a_physical_accelerometer(self) -> None:
+        # Was a known gap (2026-11-18): launch thrust tilted the measured
+        # specific force ~27 deg, the estimator trusted it in flight and angle
+        # mode flew the wing into the ground (truth -29 deg, estimate +1 deg).
+        # Fixed in the firmware (gyro-carried attitude in powered flight,
+        # PR #26); now both wings hold level on the real accelerometer.
+        for airframe in self.WINGS:
+            with self.subTest(airframe=airframe):
+                w = _launched_wing(airframe, "physical")
+                w.step(6.0)
+                _, pitch, _ = _wing_eul(w.state.attitude_quat)
+                self.assertLess(abs(pitch), 3.0)
+                self.assertAlmostEqual(pitch, math.degrees(w.fc.attitude()[1]), delta=1.0)
+                self.assertAlmostEqual(w.state.position[2], 60.0, delta=4.0)
 
 
 class TestWingStickInversion(unittest.TestCase):

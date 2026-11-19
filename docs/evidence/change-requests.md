@@ -125,3 +125,12 @@ hardware drift solution. A thrust-model compensation or a slow trusted
 re-levelling policy is still needed before claiming long-flight attitude
 accuracy on hardware. This remains a documented limitation, not a flight
 readiness claim.
+
+Status (sim agent, 2026-11-18): **wing marker** done: renamed
+`test_wing_holds_level_with_a_physical_accelerometer`, both wings, pitch < 3 deg, estimate within
+1 deg, altitude 60 +/- 4 m. **Barometer downlink** done: the sim receiver sends CRSF 0x09 and the
+backend publishes `/uav/hw/baro`. The altitude oscillation is gone (max 4.5 m, was 4-13 m), but the
+demo mission still times out: horizontal zig-zag around the host's velocity loop (details and a
+gain table at the end of `radio-firmware-e2e-2026-11-18.md`). Next ask for the firmware owner:
+**velocity hold on the FC** (the guidance/MANAGED hook), so the host sends setpoints.
+
