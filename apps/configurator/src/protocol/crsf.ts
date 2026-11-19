@@ -354,6 +354,65 @@ export function encodeParameterWrite(destination: number, field: number, valueBy
   return encodeExtended(FrameType.PARAMETER_WRITE, destination, origin, body);
 }
 
+export const MSP_ELRS_RXTX_CONFIG = 0x2d;
+export const RxtxConfigSubcommand = {
+  UID: 0x00,
+  BIND_PHRASE: 0x01,
+  MODEL_ID: 0x0a,
+} as const;
+
+export const CRSF_COMMAND_SUBCMD_RX = 0x10;
+export const CRSF_COMMAND_SUBCMD_RX_BIND = 0x01;
+
+/** The direct bind command used by `aerial-kit-link ... radio bind`. */
+export function encodeCrsfBindCommand(destination: number, origin: number = Address.ELRS_LUA): Uint8Array {
+  return encodeExtended(FrameType.COMMAND, destination, origin, Uint8Array.of(
+    CRSF_COMMAND_SUBCMD_RX,
+    CRSF_COMMAND_SUBCMD_RX_BIND,
+  ));
+}
+
+/** ExpressLRS's MSP-v2 request over CRSF (`CRSFRouter::SetMspV2Request`). */
+export function encodeMspV2Request(destination: number, payload: Uint8Array,
+  functionCode = MSP_ELRS_RXTX_CONFIG, origin: number = Address.ELRS_LUA): Uint8Array {
+  const body = Uint8Array.from([
+    0x50, 0, functionCode & 0xff, (functionCode >> 8) & 0xff,
+    payload.length & 0xff, (payload.length >> 8) & 0xff, ...payload,
+  ]);
+  const framed = new Uint8Array(body.length + 1);
+  framed.set(body);
+  framed[body.length] = crc8DvbS2(body.subarray(1));
+  return encodeExtended(FrameType.MSP_REQ, destination, origin, framed);
+}
+
+/** ExpressLRS's MSP-v1 write envelope over CRSF (`CRSFRouter::AddMspMessage`). */
+export function encodeMspWrite(destination: number, payload: Uint8Array,
+  functionCode = MSP_ELRS_RXTX_CONFIG, origin: number = Address.ELRS_LUA): Uint8Array {
+  const body = Uint8Array.from([
+    0x30, payload.length, functionCode & 0xff, ...payload,
+  ]);
+  const framed = new Uint8Array(body.length + 1);
+  framed.set(body);
+  framed[body.length] = crc8DvbS2(body.subarray(1));
+  return encodeExtended(FrameType.MSP_WRITE, destination, origin, framed);
+}
+
+export interface MspResponse {
+  readonly functionCode: number;
+  readonly payload: Uint8Array;
+}
+
+/** Decode the MSP-v1 response envelope ExpressLRS's router emits. */
+export function decodeMspResponse(frame: CrsfFrame): MspResponse | null {
+  if (frame.type !== FrameType.MSP_RESP || frame.payload.length < 6) return null;
+  const msp = frame.payload.subarray(2);
+  if (msp[0] !== 0x30) return null;
+  const length = u8(msp, 1);
+  if (msp.length !== length + 4) return null;
+  if (crc8DvbS2(msp.subarray(1, msp.length - 1)) !== u8(msp, msp.length - 1)) return null;
+  return { functionCode: u8(msp, 2), payload: msp.slice(3, msp.length - 1) };
+}
+
 export function encodeRcChannels(channels: readonly number[], address: number = CRSF_SYNC): Uint8Array {
   return encodeFrame(FrameType.RC_CHANNELS_PACKED, packChannels(channels), address);
 }

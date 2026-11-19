@@ -3,11 +3,15 @@ import {
   CommandStep,
   CrsfDecoder,
   FrameType,
+  MSP_ELRS_RXTX_CONFIG,
   ParamType,
+  RxtxConfigSubcommand,
   encodeExtended,
   encodeFrame,
+  crc8DvbS2,
   type CrsfFrame,
 } from '../protocol/crsf';
+import { bindingUid } from '../protocol/elrs-binding';
 import type { Transport, TransportInfo } from './types';
 
 /**
@@ -30,8 +34,16 @@ type Entry =
   | { id: number; parent: number; type: typeof ParamType.COMMAND; name: string; step: number; info: string };
 
 export const DEMO_RADIO_NAME = 'AK ELRS TX (demo)';
+export const DEMO_RADIO_RX_NAME = 'AK ELRS RX (demo)';
 
-function demoMenu(): Entry[] {
+function demoMenu(role: 'tx' | 'rx'): Entry[] {
+  if (role === 'rx') {
+    return [
+      { id: 1, parent: 0, type: ParamType.TEXT_SELECTION, name: 'Bind Storage', options: ['Persistent', 'Volatile', 'Returnable', 'Administered'], value: 0 },
+      { id: 2, parent: 0, type: ParamType.COMMAND, name: 'Enter Bind Mode', step: CommandStep.IDLE, info: '' },
+      { id: 3, parent: 0, type: ParamType.INFO, name: 'Version', value: '4.1.0 AK-A3 RX' },
+    ];
+  }
   return [
     { id: 1, parent: 0, type: ParamType.TEXT_SELECTION, name: 'Packet Rate', options: ['50Hz', '100Hz', '150Hz', '250Hz', '333Hz Full', '500Hz'], value: 2 },
     { id: 2, parent: 0, type: ParamType.TEXT_SELECTION, name: 'Telem Ratio', options: ['Std', 'Off', '1:128', '1:64', '1:32', '1:16', '1:8', '1:4', '1:2', 'Race'], value: 0 },
@@ -42,6 +54,9 @@ function demoMenu(): Entry[] {
     { id: 7, parent: 0, type: ParamType.TEXT_SELECTION, name: 'Model Match', options: ['Off', 'On'], value: 0 },
     { id: 8, parent: 0, type: ParamType.COMMAND, name: 'Bind', step: CommandStep.IDLE, info: '' },
     { id: 9, parent: 0, type: ParamType.INFO, name: 'Version', value: '4.1.0 AK-A3' },
+    { id: 10, parent: 0, type: ParamType.FOLDER, name: 'WiFi Connectivity' },
+    { id: 11, parent: 10, type: ParamType.COMMAND, name: 'Enable WiFi', step: CommandStep.IDLE, info: '' },
+    { id: 12, parent: 10, type: ParamType.COMMAND, name: 'Enable Rx WiFi', step: CommandStep.IDLE, info: '' },
   ];
 }
 
@@ -59,18 +74,27 @@ function body(e: Entry, menu: Entry[]): number[] {
 }
 
 export interface DemoRadioOptions {
+  readonly role?: 'tx' | 'rx';
   /** Largest chunk of entry data per frame; small enough to make the menu arrive in pieces. */
   readonly chunkMax?: number;
   readonly linkStatsMs?: number;
 }
 
 export class DemoRadio {
-  readonly menu = demoMenu();
+  readonly role: 'tx' | 'rx';
+  readonly menu: Entry[];
   receiverConnected = true;
+  uid: Uint8Array = Uint8Array.of(0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc);
+  directBindRequests = 0;
+  readonly directBindDestinations: number[] = [];
+  moduleWifiRequested = false;
+  receiverWifiRequested = false;
   private readonly decoder = new CrsfDecoder();
   private readonly chunkMax: number;
 
   constructor(options: DemoRadioOptions = {}) {
+    this.role = options.role ?? 'tx';
+    this.menu = demoMenu(this.role);
     this.chunkMax = options.chunkMax ?? 20;
   }
 
@@ -80,8 +104,12 @@ export class DemoRadio {
     return out;
   }
 
-  private ext(type: number, to: number, data: number[]): Uint8Array {
-    return encodeExtended(type, to, Address.RADIO_TRANSMITTER, Uint8Array.from(data), Address.RADIO_TRANSMITTER);
+  private ext(type: number, to: number, data: number[], origin = this.origin): Uint8Array {
+    return encodeExtended(type, to, origin, Uint8Array.from(data), Address.RADIO_TRANSMITTER);
+  }
+
+  private get origin(): number {
+    return this.role === 'rx' ? Address.CRSF_RECEIVER : Address.CRSF_TRANSMITTER;
   }
 
   private answer(frame: CrsfFrame): Uint8Array[] {
@@ -89,11 +117,20 @@ export class DemoRadio {
     const p = frame.payload;
     const to = p[0] ?? 0;
     const from = p[1] ?? Address.ELRS_LUA;
-    if (to !== Address.BROADCAST && to !== Address.RADIO_TRANSMITTER) return [];
+    if (to !== Address.BROADCAST && to !== Address.CRSF_TRANSMITTER &&
+      to !== Address.CRSF_RECEIVER && to !== Address.RADIO_TRANSMITTER) return [];
     switch (frame.type) {
       case FrameType.DEVICE_PING:
         return [this.ext(FrameType.DEVICE_INFO, from, [
-          ...z(DEMO_RADIO_NAME), 0x45, 0x4c, 0x52, 0x53, 0, 0, 0, 0, 0, 4, 1, 0, this.menu.length, 0])];
+          ...z(this.role === 'rx' ? DEMO_RADIO_RX_NAME : DEMO_RADIO_NAME),
+          0x45, 0x4c, 0x52, 0x53, 0, 0, 0, 0, 0, 4, 1, 0, this.menu.length, 0])];
+      case FrameType.COMMAND:
+        if (p[2] === 0x10 && p[3] === 0x01) {
+          this.directBindRequests++;
+          this.directBindDestinations.push(to);
+          this.receiverConnected = false;
+        }
+        return [];
       case FrameType.PARAMETER_READ:
         return this.entryChunk(from, p[2] ?? 0, p[3] ?? 0);
       case FrameType.PARAMETER_WRITE: {
@@ -104,20 +141,62 @@ export class DemoRadio {
         if (e.type === ParamType.COMMAND) this.command(e, v);
         return e.type === ParamType.COMMAND ? this.entryChunk(from, e.id, 0) : [];
       }
+      case FrameType.MSP_REQ:
+        if (p[4] === MSP_ELRS_RXTX_CONFIG && p[5] === 0 && p[6] === 1 &&
+          p[8] === RxtxConfigSubcommand.UID) {
+          return [this.mspResponse(from, Uint8Array.from([RxtxConfigSubcommand.UID, ...this.uid]))];
+        }
+        return [];
+      case FrameType.MSP_WRITE:
+        if (p[4] === MSP_ELRS_RXTX_CONFIG) {
+          if (p[5] === RxtxConfigSubcommand.UID && p.length >= 12) {
+            this.uid = p.slice(6, 12);
+          } else if (p[5] === RxtxConfigSubcommand.BIND_PHRASE) {
+            const phrase = new TextDecoder().decode(p.slice(6, -1));
+            this.uid = bindingUid(phrase);
+          }
+        }
+        return [];
       default:
         return [];
     }
   }
 
+  private mspResponse(to: number, payload: Uint8Array): Uint8Array {
+    const body = new Uint8Array(payload.length + 4);
+    body[0] = 0x30;
+    body[1] = payload.length;
+    body[2] = MSP_ELRS_RXTX_CONFIG;
+    body.set(payload, 3);
+    body[body.length - 1] = crc8DvbS2(body.subarray(1, body.length - 1));
+    return this.ext(FrameType.MSP_RESP, to, [...body]);
+  }
+
   private command(e: Extract<Entry, { type: typeof ParamType.COMMAND }>, step: number): void {
     if (step === CommandStep.CLICK) {
+      if (e.name === 'Enable WiFi') {
+        e.step = this.receiverConnected ? CommandStep.ASK_CONFIRM : CommandStep.EXECUTING;
+        e.info = this.receiverConnected ? 'Enter WiFi Update?' : 'WiFi Running...';
+      } else if (e.name === 'Enable Rx WiFi') {
+        e.step = CommandStep.EXECUTING;
+        e.info = 'Receiver WiFi Running...';
+        this.receiverWifiRequested = true;
+      } else {
+        e.step = CommandStep.EXECUTING;
+        e.info = 'Binding...';
+        this.receiverConnected = false;
+      }
+    } else if (step === CommandStep.CONFIRMED && e.step === CommandStep.ASK_CONFIRM && e.name === 'Enable WiFi') {
       e.step = CommandStep.EXECUTING;
-      e.info = 'Binding...';
+      e.info = 'WiFi Running...';
+      this.moduleWifiRequested = true;
       this.receiverConnected = false;
     } else if (step === CommandStep.QUERY && e.step === CommandStep.EXECUTING) {
       e.step = CommandStep.IDLE;
-      e.info = 'Bound';
-      this.receiverConnected = true;
+      if (e.name === 'Bind') {
+        e.info = 'Bound';
+        this.receiverConnected = true;
+      }
     } else if (step === CommandStep.CANCEL) {
       e.step = CommandStep.IDLE;
       e.info = '';
@@ -138,9 +217,16 @@ export class DemoRadio {
   linkStatistics(nowMs: number): Uint8Array | null {
     if (!this.receiverConnected) return null;
     const wobble = Math.round(3 * Math.sin(nowMs / 700));
-    const power = [10, 25, 50, 100, 250].indexOf(Number((this.menu[4] as { options: string[]; value: number }).options[(this.menu[4] as { value: number }).value]));
+    const rate = this.role === 'tx' ? (this.menu[0] as { value: number }).value : 2;
+    const power = this.role === 'tx'
+      ? [10, 25, 50, 100, 250].indexOf(Number(
+        (this.menu[4] as { options: string[]; value: number }).options[
+          (this.menu[4] as { value: number }).value
+        ],
+      ))
+      : 0;
     return encodeFrame(FrameType.LINK_STATISTICS, Uint8Array.of(
-      62 - wobble, 64 - wobble, 100, 9, 0, (this.menu[0] as { value: number }).value, Math.max(power, 0) + 1,
+      62 - wobble, 64 - wobble, 100, 9, 0, rate, Math.max(power, 0) + 1,
       58 + wobble, 100, 8), Address.RADIO_TRANSMITTER);
   }
 }

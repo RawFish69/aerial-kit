@@ -194,5 +194,48 @@ that test.
 9. Repeat the link-loss test from a fresh arm cycle. Copy the FC console, UART
    counters, failsafe state and output/ESC signal evidence into a dated record.
 
+## 9. Configurator binding and Wi-Fi workflow
+
+Use the configurator's **Device → Radio module** page. Native USB is for
+flashing and the ExpressLRS native Wi-Fi page; stock ExpressLRS 4.1.0 does not
+carry CRSF handset traffic over native USB. Connect through J3 with a 3.3 V
+USB-UART adapter:
+
+- TX image: **USB serial TX (400000 baud)**;
+- RX image: **USB serial RX (420000 baud)**.
+
+Power off before changing SW2. Match it to the image actually flashed and
+verify continuity: GPIO4 does not select TX versus RX at runtime. The
+configurator's TX/RX connection option changes only the UART baud; the role
+shown after connection comes from the module's CRSF device information.
+
+After **Connect radio** and **Allow changes**, open **Binding and Wi-Fi**. These
+are three separate operations:
+
+1. **Binding phrase / UID.** The phrase field shows the MD5-derived six-byte UID
+   the module will actually store. Confirm a phrase or direct UID write, then
+   expect the module to reboot. Reconnect and use **Read UID** to verify the
+   readback; the phrase itself cannot be recovered from the module.
+   The RX image's advertised **Bind Storage** setting remains separate under
+   **Settings**; changing that storage policy is not a phrase/UID write.
+2. **Explicit bind.** **Start binding mode** on a TX or **Enter Bind Mode** on an
+   RX asks for confirmation before sending CRSF `COMMAND` subcommand
+   `0x10/0x01`, the same request as
+   `aerial-kit-link ... --write radio bind`. That command has no completion
+   response, so sending it proves only that the request left the host. A
+   receiver double-blink (100 ms on/off, then a 1 s pause, orange/red at the
+   overlay's 10% brightness) is the RX-side binding evidence. Do not claim a
+   successful bind until both endpoints connect and report link statistics.
+3. **Wi-Fi.** **Enable module Wi-Fi** asks the TX to enter Wi-Fi update mode;
+   **Enable receiver Wi-Fi** asks a connected TX to relay that request to the
+   RX. Confirm the link-loss warning first. Expected module LED is the
+   yellow-to-green Wi-Fi cross-fade. Join `ExpressLRS TX` or `ExpressLRS RX`
+   with password `expresslrs`, then open `http://10.0.0.1/`. The configurator
+   cannot switch the host's Wi-Fi network or embed that native page.
+
+If a module's parameter menu does not advertise a bind entry or its role does
+not advertise Wi-Fi, the page says so. The stock direct bind command remains
+available, but do not infer Wi-Fi support from the role image alone.
+
 Stop after the props-off FC and failsafe checks. This checklist does not
 authorize a flight or claim that the link, tuning or airframe is flight-ready.
