@@ -29,6 +29,9 @@
 #define AK_CRSF_CHANNELS  16
 #define AK_CRSF_TYPE_RC_CHANNELS 0x16
 #define AK_CRSF_TYPE_LINK_STATISTICS 0x14
+#define AK_CRSF_TYPE_MSP_REQUEST 0x7A
+#define AK_CRSF_TYPE_MSP_RESPONSE 0x7B
+#define AK_CRSF_TYPE_MSP_WRITE 0x7C
 
 /* What the receiver says about its own link, from frame type 0x14.
  *
@@ -110,10 +113,16 @@ typedef struct {
     ak_crsf_link_stats_t stats;
     uint32_t stats_frames;
     uint32_t last_stats_ms;
+    void (*msp_frame)(void *ctx, const uint8_t *frame, unsigned length);
+    void *msp_ctx;
     uint16_t channel[AK_CRSF_CHANNELS];
 } ak_crsf_t;
 
 void ak_crsf_init(ak_crsf_t *crsf);
+void ak_crsf_set_msp_frame_callback(
+    ak_crsf_t *crsf,
+    void (*callback)(void *ctx, const uint8_t *frame, unsigned length),
+    void *ctx);
 
 uint8_t ak_crsf_crc8(const uint8_t *data, uint8_t len);
 

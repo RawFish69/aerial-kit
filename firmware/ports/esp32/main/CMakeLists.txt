@@ -23,6 +23,7 @@ set(AK_SOURCES
     "${AK_ROOT}/src/core/ak_boot.c"
     "${AK_ROOT}/src/core/ak_cli.c"
     "${AK_ROOT}/src/core/ak_console_link.c"
+    "${AK_ROOT}/src/core/ak_crsf_tunnel.c"
     "${AK_ROOT}/src/core/ak_flashlog.c"
     "${AK_ROOT}/src/core/ak_params.c"
     "${AK_ROOT}/src/core/ak_perf.c"

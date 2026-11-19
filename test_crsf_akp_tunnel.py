@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import os
+import shutil
+import struct
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from aerial_kit.comms import (
@@ -19,6 +25,24 @@ from aerial_kit.comms import (
     AkpTunnelSessionConflict,
     split_akp_frame,
 )
+from aerial_kit.comms.crsf.codec import CrsfLink, CrsfParser
+from aerial_kit.comms.crsf.codec import CrsfFrame, crc8_dvb_s2
+from aerial_kit.comms.crsf.msp_tunnel import (
+    AKP_MSP_FUNCTION,
+    AKP_MSP_REQUEST_CHUNK,
+    AKP_MSP_RESPONSE_CHUNK,
+    CrsfAkpTunnel,
+    decode_msp_request,
+    decode_msp_response,
+    encode_msp_request,
+    encode_msp_response,
+)
+from aerial_kit.comms.transport import MemoryTransport
+from aerial_kit.comms.akp.client import AkClient
+from aerial_kit.comms.akp import codec as akp_codec
+from aerial_kit.comms.akp.codec import HELLO
+
+ROOT = Path(__file__).resolve().parent
 
 
 def reassemble(
@@ -37,8 +61,8 @@ def reassemble(
 def test_split_and_reassemble_in_order() -> None:
     payload = bytes(range(23))
     segments = split_akp_frame(payload, session=7)
-    assert len(segments) == 6
-    assert [segment.sequence for segment in segments] == list(range(6))
+    assert len(segments) == 8
+    assert [segment.sequence for segment in segments] == list(range(8))
     assert segments[0].first and segments[0].seq_flags & AKP_TUNNEL_FIRST
     assert segments[-1].last and segments[-1].seq_flags & AKP_TUNNEL_LAST
     assert all(
@@ -50,11 +74,12 @@ def test_split_and_reassemble_in_order() -> None:
 
 def test_default_chunk_size_matches_uplink_msp_budget() -> None:
     segments = split_akp_frame(b"abcdefghij", session=3)
-    assert AKP_TUNNEL_DEFAULT_CHUNK_SIZE == 4
+    assert AKP_TUNNEL_DEFAULT_CHUNK_SIZE == 3
     assert [segment.chunk for segment in segments] == [
-        b"abcd",
-        b"efgh",
-        b"ij",
+        b"abc",
+        b"def",
+        b"ghi",
+        b"j",
     ]
 
 
@@ -225,3 +250,169 @@ def test_large_payload_reassembles_at_limit() -> None:
     segments = split_akp_frame(payload, session=9, chunk_size=1022)
     assert len(segments) <= 64
     assert reassemble(payload, segments) == payload
+
+
+def test_msp_envelopes_round_trip_tunnel_bytes() -> None:
+    payload = b"\xa1\x07\x40\x04\x00abcd"
+    request = encode_msp_request(payload)
+    assert request.frame_type == 0x7A
+    assert request.payload[0] == 0xC8
+    assert request.payload[2] == 0x50
+    assert decode_msp_request(request) == payload
+
+    response = encode_msp_response(payload)
+    assert response.frame_type == 0x7B
+    assert response.payload[0] == 0xEA
+    assert response.payload[2] == 0x30
+    assert decode_msp_response(response) == payload
+    assert AKP_MSP_FUNCTION == 0x4B
+
+    write_body = bytes((len(payload) + 1, AKP_MSP_FUNCTION)) + payload
+    write = CrsfFrame(
+        0xC8,
+        0x7C,
+        bytes((0xC8, 0xEA, 0x30))
+        + write_body
+        + bytes((crc8_dvb_s2(write_body),)),
+    )
+    assert decode_msp_request(write) == payload
+
+
+def test_msp_envelope_rejects_wrong_function_and_bad_crc() -> None:
+    request = encode_msp_request(b"payload", function=0x4C)
+    with pytest.raises(Exception, match="not AKP"):
+        decode_msp_request(request)
+    response = encode_msp_response(b"payload")
+    payload = bytearray(response.payload)
+    payload[-1] ^= 0x01
+    with pytest.raises(Exception, match="CRC"):
+        decode_msp_response(
+            type(response)(
+                response.address,
+                response.frame_type,
+                bytes(payload),
+            )
+        )
+
+
+class FakeRadio:
+    def __init__(self) -> None:
+        self.transport = MemoryTransport()
+        self.link = CrsfLink(self.transport)
+        self.callbacks = []
+
+    def add_frame_callback(self, callback) -> None:
+        self.callbacks.append(callback)
+
+    def remove_frame_callback(self, callback) -> None:
+        self.callbacks.remove(callback)
+
+    def emit(self, frame) -> None:
+        for callback in tuple(self.callbacks):
+            callback(frame)
+
+
+class AkpResponderTransport(MemoryTransport):
+    def __init__(self, radio: FakeRadio) -> None:
+        super().__init__()
+        self.radio = radio
+        self.parser = CrsfParser()
+        self.reassembler = AkpTunnelReassembler()
+
+    def _write(self, data: bytes) -> int:
+        for frame in self.parser.feed(data):
+            if frame.frame_type not in (0x7A, 0x7C):
+                continue
+            segment = AkpTunnelSegment.decode(decode_msp_request(frame))
+            request = self.reassembler.feed(segment)
+            if request is None:
+                continue
+            payload = (
+                b"\x01aerialkit-test\x00"
+                + b"\x01\x00"
+                + b"0\x00"
+                + (0).to_bytes(4, "little")
+                + (0).to_bytes(4, "little")
+            )
+            body = bytes((1, HELLO | 0x80, len(payload))) + payload
+            response = (
+                b"\xaa\x55"
+                + body
+                + struct.pack("<H", akp_codec.crc16(body))
+            )
+            for out in split_akp_frame(
+                response,
+                session=segment.session,
+                chunk_size=AKP_MSP_RESPONSE_CHUNK,
+            ):
+                self.radio.emit(encode_msp_response(out.encode()))
+        return len(data)
+
+
+def test_crsf_akp_tunnel_sends_segmented_requests_and_reassembles_responses() -> None:
+    radio = FakeRadio()
+    tunnel = CrsfAkpTunnel(radio, send_interval_s=0)
+    request = b"AKP request payload " * 8
+    tunnel.write(request)
+    frames = CrsfParser().feed(radio.transport.drain_tx())
+    assert len(frames) == (len(request) + AKP_MSP_REQUEST_CHUNK - 1) // AKP_MSP_REQUEST_CHUNK
+    sender = AkpTunnelReassembler()
+    assembled = None
+    for frame in frames:
+        segment = decode_msp_request(frame)
+        assembled = sender.feed(segment)
+    assert assembled == request
+    assert AKP_MSP_REQUEST_CHUNK == 3
+    assert len(frames) >= len(request) // AKP_MSP_REQUEST_CHUNK
+
+    response = b"AKP response payload " * 9
+    session = decode_msp_request(frames[0])[1]
+    segments = split_akp_frame(response, session=session, chunk_size=AKP_MSP_RESPONSE_CHUNK)
+    for segment in reversed(segments):
+        radio.emit(encode_msp_response(segment.encode()))
+    assert tunnel.read(len(response), timeout=0.1) == response
+    assert tunnel.received_frames == 1
+
+
+def test_ak_client_hello_over_the_crsf_tunnel() -> None:
+    radio = FakeRadio()
+    transport = AkpResponderTransport(radio)
+    radio.transport = transport
+    radio.link = CrsfLink(transport)
+    tunnel = CrsfAkpTunnel(radio, send_interval_s=0)
+    client = AkClient(tunnel, timeout=0.2)
+    hello = client.hello()
+    assert hello.product == "aerialkit-test"
+    assert hello.parameter_count == 1
+    client.close()
+
+
+def test_akp_radio_route_against_host_built_firmware(tmp_path: Path) -> None:
+    compiler = shutil.which("cc") or shutil.which("gcc")
+    if compiler is None:
+        pytest.skip("no C compiler")
+    firmware = ROOT / "firmware"
+    output = tmp_path / "akp-radio"
+    command = [
+        compiler,
+        "-std=c11",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        f"-I{firmware / 'src/core'}",
+        f"-I{firmware / 'src/core/flight'}",
+        str(firmware / "tools/host/test_akp_radio.c"),
+        str(firmware / "src/core/flight/ak_crsf.c"),
+        str(firmware / "src/core/ak_crsf_tunnel.c"),
+        str(firmware / "src/core/ak_proto.c"),
+        str(firmware / "src/core/ak_params.c"),
+        str(firmware / "src/core/ak_text.c"),
+        "-o",
+        str(output),
+    ]
+    subprocess.run(command, check=True, cwd=ROOT, env=os.environ.copy())
+    result = subprocess.run(
+        [str(output)], check=True, cwd=ROOT, capture_output=True, text=True
+    )
+    assert "akp-radio: ok" in result.stdout
