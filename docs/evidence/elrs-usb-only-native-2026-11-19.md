@@ -54,8 +54,8 @@ PlatformIO's `bootloader.bin` byte-for-byte.
   target trailers.
 - Factory artifact: 8,331,264 bytes.
 - SHA-256:
-  `c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4`.
+  `5fbc25c9d23b32b33859a7ae02fce5f69aee718cb60c217850d241fc45317838`.
 - No physical board was flashed or powered during this code change.
 
 The earlier `7210…` image is invalid and must not be flashed. Hardware
-acceptance remains gated on the `c166…` image and the USB-only bench checklist.
+acceptance remains gated on the `5fbc…` image and the USB-only bench checklist.

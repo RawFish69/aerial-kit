@@ -56,6 +56,9 @@ initial install and recovery.
 | I2C SDA / SCL | 34 / 48 |
 
 The firmware limits the WS2812 to 26/255, approximately 10% brightness.
+The dual-role image uses a dedicated checked IDF RMT driver rather than the
+upstream I2S/HSV animation path. It includes an explicit WS2812 latch period
+and an optional red/green/blue hardware self-test.
 The SX1280 power table is `[-18, -14, -10, -6, +5]` dBm and defaults to the
 lowest entry. The +5 dBm maximum is the documented input limit of the
 RFX2401C, not a measured board output.
@@ -163,15 +166,26 @@ paired a DIO bootloader with QIO-built applications. The resulting invalid
 flash reads prevented target configuration and LittleFS from loading, causing
 the dark TX and RX panic loop. Replacing only the bootloader with the matching
 QIO image made the LED initialize and removed the panic. The release image now
-builds that pairing permanently. The corrected release is:
+builds that pairing permanently. The first corrected QIO release was:
 
 ```text
 size: 8331264 bytes
 sha256: c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4
 ```
 
-TX CRSF behavior with the corrected bootloader, exact LED pulse counts, device
-ping responses and RF link statistics still require bench verification.
+That artifact is superseded by the final RMT-LED build below.
+
+The current full factory artifact built with the RMT LED path is:
+
+```text
+size: 8331264 bytes
+sha256: 5fbc25c9d23b32b33859a7ae02fce5f69aee718cb60c217850d241fc45317838
+flash offset: 0x0
+```
+
+See `../../docs/evidence/rev-a3-rmt-final-2026-11-19.md` for the full build,
+source-correspondence, USB and LED evidence. Hardware flashing and RF behavior
+remain bench-operator responsibilities.
 
 ## Licensing
 

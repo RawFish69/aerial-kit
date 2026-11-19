@@ -15,13 +15,13 @@ It caused an RX LittleFS format failure and invalid-image panic.
 Use the four-slot factory artifact whose manifest records SHA-256:
 
 ```text
-c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4
+5fbc25c9d23b32b33859a7ae02fce5f69aee718cb60c217850d241fc45317838
 ```
 
-Do not use `7210b9ff…`: it paired a DIO bootloader with QIO-built
-applications and caused invalid flash reads, LittleFS failures and an RX panic.
+Do not use any earlier artifact. The final RMT image is
+`/home/cy/Projects/aerial-kit-firmware-final/firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin`.
 
-The `c1668c40…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
+The `5fbc25c9…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
 its manifest must record `bootloader_qio_80m.elf`, SDK memory type
 `qio_qspi`, application header mode `dio` and bootloader mode `dio`.
 

@@ -1,7 +1,8 @@
-# Rev A3 native-USB bench artifact — 2026-11-19
+# Rev A3 native-USB candidate history — 2026-11-19
 
-The firmware worktree contains a newer full factory image produced after the
-QIO bootloader correction and deterministic LED state-machine work.
+This candidate was superseded by the final RMT-LED artifact. It is retained as
+history because the candidate changed during concurrent bench and firmware
+work; it is not approved for flashing.
 
 ```text
 path: /home/cy/Projects/aerial-kit-dual-role-v2/firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
@@ -27,9 +28,14 @@ spiffs     0x6d2000
 
 `sha256sum -c dist/SHA256SUMS` passed from the firmware artifact directory.
 
-This record establishes the locally generated candidate identity only. It is
-not a hardware-pass claim. The firmware owner must still freeze/commit the
-artifact before the bench operator flashes it, and hardware must then confirm:
+The current approved build identity is:
+
+```text
+sha256: 5fbc25c9d23b32b33859a7ae02fce5f69aee718cb60c217850d241fc45317838
+```
+
+See `rev-a3-rmt-final-2026-11-19.md` for the final evidence. Hardware acceptance
+must still confirm:
 
 - clean boot with no invalid-image, LittleFS or panic messages;
 - GPIO4 low: one blue TX pulse and TX operational patterns;

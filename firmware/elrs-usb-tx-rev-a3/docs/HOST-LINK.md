@@ -28,6 +28,16 @@ the ROM banner and bootloader `load:` text may precede CRSF. Resynchronize on
 sync byte `0xC8`; do not parse that text as CRSF. Arduino core logging is
 disabled in these target images so post-boot serial output remains CRSF.
 
+After startup, the firmware emits one ASCII line:
+
+```text
+AK-BOOT role=<tx|rx> slot=<partition> gpio4=<low|high> reset=<reason> ...
+```
+
+The line contains reset reason, selected slot, ELF prefix, RMT driver health and
+the RMT error code. It contains no `0xC8`; a CRSF parser discards it and
+resynchronizes on the next frame.
+
 ## LED state
 
 Color identifies the role: TX is blue and RX is green. Patterns identify state,

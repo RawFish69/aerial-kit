@@ -49,7 +49,7 @@ firmware can distinguish it from an absent peer.
 ```text
 path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
 size: 8331264 bytes
-sha256: c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4
+sha256: 5fbc25c9d23b32b33859a7ae02fce5f69aee718cb60c217850d241fc45317838
 flash offset: 0x0
 ```
 
