@@ -38,12 +38,21 @@ void test_role_words()
 {
     const AerialKitLedRgb blue = aerialkit_role_color(false);
     const AerialKitLedRgb green = aerialkit_role_color(true);
-    check(aerialkit_ws2812_grb_word(blue, BRIGHTNESS) == 0x00001A, "TX blue word",
-          aerialkit_ws2812_grb_word(blue, BRIGHTNESS));
-    check(aerialkit_ws2812_grb_word(green, BRIGHTNESS) == 0x1A0000, "RX green word",
-          aerialkit_ws2812_grb_word(green, BRIGHTNESS));
-    check(aerialkit_ws2812_grb_word({255, 0, 0}, BRIGHTNESS) == 0x001A00, "red word");
-    check(aerialkit_ws2812_grb_word({0, 0, 0}, BRIGHTNESS) == 0, "off word");
+    check(aerialkit_ws2812_wire_word(blue, BRIGHTNESS) == 0x1A0000, "TX blue word (B first)",
+          aerialkit_ws2812_wire_word(blue, BRIGHTNESS));
+    check(aerialkit_ws2812_wire_word(green, BRIGHTNESS) == 0x00001A, "RX green word (G last)",
+          aerialkit_ws2812_wire_word(green, BRIGHTNESS));
+    check(aerialkit_ws2812_wire_word({255, 0, 0}, BRIGHTNESS) == 0x001A00, "red word");
+    check(aerialkit_ws2812_wire_word({0, 0, 0}, BRIGHTNESS) == 0, "off word");
+}
+
+void test_wire_order()
+{
+    // One channel at a time lands in exactly one wire byte: B, R, G.
+    check(aerialkit_ws2812_wire_word({0, 0, 255}, 255) == 0xFF0000, "blue is byte 1");
+    check(aerialkit_ws2812_wire_word({255, 0, 0}, 255) == 0x00FF00, "red is byte 2");
+    check(aerialkit_ws2812_wire_word({0, 255, 0}, 255) == 0x0000FF, "green is byte 3");
+    check(aerialkit_ws2812_wire_word({1, 2, 3}, 255) == 0x030102, "mixed order");
 }
 
 void test_bit_timing()
@@ -80,9 +89,9 @@ void test_bit_timing()
     check((latch.duration0 + latch.duration1) * NS >= 280000u, "latch > 280 us",
           (latch.duration0 + latch.duration1) * NS);
 
-    // Exact waveform of the RX green word 0x1A0000: G=00011010, then 16 zeros.
-    const uint32_t green = aerialkit_ws2812_grb_word(aerialkit_role_color(true), BRIGHTNESS);
-    const char *expected = "000110100000000000000000";
+    // Exact waveform of the RX green word 0x00001A: 16 zeros (B, R), then G=00011010.
+    const uint32_t green = aerialkit_ws2812_wire_word(aerialkit_role_color(true), BRIGHTNESS);
+    const char *expected = "000000000000000000011010";
     for (uint8_t index = 0; index < 24; ++index)
     {
         const bool one = aerialkit_ws2812_item(green, index).duration0 == AERIALKIT_WS2812_T1H_TICKS;
@@ -97,9 +106,9 @@ void test_selftest()
     check(aerialkit_led_selftest_color(1500, color) && color.red == 0 && color.green == 255 && color.blue == 0, "selftest green");
     check(aerialkit_led_selftest_color(2999, color) && color.red == 0 && color.green == 0 && color.blue == 255, "selftest blue");
     check(!aerialkit_led_selftest_color(3000, color), "selftest ends after 3 s");
-    check(aerialkit_ws2812_grb_word({255, 0, 0}, BRIGHTNESS) == 0x001A00 &&
-          aerialkit_ws2812_grb_word({0, 255, 0}, BRIGHTNESS) == 0x1A0000 &&
-          aerialkit_ws2812_grb_word({0, 0, 255}, BRIGHTNESS) == 0x00001A,
+    check(aerialkit_ws2812_wire_word({255, 0, 0}, BRIGHTNESS) == 0x001A00 &&
+          aerialkit_ws2812_wire_word({0, 255, 0}, BRIGHTNESS) == 0x00001A &&
+          aerialkit_ws2812_wire_word({0, 0, 255}, BRIGHTNESS) == 0x1A0000,
           "selftest words are single-channel");
 
     const uint8_t tx[] = {0xC8, 8, 0x7F, 0xEE, 0xEA, 'A', 'K', 'L', 'T', 0};
@@ -119,11 +128,11 @@ void test_no_unrelated_hue()
             for (uint32_t ms = 0; ms < 12000; ++ms)
             {
                 const AerialKitLedRgb color = aerialkit_led_frame(pattern, ms, rx);
-                const uint32_t word = aerialkit_ws2812_grb_word(color, BRIGHTNESS);
-                const uint32_t allowed = rx ? 0xFF0000 : 0x0000FF;
+                const uint32_t word = aerialkit_ws2812_wire_word(color, BRIGHTNESS);
+                const uint32_t allowed = rx ? 0x0000FF : 0xFF0000;
                 check((word & ~allowed) == 0, "non-role channel lit",
                       static_cast<unsigned>(pattern), ms);
-                check(word <= allowed && (word & allowed) <= (rx ? 0x1A0000u : 0x1Au),
+                check(word <= allowed && (word & allowed) <= (rx ? 0x1Au : 0x1A0000u),
                       "brightness cap", static_cast<unsigned>(pattern), ms);
                 sawOn = sawOn || word != 0;
             }
@@ -132,12 +141,12 @@ void test_no_unrelated_hue()
 
         for (uint32_t ms = 0; ms < 3000; ++ms)
         {
-            const uint32_t red = aerialkit_ws2812_grb_word(
+            const uint32_t red = aerialkit_ws2812_wire_word(
                 aerialkit_led_frame(AerialKitLedPattern::RedBlink, ms, rx), BRIGHTNESS);
             check(red == 0 || red == 0x001A00, "fault is pure red", ms, red);
-            const uint32_t amber = aerialkit_ws2812_grb_word(
+            const uint32_t amber = aerialkit_ws2812_wire_word(
                 aerialkit_led_frame(AerialKitLedPattern::AmberTriple, ms, rx), BRIGHTNESS);
-            check(amber == 0 || amber == 0x0C1A00, "mismatch is fixed amber", ms, amber);
+            check(amber == 0 || amber == 0x001A0C, "mismatch is fixed amber", ms, amber);
         }
     }
 }
@@ -189,6 +198,7 @@ void test_breathing_periods()
 int main()
 {
     test_role_words();
+    test_wire_order();
     test_bit_timing();
     test_selftest();
     test_no_unrelated_hue();

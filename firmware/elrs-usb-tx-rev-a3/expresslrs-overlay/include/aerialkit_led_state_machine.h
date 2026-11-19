@@ -209,15 +209,29 @@ constexpr uint8_t aerialkit_led_scale(uint8_t value, uint8_t brightness)
         (static_cast<uint16_t>(value) * brightness) / 255U);
 }
 
-// The 24-bit word sent to the WS2812, MSB first, in its native G-R-B order,
-// after the global brightness cap.
-constexpr uint32_t aerialkit_ws2812_grb_word(
+// The 24-bit word sent to the LED, MSB first, after the global brightness
+// cap. LED1 on the assembled Rev A3 boards clocks bytes in B-R-G order: with
+// the datasheet G-R-B order, red was correct but green and blue were swapped
+// on hardware (2026-11-19, candidate 5576f902). Keep the order in this one
+// table so hardware revisions with a different LED change only this.
+constexpr uint8_t AERIALKIT_WS2812_WIRE_FIRST = 2;  // blue
+constexpr uint8_t AERIALKIT_WS2812_WIRE_SECOND = 0; // red
+constexpr uint8_t AERIALKIT_WS2812_WIRE_THIRD = 1;  // green
+
+constexpr uint8_t aerialkit_led_channel(const AerialKitLedRgb &color, uint8_t channel)
+{
+    return channel == 0 ? color.red : channel == 1 ? color.green : color.blue;
+}
+
+constexpr uint32_t aerialkit_ws2812_wire_word(
     const AerialKitLedRgb &color,
     uint8_t brightness)
 {
-    return (static_cast<uint32_t>(aerialkit_led_scale(color.green, brightness)) << 16) |
-           (static_cast<uint32_t>(aerialkit_led_scale(color.red, brightness)) << 8) |
-           aerialkit_led_scale(color.blue, brightness);
+    return (static_cast<uint32_t>(aerialkit_led_scale(
+                aerialkit_led_channel(color, AERIALKIT_WS2812_WIRE_FIRST), brightness)) << 16) |
+           (static_cast<uint32_t>(aerialkit_led_scale(
+                aerialkit_led_channel(color, AERIALKIT_WS2812_WIRE_SECOND), brightness)) << 8) |
+           aerialkit_led_scale(aerialkit_led_channel(color, AERIALKIT_WS2812_WIRE_THIRD), brightness);
 }
 
 // WS2812B-2020 (V6) waveform. Its limits are tighter than the classic
@@ -245,12 +259,12 @@ struct AerialKitRmtItem
 
 // Item 0..23: one data bit, MSB first. Item 24: the low latch/reset period,
 // always sent so a frame never depends on the idle gap before the next one.
-constexpr AerialKitRmtItem aerialkit_ws2812_item(uint32_t grb_word, uint8_t index)
+constexpr AerialKitRmtItem aerialkit_ws2812_item(uint32_t wire_word, uint8_t index)
 {
     return index >= AERIALKIT_WS2812_DATA_ITEMS
                ? AerialKitRmtItem{AERIALKIT_WS2812_RESET_HALF_TICKS, 0,
                                   AERIALKIT_WS2812_RESET_HALF_TICKS, 0}
-           : ((grb_word >> (23 - index)) & 1U) != 0
+           : ((wire_word >> (23 - index)) & 1U) != 0
                ? AerialKitRmtItem{AERIALKIT_WS2812_T1H_TICKS, 1,
                                   AERIALKIT_WS2812_T1L_TICKS, 0}
                : AerialKitRmtItem{AERIALKIT_WS2812_T0H_TICKS, 1,

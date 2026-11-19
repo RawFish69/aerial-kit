@@ -76,7 +76,7 @@ find patches expresslrs-overlay partitions targets tools/apply_targets.py -type 
   | sort -z | xargs -0 sha256sum | sha256sum
 ```
 
-Status: built and host-tested only. Not yet run on hardware.
+Status: superseded by `19c7b3ce…` (see below).
 
 ### Changes
 
@@ -98,6 +98,48 @@ Status: built and host-tested only. Not yet run on hardware.
   forwarded over RF. `tools/usb_crsf_bench.py --led-selftest 0xEC` sends it.
 - State and color decisions are unchanged.
 
+### Hardware result for `5576f902…` (board 1)
+
+- Flashed at `0x0`, `Hash of data verified`. Boot:
+  `AK-BOOT role=rx slot=rx_0 gpio4=high reset=unknown(0) elf=fd10729d led=rmt-ok led_failures=0 led_error=0x0`.
+- The garbled colors are gone. The LED is stable and the patterns are
+  correct: RX shows the host-present/RF-disconnected double blink, and TX
+  shows its correct pattern.
+- Green and blue are swapped: RX shows blue and TX shows green. Red is
+  correct. The self-test ran three times with `AK-LEDTEST done led=ok`.
+- Opening the port with RTS cleared before DTR did not reboot the board,
+  which confirms the reset-on-open mechanism below.
+
+## Channel order fix: candidate `19c7b3ce…`
+
+LED1 on the assembled boards clocks bytes in blue, red, green order, not the
+datasheet G-R-B order. The firmware sent G-R-B, so the first byte (green) was
+displayed as blue and the third (blue) as green. The order is now a single
+table in `aerialkit_led_state_machine.h`
+(`AERIALKIT_WS2812_WIRE_FIRST/SECOND/THIRD` = blue, red, green). Role logic,
+patterns, timing and the waveform are unchanged.
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: 19c7b3ce0d7094ba1af049c6374cdc9afbc040ea737eb10d4617d1e0d554f05f
+TX app (tx_0): 2b5e6e4db431ceba5b02cb91ad9603b38f38e63db53ccfe6e84eb48daaabebd3
+RX app (rx_0): f40f11489ce167a0e2a72ffdeef40cf9f4d2cee945a4fe20e9c57dc2ddf1310d
+TX ELF: 61326a1d476a66e36f11a8d87a111f9929b20327c5ab83897dbccf6853745792
+RX ELF: d28b7656e11d82930046b1ee5c094e1df888595f45644009ed8884df32f14ac1
+bootloader: bootloader_qio_80m.elf, SDK qio_qspi, app header dio
+build inputs (path-relative): 50eb100a3d2c9f467878ab2cc56cc2bbfeaaf493c55229adbee528ec2d71d511
+```
+
+Records are in `firmware/elrs-usb-tx-rev-a3/releases/19c7b3ce/`. Host tests
+cover the wire order: blue is byte 1, red byte 2 and green byte 3; TX blue is
+`0x1A0000`, RX green is `0x00001A`, and the role sweep is single-channel.
+14/14 firmware host tests pass, including the ELF check against this build.
+The native suite passes 9/9.
+
+Acceptance on hardware: the self-test must show red, then green, then blue,
+in that order and pure; RX must be green-only and TX blue-only.
+
 ## Native-USB findings
 
 - The ESP32-S3 USB Serial/JTAG resets the chip while RTS is asserted and DTR
@@ -116,7 +158,7 @@ Status: built and host-tested only. Not yet run on hardware.
 
 - `tests/native_led/test_led_output.cpp` (host g++, via
   `tests/test_led_output.py`) checks:
-  - exact GRB words (TX `0x00001A`, RX `0x1A0000`);
+  - exact wire words (5576f902 used G-R-B; 19c7b3ce uses B-R-G: TX `0x1A0000`, RX `0x00001A`);
   - every item duration against the WS2812B-2020 limits;
   - the 25-item frame, with a latch longer than 280 µs and no early end
     marker;
@@ -147,9 +189,9 @@ ELF symbol check against this build's ELFs. The native ExpressLRS suite
 core's `digitalWrite()`/`pinMode()` handling of the virtual pin `RGB_BUILTIN`
 (97). No dual-role code uses that pin, and the source checks forbid direct use.
 
-## Bench steps for `5576f902…`
+## Bench steps (current candidate `19c7b3ce…`)
 
-1. Verify the file hash, then flash at `0x0` (USB/ROM) and confirm
+1. (Use `19c7b3ce…`, not `5576f902…`.) Verify the file hash, then flash at `0x0` (USB/ROM) and confirm
    `Hash of data verified`.
 2. Read `AK-BOOT`: check `led=rmt-ok led_failures=0 led_error=0x0`, role,
    slot and reset reason.

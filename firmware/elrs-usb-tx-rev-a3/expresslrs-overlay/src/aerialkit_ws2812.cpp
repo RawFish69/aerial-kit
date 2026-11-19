@@ -135,12 +135,12 @@ bool sendWord(uint32_t word)
 
 bool aerialkitWs2812Show(const AerialKitLedRgb &color)
 {
-    return sendWord(aerialkit_ws2812_grb_word(color, WS2812_BRIGHTNESS));
+    return sendWord(aerialkit_ws2812_wire_word(color, WS2812_BRIGHTNESS));
 }
 
 bool aerialkitWs2812ShowCapped(const AerialKitLedRgb &color)
 {
-    return sendWord(aerialkit_ws2812_grb_word(color, 255));
+    return sendWord(aerialkit_ws2812_wire_word(color, 255));
 }
 
 bool aerialkitWs2812Healthy()

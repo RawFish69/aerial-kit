@@ -46,7 +46,7 @@ uint32_t bindHoldUntilMs;
 
 void ledShow(const AerialKitLedRgb &color)
 {
-    const uint32_t word = aerialkit_ws2812_grb_word(color, 255);
+    const uint32_t word = aerialkit_ws2812_wire_word(color, 255);
     if (lastWordValid && word == lastWord)
     {
         return;
