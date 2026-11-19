@@ -32,7 +32,7 @@ multirotors are in progress).
 | Platform | Link | Package | Status |
 |----------|------|---------|--------|
 | Betaflight | CRSF over ESP-NOW/UDP relay | `ros2_ws/src/hw_bridge` (`crsf_backend_adapter_node`) | ✅ Working |
-| ELRS USB TX Rev A3 | direct CRSF over host UART and over-the-air ELRS | `ros2_ws/src/hw_bridge` (`crsf_radio_backend_node`) | 🧪 SIL validated; RF bench pending |
+| ELRS USB TX Rev A3 | one boot-selected TX/RX image; direct CRSF over host UART and over-the-air ELRS | `ros2_ws/src/hw_bridge` (`crsf_radio_backend_node`) | 🧪 SIL validated; RF bench pending |
 | PX4 | MAVLink over USB / UART / telemetry radio | `ros2_ws/src/mavlink_bridge` | ✅ Working |
 | ArduPilot | MAVLink, same node (`flight_stack: ardupilot`) | `ros2_ws/src/mavlink_bridge` | 🚧 Supported, in testing |
 | Custom firmware (this repo) | ESP-NOW + CRSF, 2.4 GHz SX1280 ELRS, LoRa telemetry | `firmware/` (link projects) | ✅ Working |

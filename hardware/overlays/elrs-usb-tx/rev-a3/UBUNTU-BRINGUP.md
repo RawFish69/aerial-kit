@@ -33,7 +33,10 @@ With USB supplying board power, use a **3.3 V logic** adapter. Wire J3.2 GND to 
 ## Select or build Rev A3 firmware
 
 - This board calls for a custom ESP32-S3 + SX1280 + RFX2401C hardware target. The schematic proposes unified ExpressLRS ESP32-S3 2.4 GHz TX and RX bases. Check target names and JSON keys against the selected firmware and Targets commits. Populate the pins from the [ESP32 pin map](data/esp32-pin-map.csv). The schematic calls for SX1280 DC/DC mode, correct FEM TX/RX enable control and a validated power table.
-- SW2 supplies a logic level on GPIO4. Confirm whether the requested application needs separate TX/RX images or runtime selection with custom firmware. Define the host-facing USB protocol. The schematic describes selection at reset and custom USB RX output. USB ROM flashing is independent of application USB data.
+- SW2 supplies a logic level on GPIO4. The current firmware ships one
+  full-flash artifact with a boot-time selector: GPIO4 low starts TX and GPIO4
+  high starts RX. Define the host-facing USB protocol separately; USB ROM
+  flashing is independent of application USB data.
 - Local `aerial-kit` commit `2bb8039295648437b6e4fc5fabced02c36a2aa09` contains `firmware/legacy/elrs/` for ESP32-C3, with different GPIOs and limited interoperability according to its README. `Integrated-UAV-Stack` commit `049d66e062bd837ee837e403cc1bf0603a48070a` also has older `ELRS/` environments for other hardware. Use these as reference code only. A verified Rev A3 firmware build or binary was not found in the sources inspected.
 - Start with a board-specific USB/UART smoke test that holds both FEM enables low. Verify boot and USB/UART stability before bringing up SPI, BUSY, IRQ, SW2 and LED. For a selected image, use the build system's flash arguments and offsets. Record the build commit, command, artifact hashes and boot logs. Power cycle with BOOT released and verify normal boot before RF tests.
 

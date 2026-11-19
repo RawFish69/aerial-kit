@@ -15,20 +15,19 @@ flight readiness.
   it keeps both FEM enables low and never commands the SX1280 to transmit.
 - Start at the lowest configured RF power. Increase it only after the conducted
   or terminated path has been checked.
-- Stop if the role switch does not select the image and hardware role you
-  intend to test.
+- Stop if the role switch, selected application and RF front end do not agree.
 
 ## 1. Confirm the role switch by continuity
 
 1. Power the board down and disconnect USB and the host adapter.
 2. Check continuity from GPIO4 to ground and to 3.3 V in both switch positions.
    Record which position is electrically low and high.
-3. Match low to the TX image/design role and high to the RX image/design role.
+3. Match low to the TX role and high to the RX role.
    Do not trust the printed `TX`/`RX` label: the 2026-11-17 diagnostic read low
    while the prototype label indicated RX.
 4. Label the verified positions before applying power.
 
-Expected result: exactly one role and one image agree in each switch position.
+Expected result: exactly one application role agrees in each switch position.
 
 ## 2. Verify the supplied images
 
@@ -38,7 +37,7 @@ From `firmware/elrs-usb-tx-rev-a3/`:
 sha256sum -c dist/SHA256SUMS
 ```
 
-Expected result: all three recorded images verify. Rebuild and repeat rather
+Expected result: every recorded artifact verifies. Rebuild and repeat rather
 than flashing a checksum failure.
 
 ## 3. Run the non-RF diagnostic
@@ -61,30 +60,28 @@ Record the GPIO4 role reading, FEM readback, strap values and any remote I2C
 devices. Do not proceed if the SX1280 SPI check fails or either FEM enable
 cannot be returned low.
 
-## 4. Select and flash each role
-
-For the transmitter board:
+## 4. Flash the single dual-role image
 
 1. Attach an antenna or 50 ohm load.
-2. Set the verified low GPIO4 position.
-3. Flash the transmitter image:
+2. Power off and set SW2 to either verified position.
+3. Build and flash the single artifact:
 
    ```bash
-   ./scripts/flash.sh tx /dev/ttyACM0
+   ./scripts/build.sh dual
+   ./scripts/flash.sh /dev/ttyACM0
    ```
 
-For the receiver board:
+4. The board boots TX when GPIO4 is low and RX when GPIO4 is high.
+5. To test the other role, power off, move SW2, and power on again. Do not
+   reflash.
 
-1. Attach an antenna or 50 ohm load.
-2. Set the verified high GPIO4 position.
-3. Flash the receiver image:
+Expected result: one full-flash image installs both applications, native USB
+remains available for configuration, and repeated reset/power-cycle tests
+boot the role selected by GPIO4 every time. A role mismatch must leave both
+FEM enables low; it must not transmit or receive.
 
-   ```bash
-   ./scripts/flash.sh rx /dev/ttyACM0
-   ```
-
-Expected result: the diagnostic image is replaced by the matching ExpressLRS
-application, and native USB can still be used for configuration.
+The single-application Wi-Fi OTA path is not a valid update path for this
+artifact. Use a full USB/ROM flash when changing firmware.
 
 ## 5. Configure and bind
 
@@ -201,13 +198,15 @@ flashing and the ExpressLRS native Wi-Fi page; stock ExpressLRS 4.1.0 does not
 carry CRSF handset traffic over native USB. Connect through J3 with a 3.3 V
 USB-UART adapter:
 
-- TX image: **USB serial TX (400000 baud)**;
-- RX image: **USB serial RX (420000 baud)**.
+- TX role: **USB serial TX (400000 baud)**;
+- RX role: **USB serial RX (420000 baud)**.
 
-Power off before changing SW2. Match it to the image actually flashed and
-verify continuity: GPIO4 does not select TX versus RX at runtime. The
-configurator's TX/RX connection option changes only the UART baud; the role
-shown after connection comes from the module's CRSF device information.
+Power off before changing SW2. GPIO4 is sampled at reset: low boots TX and high
+boots RX. The combined image does not need to be reflashed to change roles.
+Verify the electrical position by continuity because the prototype's printed
+label was wrong. The configurator's TX/RX connection option changes only the
+UART baud; the role shown after connection comes from the module's CRSF device
+information.
 
 After **Connect radio** and **Allow changes**, open **Binding and Wi-Fi**. These
 are three separate operations:
@@ -216,7 +215,7 @@ are three separate operations:
    the module will actually store. Confirm a phrase or direct UID write, then
    expect the module to reboot. Reconnect and use **Read UID** to verify the
    readback; the phrase itself cannot be recovered from the module.
-   The RX image's advertised **Bind Storage** setting remains separate under
+   The RX role's advertised **Bind Storage** setting remains separate under
    **Settings**; changing that storage policy is not a phrase/UID write.
 2. **Explicit bind.** **Start binding mode** on a TX or **Enter Bind Mode** on an
    RX asks for confirmation before sending CRSF `COMMAND` subcommand

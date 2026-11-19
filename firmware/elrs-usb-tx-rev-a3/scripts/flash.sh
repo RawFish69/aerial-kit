@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mode="${1:-}"
-port="${2:-}"
-if [[ -z "$mode" || -z "$port" ]]; then
-    echo "usage: $0 diagnostic|tx|rx /dev/ttyACM0" >&2
+if [[ "${1:-}" == /dev/* ]]; then
+    mode="dual"
+    port="$1"
+else
+    mode="${1:-dual}"
+    port="${2:-}"
+fi
+if [[ -z "$port" ]]; then
+    echo "usage: $0 [/dev/ttyACM0] or $0 diagnostic|tx|rx /dev/ttyACM0" >&2
     exit 2
 fi
 
@@ -36,6 +41,25 @@ case "$mode" in
         "$pio" run -d "$vendor/ExpressLRS/src" \
             -e AERIALKIT_ELRS_USB_TX_REV_A3_RX_via_UART \
             -t upload --upload-port "$port"
+        ;;
+    dual)
+        "$root/scripts/bootstrap.sh"
+        artifact="$root/dist/aerialkit-rev-a3-elrs-dual-role.bin"
+        if [[ ! -f "$artifact" ]]; then
+            echo "dual-role artifact not found; run ./scripts/build.sh dual first" >&2
+            exit 2
+        fi
+        python3 "$vendor/ExpressLRS/src/python/external/esptool/esptool.py" \
+            --chip esp32s3 \
+            --port "$port" \
+            --baud 460800 \
+            --before default_reset \
+            --after hard_reset \
+            write_flash -z \
+            --flash_mode dio \
+            --flash_freq 80m \
+            --flash_size 8MB \
+            0x0 "$artifact"
         ;;
     *)
         echo "unknown firmware mode: $mode" >&2

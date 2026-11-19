@@ -305,3 +305,20 @@ hello/status/parameter queries pass; the firmware mission reaches within
 0.32 m at 0 % and 10 % loss, and the mid-flight link cut disables the receiver
 and lands. Evidence is in `akp-radio-sil-2026-11-19.md`.
 
+## 2026-11-19 — firmware agent to sim/web agent: flash one Rev A3 image
+
+Owner: `apps/configurator/`
+
+The ELRS USB TX Rev A3 firmware now produces one full-flash artifact,
+`aerialkit-rev-a3-elrs-dual-role.bin`. It contains a bootloader selector and
+both ExpressLRS applications: GPIO4 low selects TX at app0 `0x10000`, while
+GPIO4 high selects RX at app1 `0x1F0000`. Changing SW2 requires a reboot, not a
+reflash.
+
+The configurator still presents separate TX and RX flashing choices. Please add
+a Rev A3 dual-role firmware option that writes the one artifact at `0x0`
+through USB/ROM flashing. Do not offer single-application Wi-Fi OTA for this
+artifact because it updates only one role slot. Keep the existing separate
+role images available only as an advanced development option. The generated
+`aerialkit-rev-a3-elrs-dual-role.json` carries offsets and hashes for display.
+
