@@ -47,6 +47,12 @@ PlatformIO `bootloader.bin`; a mismatch fails the release build. The earlier
 DIO-bootloader image produced invalid flash reads, LittleFS failures and an RX
 panic loop and must not be used.
 
+Rev A3 LED status is deterministic: TX is blue and RX is green, while pulse or
+breathing patterns identify boot, bind, search, serial/RF state and faults.
+The upstream rainbow and packet-rate hue animations are disabled. The complete
+state table is in the Rev A3
+[`HOST-LINK.md`](../firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md).
+
 The channel map is AETR on channels 1-4, flight mode on channel 5, and arm on
 channel 6, matching AerialKit firmware defaults. Switch values use the same
 1300-count threshold, and high on channel 5 selects Angle mode. A Betaflight

@@ -18,10 +18,8 @@ constexpr int RX_ENABLE_PIN = 7;
 constexpr int LED_PIN = 21;
 constexpr int RMT_TICK_NS = 100;
 constexpr int WS2812_ITEMS = 24;
-constexpr uint32_t PULSE_ON_MS = 400;
-constexpr uint32_t PULSE_OFF_MS = 300;
-constexpr uint32_t FAULT_ON_MS = 200;
-constexpr uint32_t FAULT_OFF_MS = 800;
+constexpr uint32_t FAULT_ON_MS = 100;
+constexpr uint32_t FAULT_OFF_MS = 100;
 
 #if defined(TARGET_RX)
 constexpr bool RX_ROLE = true;
@@ -71,25 +69,34 @@ void serialLine(const char *message)
     USBSerial.println(message);
 }
 
-[[noreturn]] void faultLoop(const char *message)
+[[noreturn]] void faultLoop(
+    const char *message,
+    uint8_t green,
+    uint8_t red,
+    uint8_t blue,
+    uint8_t pulses,
+    uint32_t pause_ms)
 {
     setFemEnablesLow();
     USBSerial.begin(RX_ROLE ? 420000 : 400000);
     while (true)
     {
-        const bool ledOk =
-            writeColor(0, AERIALKIT_WS2812_LEVEL, 0);
+        for (uint8_t pulse = 0; pulse < pulses; ++pulse)
+        {
+            const bool ledOk = writeColor(green, red, blue);
+            if (!ledOk)
+            {
+                serialLine("AK-FAULT LED output unavailable");
+            }
+            delay(FAULT_ON_MS);
+            if (ledOk)
+            {
+                (void)writeColor(0, 0, 0);
+            }
+            delay(FAULT_OFF_MS);
+        }
         serialLine(message);
-        if (!ledOk)
-        {
-            serialLine("AK-FAULT LED output unavailable");
-        }
-        delay(FAULT_ON_MS);
-        if (ledOk)
-        {
-            (void)writeColor(0, 0, 0);
-        }
-        delay(FAULT_OFF_MS);
+        delay(pause_ms);
     }
 }
 } // namespace
@@ -101,7 +108,13 @@ void aerialkitBootPreflight()
     const bool roleHigh = digitalRead(ROLE_PIN) == HIGH;
     if (!aerialkit_role_matches(roleHigh, RX_ROLE))
     {
-        faultLoop("AK-FAULT GPIO4 role mismatch; FEM enables held low");
+        faultLoop(
+            "AK-FAULT GPIO4 role mismatch; FEM enables held low",
+            AERIALKIT_WS2812_LEVEL / 2,
+            AERIALKIT_WS2812_LEVEL,
+            0,
+            3,
+            1000);
     }
 
     const aerialkit_heartbeat_spec_t heartbeat =
@@ -115,19 +128,25 @@ void aerialkitBootPreflight()
             serialLine("AK-FAULT initial LED output unavailable");
             return;
         }
-        delay(PULSE_ON_MS);
+        delay(heartbeat.on_ms);
         if (!writeColor(0, 0, 0))
         {
             serialLine("AK-FAULT LED clear failed");
             return;
         }
-        delay(PULSE_OFF_MS);
+        delay(heartbeat.off_ms);
     }
 }
 
 [[noreturn]] void aerialkitHardwareUndefinedFault()
 {
-    faultLoop("AK-FAULT hardware layout not loaded");
+    faultLoop(
+        "AK-FAULT hardware layout not loaded",
+        0,
+        AERIALKIT_WS2812_LEVEL,
+        0,
+        1,
+        0);
 }
 
 #endif

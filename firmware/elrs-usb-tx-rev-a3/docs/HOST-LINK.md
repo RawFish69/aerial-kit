@@ -28,6 +28,26 @@ the ROM banner and bootloader `load:` text may precede CRSF. Resynchronize on
 sync byte `0xC8`; do not parse that text as CRSF. Arduino core logging is
 disabled in these target images so post-boot serial output remains CRSF.
 
+## LED state
+
+Color identifies the role: TX is blue and RX is green. Patterns identify state,
+and the upstream rainbow/packet-rate hue sequence is disabled.
+
+| State | TX | RX |
+| --- | --- | --- |
+| Boot identity | One 350 ms pulse | Two 350 ms pulses |
+| Bind | Breathing, 3 s cycle | Breathing, 3 s cycle |
+| Searching / no RF peer | Breathing, 1 s cycle | Breathing, 1 s cycle |
+| Host/FC present, RF disconnected | Two 100 ms pulses/s | Two 100 ms pulses/s |
+| RF connected | Steady | Steady |
+| No sufficient serial input | One 100 ms pulse every 2 s | One 100 ms pulse every 2 s |
+| Radio/SX1280 fault | Fast red, 100 ms on/off | Fast red, 100 ms on/off |
+| Role/model mismatch | Three amber pulses, 1 s pause | Three amber pulses, 1 s pause |
+
+Bind is never represented by blinking and remains active for at least one
+complete three-second breathing cycle. The role-color breathing level updates
+every 20 ms from approximately 2% to 10% brightness.
+
 ## Optional UART bench transport
 
 Use a **3.3 V USB-UART adapter** connected to UART0 on J3:
@@ -115,7 +135,9 @@ commit `a9d4a9cb5b5687c4c9d7e9e7fbdf44ad93651da6`. It:
 - adds two update slots per role and two role-state records;
 - preformats LittleFS for the full factory image;
 - bridges CRSF over native USB-CDC in both roles;
-- emits a one-green-pulse TX or two-blue-pulse RX boot heartbeat;
+- emits a one-blue-pulse TX or two-green-pulse RX boot identity;
+- replaces the upstream rainbow and packet-rate hue animations with the
+  documented role-color/state-pattern renderer;
 - samples GPIO4 again before radio setup and fails safe on a role mismatch.
 - derives the QIO bootloader and selector addresses from the actual build
   instead of pairing a DIO bootloader with QIO libraries;
