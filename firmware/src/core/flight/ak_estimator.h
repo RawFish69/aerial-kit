@@ -46,8 +46,9 @@ typedef struct {
      * Whether this sample's accelerometer direction is allowed to correct
      * attitude. The flight core leaves it on for pre-arm convergence and turns
      * it off in powered flight, where lift and thrust dominate the measured
-     * specific force. A tilted multirotor also uses gyro attitude; a small
-     * near-level correction remains for its established control response.
+     * specific force. This includes gentle multirotor translation below seven
+     * degrees: thrust there still reads as a false gravity direction and biases
+     * the attitude loop toward flying more tilt than commanded.
      */
     int   accel_enabled;
     int   converged; /* set once the accelerometer has been used enough times */

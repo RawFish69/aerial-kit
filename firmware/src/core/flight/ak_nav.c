@@ -46,6 +46,11 @@ void ak_nav_init(ak_nav_t *nav)
     nav->rate_count = 0;
     nav->rate_age_ms = 0;
     nav->climb_m_s = 0.0f;
+    nav->velocity_active = 0;
+    nav->velocity_n_mps = 0.0f;
+    nav->velocity_e_mps = 0.0f;
+    nav->velocity_climb_mps = 0.0f;
+    nav->velocity_yaw_rate_rps = 0.0f;
     for (int i = 0; i < AK_NAV_RATE_SAMPLES; i++) {
         nav->rate_alt_mm[i] = 0;
         nav->rate_time_ms[i] = 0;
@@ -464,7 +469,7 @@ static void wing_step(ak_nav_t *nav, const ak_nav_input_t *in,
  * can take over from, and auto-land is the next step rather than this one.
  */
 #define AK_QUAD_CLIMB_KP 0.4f  /* (m/s) of commanded climb per metre of error */
-#define AK_QUAD_CLIMB_MAX 3.0f /* m/s: the fastest it will ask to go up or down */
+#define AK_QUAD_CLIMB_MAX AK_NAV_QUAD_MAX_CLIMB_MPS
 #define AK_QUAD_ALT_VEL_KP 0.08f /* throttle per (m/s) of climb-rate error */
 /*
  * The standing throttle the vertical loop learns, and the most it may learn.
@@ -1096,6 +1101,127 @@ static float nav_dt(ak_nav_t *nav, float dt_s)
         return AK_NAV_MAX_DT_S;
     }
     return dt_s;
+}
+
+void ak_nav_velocity_set(ak_nav_t *nav,
+                         const ak_nav_velocity_setpoint_t *setpoint)
+{
+    if (!nav->velocity_active) {
+        nav->rate_next = 0;
+        nav->rate_count = 0;
+        nav->rate_age_ms = 0;
+        nav->climb_m_s = 0.0f;
+        nav->climb_i = 0.0f;
+        nav->steps = 0;
+    }
+    nav->velocity_active = 1;
+    nav->velocity_n_mps = setpoint->north_mps;
+    nav->velocity_e_mps = setpoint->east_mps;
+    nav->velocity_climb_mps = setpoint->climb_mps;
+    nav->velocity_yaw_rate_rps = setpoint->yaw_rate_rps;
+}
+
+void ak_nav_velocity_stop(ak_nav_t *nav)
+{
+    nav->velocity_active = 0;
+    nav->rate_next = 0;
+    nav->rate_count = 0;
+    nav->rate_age_ms = 0;
+    nav->climb_m_s = 0.0f;
+    nav->climb_i = 0.0f;
+    nav->steps = 0;
+}
+
+int ak_nav_velocity_step(ak_nav_t *nav, const ak_nav_input_t *in,
+                         ak_rc_command_t *out)
+{
+    ak_nav_input_t bounded;
+    float vn = 0.0f;
+    float ve = 0.0f;
+    float want_n;
+    float want_e;
+    float an;
+    float ae;
+    float a_forward;
+    float a_right;
+    float yaw_rad;
+    float tilt;
+    float desired_climb;
+
+    if (!nav->velocity_active) {
+        return 0;
+    }
+    out->roll = 0.0f;
+    out->pitch = 0.0f;
+    out->yaw = 0.0f;
+    out->angle_mode = 1;
+    out->velocity_mode = 0; /* guidance produces attitude commands */
+    out->arm_request = 0;
+
+    if (!in->velocity_valid) {
+        if (!in->gps_valid) {
+            /*
+             * Stay level at the configured hover rather than releasing
+             * guidance. Releasing it would feed the velocity-encoded sticks to
+             * the attitude controller as if they were tilt commands.
+             */
+            out->throttle = nav->cruise;
+            return 1;
+        }
+        if ((float)in->speed_mm_s / 1000.0f >= AK_QUAD_COURSE_MIN_MS) {
+            float course_rad = ak_deg2rad((float)in->course_e5 / 100000.0f);
+            float speed_m_s = (float)in->speed_mm_s / 1000.0f;
+            vn = speed_m_s * ak_cosf(course_rad);
+            ve = speed_m_s * ak_sinf(course_rad);
+        }
+    } else {
+        vn = in->north_m_s;
+        ve = in->east_m_s;
+    }
+
+    bounded = *in;
+    bounded.dt_s = nav_dt(nav, in->dt_s);
+    in = &bounded;
+    nav->steps++;
+
+    quad_climb_sample(nav, in->alt_mm, in->dt_s);
+    desired_climb = ak_clampf(nav->velocity_climb_mps,
+                              -AK_QUAD_CLIMB_MAX, AK_QUAD_CLIMB_MAX);
+    out->throttle = quad_throttle(nav, desired_climb, in->dt_s);
+
+    /*
+     * A quadrotor cannot translate in a known direction until yaw is aligned
+     * with its track. For a horizontal request, earn that track with the same
+     * bounded forward nudge the return uses; a pure climb needs no heading.
+     */
+    if (!in->yaw_aligned) {
+        if (ak_absf(nav->velocity_n_mps) > 0.5f ||
+            ak_absf(nav->velocity_e_mps) > 0.5f) {
+            out->pitch = -AK_QUAD_NUDGE_TILT;
+        }
+        return 1;
+    }
+
+    want_n = ak_clampf(nav->velocity_n_mps,
+                       -nav->quad_speed, nav->quad_speed);
+    want_e = ak_clampf(nav->velocity_e_mps,
+                       -nav->quad_speed, nav->quad_speed);
+    an = ak_clampf(AK_QUAD_VEL_KP * (want_n - vn),
+                   -AK_QUAD_MAX_ACCEL, AK_QUAD_MAX_ACCEL);
+    ae = ak_clampf(AK_QUAD_VEL_KP * (want_e - ve),
+                   -AK_QUAD_MAX_ACCEL, AK_QUAD_MAX_ACCEL);
+
+    yaw_rad = (float)in->yaw_mrad / 1000.0f;
+    a_forward = an * ak_cosf(yaw_rad) + ae * ak_sinf(yaw_rad);
+    a_right = -an * ak_sinf(yaw_rad) + ae * ak_cosf(yaw_rad);
+    tilt = in->max_tilt_rad > 0.001f ? in->max_tilt_rad : 0.5f;
+
+    out->pitch = ak_clampf(-(a_forward / AK_QUAD_G) / tilt, -1.0f, 1.0f);
+    out->roll = ak_clampf((a_right / AK_QUAD_G) / tilt, -1.0f, 1.0f);
+    out->yaw = ak_clampf(
+        nav->velocity_yaw_rate_rps / AK_NAV_QUAD_MAX_YAW_RATE_RPS,
+        -1.0f, 1.0f);
+    return 1;
 }
 
 int ak_nav_step(ak_nav_t *nav, const ak_nav_input_t *in, ak_rc_command_t *out)

@@ -550,7 +550,7 @@ typedef struct {
 /* How many entries ak_flight_param_table() writes. It is a count the host
  * suite checks against the table itself, so adding a parameter without moving
  * this is a failing test rather than a table that quietly got longer. */
-#define AK_FLIGHT_PARAM_COUNT 45u
+#define AK_FLIGHT_PARAM_COUNT 46u
 
 /*
  * Why an arm request would not be honoured.
