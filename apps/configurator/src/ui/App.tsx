@@ -7,6 +7,7 @@ import { MspBoard } from '../session/foreign';
 import { MavBoard } from '../session/mavlink';
 import type { Session } from '../session/types';
 import { BridgeTransport, DEFAULT_BRIDGE_URL } from '../transport/bridge';
+import { FlashApp } from './FlashApp';
 import { RadioApp } from './RadioApp';
 import { DemoTransport } from '../transport/demo';
 import { WebSerialTransport } from '../transport/webserial';
@@ -49,7 +50,7 @@ const KINDS: ReadonlyArray<{ kind: TransportKind; label: string }> = [
 
 export function App() {
   /** Which device this page is for: the flight controller, or a radio module (its own page and port). */
-  const [device, setDevice] = useState<'fc' | 'radio'>('fc');
+  const [device, setDevice] = useState<'fc' | 'radio' | 'flash'>('fc');
   const [kind, setKind] = useState<TransportKind>(() => WebSerialTransport.supported() ? 'serial' : 'demo');
   const [reviewEdits, setReviewEdits] = useState(0);
   const [bridgeUrl, setBridgeUrl] = useState(DEFAULT_BRIDGE_URL);
@@ -290,11 +291,12 @@ export function App() {
             aria-label="Device"
             className="device-select"
             value={device}
-            onChange={(event) => setDevice(event.currentTarget.value as 'fc' | 'radio')}
+            onChange={(event) => setDevice(event.currentTarget.value as 'fc' | 'radio' | 'flash')}
             disabled={busy}
           >
             <option value="fc">Flight controller</option>
             <option value="radio">Radio module</option>
+            <option value="flash">Flash firmware</option>
           </HTMLSelect>
         )}
         {!open && device === 'fc' && (
@@ -394,6 +396,8 @@ export function App() {
         </main>
       ) : device === 'radio' && !open ? (
         <RadioApp serialAvailable={serialAvailable} />
+      ) : device === 'flash' && !open ? (
+        <FlashApp serialAvailable={serialAvailable} />
       ) : session === null || snapshot === null ? (
         <StartPage
           serialAvailable={serialAvailable}
