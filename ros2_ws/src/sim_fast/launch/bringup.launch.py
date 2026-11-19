@@ -167,6 +167,11 @@ def generate_launch_description():
     radio_latency_arg = DeclareLaunchArgument('radio_latency_ms', default_value='8.0')
     radio_loss_arg = DeclareLaunchArgument('radio_packet_loss_percent', default_value='0.0')
     radio_rate_arg = DeclareLaunchArgument('radio_rate_hz', default_value='150.0')
+    akp_sim_arg = DeclareLaunchArgument(
+        'akp_sim', default_value='false',
+        description='exercise segmented AKP requests over the simulated ELRS link',
+    )
+    akp_output_arg = DeclareLaunchArgument('akp_output_path', default_value='')
 
     sim_backend_arg = DeclareLaunchArgument(
         'sim_backend', default_value='pointmass',
@@ -202,6 +207,8 @@ def generate_launch_description():
         radio_latency_arg,
         radio_loss_arg,
         radio_rate_arg,
+        akp_sim_arg,
+        akp_output_arg,
 
         Node(
             package='sim_bridge',
@@ -270,6 +277,29 @@ def generate_launch_description():
                     'decoded_manual_mode': 'velocity',
                 },
             ],
+        ),
+        Node(
+            package='hw_bridge',
+            executable='crsf_akp_sim_device_node',
+            name='crsf_akp_sim_device_node',
+            output='screen',
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration('radio_sim'), "' == 'true' and '",
+                LaunchConfiguration('akp_sim'), "' == 'true'",
+            ])),
+        ),
+        Node(
+            package='hw_bridge',
+            executable='crsf_akp_probe_node',
+            name='crsf_akp_probe_node',
+            output='screen',
+            condition=IfCondition(PythonExpression([
+                "'", LaunchConfiguration('radio_sim'), "' == 'true' and '",
+                LaunchConfiguration('akp_sim'), "' == 'true'",
+            ])),
+            parameters=[{
+                'output_path': LaunchConfiguration('akp_output_path'),
+            }],
         ),
         Node(
             package='hw_bridge',

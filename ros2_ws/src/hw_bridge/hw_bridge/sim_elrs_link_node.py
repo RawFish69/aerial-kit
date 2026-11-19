@@ -37,6 +37,7 @@ class SimElrsLinkNode(Node):
             'rate_hz': 150.0,
             'latency_ms': 8.0,
             'packet_loss_percent': 0.0,
+            'akp_rate_hz': 40.0,
             'seed': 7,
             'host_tx_topic': '/uav/radio/host_tx_bytes',
             'host_rx_topic': '/uav/radio/host_rx_bytes',
@@ -52,12 +53,17 @@ class SimElrsLinkNode(Node):
         self.period = 1.0 / self.rate_hz
         self.latency = max(float(g('latency_ms').value), 0.0) / 1000.0
         self.loss_percent = max(0.0, min(100.0, float(g('packet_loss_percent').value)))
+        self.akp_period = 1.0 / max(float(g('akp_rate_hz').value), 1.0)
         self.rng = random.Random(int(g('seed').value))
         self.link_enabled = True
         self.queue: deque[_Delivery] = deque()
         self.sequence = 0
         self.last_forward = 0.0
         self.last_reverse = 0.0
+        self.last_akp_forward = 0.0
+        self.last_akp_reverse = 0.0
+        self.akp_forward_seen = 0
+        self.akp_reverse_seen = 0
 
         self.pub_receiver_rx = self.create_publisher(
             UInt8MultiArray, str(g('receiver_rx_topic').value), 20
@@ -87,10 +93,10 @@ class SimElrsLinkNode(Node):
         self.link_enabled = delivery_enabled_for_cut(bool(msg.data))
         self.get_logger().warn(f'RF link {"enabled" if self.link_enabled else "CUT"}')
 
-    def _accept(self, now: float, last: float) -> tuple[bool, float]:
+    def _accept(self, now: float, last: float, period: float | None = None) -> tuple[bool, float]:
         if not self.link_enabled:
             return False, last
-        if now - last < self.period * 0.8:
+        if now - last < (self.period if period is None else period) * 0.8:
             return False, last
         if self.rng.random() * 100.0 < self.loss_percent:
             return False, now
@@ -103,14 +109,36 @@ class SimElrsLinkNode(Node):
         )
 
     def _on_host_tx(self, msg: UInt8MultiArray) -> None:
-        accepted, self.last_forward = self._accept(time.monotonic(), self.last_forward)
+        data = bytes(msg.data)
+        if len(data) >= 3 and data[2] in (0x7A, 0x7C):
+            self.akp_forward_seen += 1
+            if self.akp_forward_seen == 1 or self.akp_forward_seen % 20 == 0:
+                self.get_logger().info(
+                    f'AKP uplink frames seen={self.akp_forward_seen}'
+                )
+            accepted, self.last_akp_forward = self._accept(
+                time.monotonic(), self.last_akp_forward, self.akp_period
+            )
+        else:
+            accepted, self.last_forward = self._accept(time.monotonic(), self.last_forward)
         if accepted:
-            self._enqueue('forward', bytes(msg.data))
+            self._enqueue('forward', data)
 
     def _on_receiver_tx(self, msg: UInt8MultiArray) -> None:
-        accepted, self.last_reverse = self._accept(time.monotonic(), self.last_reverse)
+        data = bytes(msg.data)
+        if len(data) >= 3 and data[2] == 0x7B:
+            self.akp_reverse_seen += 1
+            if self.akp_reverse_seen == 1 or self.akp_reverse_seen % 20 == 0:
+                self.get_logger().info(
+                    f'AKP downlink frames seen={self.akp_reverse_seen}'
+                )
+            accepted, self.last_akp_reverse = self._accept(
+                time.monotonic(), self.last_akp_reverse, self.akp_period
+            )
+        else:
+            accepted, self.last_reverse = self._accept(time.monotonic(), self.last_reverse)
         if accepted:
-            self._enqueue('reverse', bytes(msg.data))
+            self._enqueue('reverse', data)
 
     def _publish_bytes(self, publisher, data: bytes) -> None:
         msg = UInt8MultiArray()
@@ -150,7 +178,8 @@ class SimElrsLinkNode(Node):
         msg.data = (
             f'link={"up" if self.link_enabled else "cut"} '
             f'rate={self.rate_hz:.0f}Hz latency={self.latency*1000:.1f}ms '
-            f'configured_loss={self.loss_percent:.1f}% queued={len(self.queue)}'
+            f'configured_loss={self.loss_percent:.1f}% queued={len(self.queue)} '
+            f'akp_fwd={self.akp_forward_seen} akp_rev={self.akp_reverse_seen}'
         )
         self.pub_stats.publish(msg)
 
