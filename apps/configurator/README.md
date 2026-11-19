@@ -199,6 +199,28 @@ Detection costs one deadline when it misses: a board that speaks MSP answers our
 hello with silence, so the AerialKit probe has to time out before MSP is tried
 (~600 ms by default). That is the price of asking in the safe order.
 
+## Radio modules
+
+A radio module (an ExpressLRS transmitter, such as the Aerial Kit ELRS USB TX Rev A3) is a
+**separate device** from the flight controller, so it has its own page: the **Device** selector in
+the top bar switches between *Flight controller* and *Radio module*, and the radio page has its own
+connection. It speaks to the module the way a radio's ExpressLRS script does, over CRSF
+(`src/protocol/crsf.ts`, checked against `protocols/vectors/crsf.json`):
+
+| | what it does |
+| --- | --- |
+| identify | device ping, then the module's name, firmware version and setting count |
+| settings | reads the whole menu field by field (chunked entries reassembled): selections, folders, info, commands |
+| changes | **off until "Allow changes" is on**; a write is range-checked and the field read back |
+| commands | Bind and the like run through their steps (click, poll, confirm when the module asks) |
+| link | live link statistics (LQ, RSSI, SNR, rate) while a receiver is connected, and how long since the last |
+
+Connections: **USB serial at 400000 baud** (the Rev A3 takes CRSF on UART0, J3, through a 3.3 V USB-UART
+adapter; its USB-C port is for flashing and does not carry CRSF in ExpressLRS 4.1.0), or **Demo radio**,
+a simulated module inside the page that answers the same frames (`src/transport/demo-radio.ts`).
+
+Verified against the demo radio and the shared vectors only; *no physical module yet*.
+
 ## Transports
 
 | | what it is | needs |

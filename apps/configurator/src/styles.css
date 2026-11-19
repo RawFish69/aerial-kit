@@ -2338,3 +2338,11 @@ html[data-theme~="og"] .xp-notepad-text { box-shadow: var(--og-sunken); border: 
 }
 
 [data-theme~="classic"] .xp-titlebar.is-draggable { cursor: default; touch-action: none; }
+
+/* Radio module page */
+.radio-page .radio-link { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.radio-page .radio-menu { display: grid; gap: 6px; max-width: 640px; }
+.radio-page .radio-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 30px; }
+.radio-page .radio-folder { border: 1px solid var(--pt-divider-black, rgba(17, 20, 24, 0.15)); border-radius: 4px; padding: 6px 10px; display: grid; gap: 6px; }
+.radio-page .radio-folder legend { padding: 0 4px; font-weight: 600; }
+.device-select { margin-right: 8px; }
