@@ -1,0 +1,163 @@
+# Rev A3 WS2812 output path and native-USB bench probe — 2026-11-19
+
+## Superseded candidate: `5e9d6c61…` (hardware FAIL, LED)
+
+```text
+sha256: 5e9d6c6165bd2698239931da49f2bb1a7043b5847eb1ca764d8e72f6212ebb5e
+TX app: 54d418a94bf3bb5da4f51632310c9968380848b62d8e55257c607884b320385f
+RX app: a31b86091d6bbff9824df8cf8a1260be199679e65f6a3309fd20288322936a97
+```
+
+This candidate removed the upstream I2S WS2812 driver and LED animations from
+the dual-role build. The linked ELFs contained no `HsvToRgb`, `blinkyUpdate`,
+`hueFadeLED`, `ESP32LedDriver` or `i2s_write`. The LED was driven by the
+Arduino RMT wrapper.
+
+Bench, RX position, fresh boot:
+
+```text
+AK-BOOT role=rx slot=rx_0 gpio4=high reset=unknown elf=9ee8a276 led=rmt-ok led_failures=0
+product=AK USB RX A3 origin=0xEC destination=0xC8 firmware=4.1.0
+```
+
+Role, slot, application and LED state were correct, but the LED showed
+changing colors from across the palette. Do not flash this hash again.
+
+The `5e9d6c61…` ELFs were lost when a native-env `pio test` cleaned the build
+directory. The factory image and manifest are intact; their app, bootloader and
+LittleFS hashes were re-verified.
+
+### Cause
+
+1. **Waveform out of specification.** Both the upstream I2S driver and the
+   Arduino `neopixelWrite()` timing (copied into `5e9d6c61…`) send classic
+   WS2812 bits: T0H 400 ns, T1H 800 ns, T0L 800 ns, T1L 400 ns, 1.2 µs per
+   bit. LED1 is a WS2812B-2020. The majority of its V6 datasheet copies give
+   T0H 220–380 ns, T0L/T1H/T1L 580 ns–1 µs, at least 1.25 µs per bit and a
+   reset above 280 µs. One copy gives T1L 220–420 ns. A 400 ns zero-bit high
+   time sits at the part's decision threshold, so zero bits are misread. The
+   diagnostic image only sent the constant value 26 (`00011010`); the state
+   machine's breathing sweeps every value, so misreads change color
+   continuously. This also accounts for the earlier I2S "blinking rainbow"
+   (the state machine was already active in that build; its app code matched
+   HEAD byte for byte).
+2. **False health report.** Arduino `rmtWriteBlocking()` ignores the
+   `rmt_write_items()` result and always returns `true`, so `led=rmt-ok
+   led_failures=0` reflected no real check.
+
+LED1 is powered from 3V3 (schematic nets `3V3 → LED1 VDD`, `IO21 → R15 →
+LED1 DI`). A 3.3 V data level into a 5 V LED is therefore not the cause.
+3.3 V is still below the WS2812B-2020 datasheet supply range, which reduces
+timing margin.
+
+## Fix: candidate `5576f902…`
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: 5576f9027d569abe0d6d2f90595a8d4940328ca3ccc2f94f04991995ae39f749
+TX app (tx_0): f17d9981d460c20d95e01991a2390cbebf261639ae76daa0e5c53e89f257e32f
+RX app (rx_0): eb40be8614c0d5091967ece0a1821a86c6fed6fe2a460810549fe8fe75f27d80
+TX ELF: 8581ebc3c172ebdbaf4b621bc6c2991ace91f44766cfc9ca8e895be738236656
+RX ELF: fd10729d3ceefa488156f7d7bdde5e9076d748f9b78db61e82c8535627c47f3b
+bootloader: bootloader_qio_80m.elf, SDK qio_qspi, app header dio
+build inputs (path-relative sha256 of patches, overlay, partitions, targets,
+apply_targets.py): ea3e9ec76de282ebb69d7652d35ffcbe3433d09819bc2e622d49598d7457aa90
+```
+
+The manifest and checksums are versioned in
+`firmware/elrs-usb-tx-rev-a3/releases/5576f902/`. The 8 MB binary is not
+committed; check the file the bench flashes against `SHA256SUMS`. To recompute
+the build-input hash from a checkout:
+
+```sh
+cd firmware/elrs-usb-tx-rev-a3
+find patches expresslrs-overlay partitions targets tools/apply_targets.py -type f -print0 \
+  | sort -z | xargs -0 sha256sum | sha256sum
+```
+
+Status: built and host-tested only. Not yet run on hardware.
+
+### Changes
+
+- `expresslrs-overlay/src/aerialkit_ws2812.cpp`: one WS2812 driver for the
+  boot identity, fault loops, the state-machine device and the self-test.
+  It uses the IDF RMT driver on channel 3 directly, and checks the result of
+  `rmt_config`, `rmt_driver_install`, `rmt_write_items` and
+  `rmt_wait_tx_done`. It reads back the APB source and divider, and is
+  serialised by a mutex. The Arduino `rmt*` wrapper is no longer used.
+- Timing at 25 ns per tick: T0H 300 ns, T0L 950 ns, T1H 750 ns, T1L 600 ns
+  (1.25/1.35 µs bits). Every frame ends with an explicit 300 µs low latch
+  item, so frames never depend on the idle gap.
+- `AK-BOOT` reports `led=rmt-ok|rmt-fail`, the real failure count and last
+  `esp_err_t`, the numeric reset reason and the waveform constants.
+- LED self-test: the CRSF frame `C8 08 7F <own addr> EA 'A' 'K' 'L' 'T' <crc>`
+  (own address 0xEE on TX, 0xEC on RX) shows pure red, then green, then blue
+  for one second each through the operational driver. It prints
+  `AK-LEDTEST …` lines. The local endpoint consumes the frame, which is never
+  forwarded over RF. `tools/usb_crsf_bench.py --led-selftest 0xEC` sends it.
+- State and color decisions are unchanged.
+
+## Native-USB findings
+
+- The ESP32-S3 USB Serial/JTAG resets the chip while RTS is asserted and DTR
+  is not. Linux asserts both on `open()`. pyserial then clears DTR before
+  RTS, so `dtr=False, rts=False` before open still pulses reset (observed:
+  each open rebooted the board). `tools/usb_crsf_bench.py` clears RTS first,
+  then DTR. A change request is filed for `aerial_kit.comms.SerialTransport`.
+- The HWCDC receive ISR always drains the USB OUT FIFO and drops bytes when
+  its 256-byte queue is full; it never back-pressures the host. A host write
+  that blocks after about 15 frames therefore means USB was not being
+  serviced at all (reset, crash or disabled CDC interrupt), not slow parsing.
+  The `AK-BOOT` reset reason distinguishes these. The probe reads
+  concurrently and timestamps the first write stall.
+
+## Tests
+
+- `tests/native_led/test_led_output.cpp` (host g++, via
+  `tests/test_led_output.py`) checks:
+  - exact GRB words (TX `0x00001A`, RX `0x1A0000`);
+  - every item duration against the WS2812B-2020 limits;
+  - the 25-item frame, with a latch longer than 280 µs and no early end
+    marker;
+  - the exact green bit sequence;
+  - a 12 s sweep of every role pattern showing no non-role channel and the
+    brightness cap;
+  - pure red fault and fixed amber mismatch;
+  - boot pulse counts (TX 1, RX 2);
+  - bind 3 s and searching 1 s breathing, and steady connected;
+  - self-test colors, timing and frame matching.
+- `tests/test_led_output.py` also checks the patch and source wiring. When
+  build outputs exist, it checks that the ELFs have no I2S, HSV, rainbow,
+  fade or Arduino RMT-wrapper symbols.
+- `tests/test_usb_crsf_bench.py` checks:
+  - the valid ping `C8 04 28 00 EA 54`;
+  - the 26-byte RC frame;
+  - CRSF resynchronisation across ROM, AK-BOOT and garbage bytes, and
+    bad-CRC recovery;
+  - DEVICE_INFO decoding;
+  - the self-test frame;
+  - that the port-open sequence never presents RTS=1 with DTR=0.
+
+Test results for `5576f902…`: 14/14 firmware host tests pass, including the
+ELF symbol check against this build's ELFs. The native ExpressLRS suite
+(`pio test -e native -f test_usb_transport`) passes 9/9.
+
+`neopixelWrite` and `rmtWriteBlocking` are still linked, from the Arduino
+core's `digitalWrite()`/`pinMode()` handling of the virtual pin `RGB_BUILTIN`
+(97). No dual-role code uses that pin, and the source checks forbid direct use.
+
+## Bench steps for `5576f902…`
+
+1. Verify the file hash, then flash at `0x0` (USB/ROM) and confirm
+   `Hash of data verified`.
+2. Read `AK-BOOT`: check `led=rmt-ok led_failures=0 led_error=0x0`, role,
+   slot and reset reason.
+3. Run the self-test: `--led-selftest 0xEC` (RX) or `0xEE` (TX). Each of red,
+   green and blue must be a pure color for one second. If not, the waveform
+   is still wrong, so do not evaluate state patterns.
+4. Only then check the role patterns: RX green-only, TX blue-only, bind vs
+   searching breathing speed, steady when connected.
+
+Hardware must still confirm pure colors. Code review and host tests cannot
+show that the WS2812B-2020 decodes the new waveform correctly.

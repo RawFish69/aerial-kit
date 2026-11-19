@@ -63,8 +63,21 @@ RFX2401C, not a measured board output.
 ## LED state
 
 TX is always blue. RX is always green. State is shown only by pulse or
-breathing pattern; the firmware bypasses the upstream rainbow startup and
-packet-rate hue animation.
+breathing pattern. Dual-role builds compile out the upstream `devRGB.cpp` LED
+animations and the `esp32rgb.cpp` I2S WS2812 driver entirely. One IDF RMT
+channel on GPIO21 (`expresslrs-overlay/src/aerialkit_ws2812.cpp`) drives the
+LED with WS2812B-2020 timing: T0H 300 ns, T0L 950 ns, T1H 750 ns, T1L 600 ns,
+and a 300 µs low latch after every frame. The classic 0.4/0.8 µs WS2812
+timing used by Arduino `neopixelWrite()` is outside the WS2812B-2020 limits.
+The only colors the LED code can produce are the role color, red and amber.
+
+LED self-test: sending `C8 08 7F <addr> EA 41 4B 4C 54 <crc>` (address `0xEE`
+on TX, `0xEC` on RX) shows pure red, green and blue for one second each
+through the operational driver:
+
+```sh
+python3 tools/usb_crsf_bench.py /dev/ttyACM0 --rate 0 --duration 4 --led-selftest 0xEC
+```
 
 | State | TX | RX |
 | --- | --- | --- |
@@ -88,9 +101,31 @@ The nominal rates are 400000 baud for TX-host and 420000 baud for RX-FC; USB
 CDC ignores the requested baud rate. Two boards appear as distinct
 `/dev/ttyACM*` devices.
 
-Open the port with DTR and RTS deasserted. `aerial_kit.comms.SerialTransport`
-does this by default. Resynchronize on CRSF sync byte `0xC8` after any reset or
-boot text; Arduino core logging is disabled so post-boot output remains CRSF.
+Opening the port can reset the board. The ESP32-S3 USB Serial/JTAG resets
+the chip while RTS is asserted and DTR is not. Linux asserts both lines on
+`open()`, and pyserial then clears DTR before RTS, so "deassert both before
+open" briefly presents exactly that reset state. Clear RTS first, then DTR;
+`tools/usb_crsf_bench.py` does this. Resynchronize on a CRSF sync byte after
+any reset or boot text.
+
+After setup each application writes one ASCII line to native USB, for
+example:
+
+```text
+AK-BOOT role=tx slot=tx_0 gpio4=low reset=poweron(1) elf=1a2b3c4d led=rmt-ok led_failures=0 led_error=0x0 ws2812_t0h=300ns t1h=750ns latch=300us
+```
+
+It reports the compiled role, the running partition, GPIO4 at boot, the reset
+reason (`brownout`, `panic`, `task_wdt` etc.), the ELF hash prefix, and LED
+driver health from checked IDF RMT calls (`led_error` is the last `esp_err_t`). ASCII never contains `0xC8`, so CRSF parsers skip it.
+
+Bench probe (TX: 150 Hz RC, a valid `C8 04 28 00 EA 54` ping each second,
+concurrent reader, timed writes):
+
+```sh
+python3 tools/usb_crsf_bench.py /dev/ttyACM0 --duration 10
+python3 tools/usb_crsf_bench.py /dev/ttyACM0 --rate 0 --telemetry   # RX
+```
 
 ## Build
 

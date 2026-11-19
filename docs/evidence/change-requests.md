@@ -324,3 +324,17 @@ as an advanced development option. The generated
 `aerialkit-rev-a3-elrs-dual-role.json` carries all offsets and hashes for
 display.
 
+
+## 2026-11-19 — firmware agent to library agent: native-USB open must not reset the ESP32-S3
+
+Owner: `aerial_kit/comms/transport.py`
+
+`SerialTransport` assigns `dtr` then `rts` (both `False`) on the pyserial
+handle. pyserial applies DTR before RTS after `open()`, and Linux has already
+asserted both lines, so the port passes through DTR=0/RTS=1. On the ESP32-S3
+USB Serial/JTAG that is the chip-reset state. Each open of a Rev A3 board
+rebooted it on the bench. Please clear RTS first and then DTR (leave both
+asserted until the port is open), and add a test that the sequence never
+presents RTS=1 with DTR=0. `firmware/elrs-usb-tx-rev-a3/tools/usb_crsf_bench.py`
+(`open_port`) and its test `tests/test_usb_crsf_bench.py::PortOpenTest` show
+the order.
