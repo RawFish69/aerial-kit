@@ -73,16 +73,14 @@ class TestFirmwareSwarm(unittest.TestCase):
         self.assertLess(_circle(fs), 0.4)
         self.assertGreater(fs.min_separation_seen, 0.6)
 
-    @unittest.expectedFailure
-    def test_known_gap_formation_with_a_physical_accelerometer(self) -> None:
-        # KNOWN GAP (2026-11-18): below the firmware's 7 deg gate the quad
-        # estimator still levels on the accelerometer, which reads thrust while
-        # accelerating: commanded ~4 deg, flown ~7 deg, estimated ~2 deg. A
-        # 1 m/s velocity step overshoots to 1.32 m/s and the 4-drone circle is
-        # 3.3 m out after 10 s (0.22 m with a gravity-only accelerometer).
-        # See docs/evidence/fc-sil-swarm-small-tilt-finding-2026-11-18.md.
+    def test_formation_with_a_physical_accelerometer(self) -> None:
+        # Was a known gap (2026-11-18): below a 7 deg gate the armed quad
+        # estimator still levelled on the accelerometer, flew about twice the
+        # commanded tilt, and this formation rang 3.3 m out. The firmware is now
+        # gyro-carried at every tilt once armed (lib/velocity-hold).
         fs = _climbed("physical", 4)
         self.assertLess(_circle(fs), 0.4)
+        self.assertGreater(fs.min_separation_seen, 0.6)
 
 
 if __name__ == "__main__":

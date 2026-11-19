@@ -130,9 +130,15 @@ class CrsfChannelMap:
     arm_threshold: int = 1300
     angle_mode_count: int = CRSF_CHANNEL_MAX
     disabled_mode_count: int = CRSF_CHANNEL_MIN
+    # AUX channel that selects the AK firmware's velocity hold (0 = none). With
+    # it high the four sticks mean right/forward velocity, climb rate around
+    # centre throttle, and yaw rate; the FC closes the loops (firmware 14-navigation).
+    velocity: int = 0
 
     def __post_init__(self) -> None:
         channels = (self.roll, self.pitch, self.throttle, self.yaw, self.arm, self.mode)
+        if self.velocity:
+            channels = channels + (self.velocity,)
         if any(channel < 1 or channel > CRSF_CHANNEL_COUNT for channel in channels):
             raise ValueError(f"CRSF channel numbers must be 1..{CRSF_CHANNEL_COUNT}, got {channels}")
         if len(set(channels)) != len(channels):
@@ -141,7 +147,7 @@ class CrsfChannelMap:
     @classmethod
     def from_mapping(cls, values: dict[str, int]) -> "CrsfChannelMap":
         return cls(**{name: int(values.get(name, getattr(cls(), name))) for name in (
-            "roll", "pitch", "throttle", "yaw", "arm", "mode"
+            "roll", "pitch", "throttle", "yaw", "arm", "mode", "velocity"
         )})
 
     @staticmethod
@@ -154,7 +160,7 @@ class CrsfChannelMap:
         normalized = _clamp(value, 0.0, 1.0)
         return round(CRSF_CHANNEL_MIN + normalized * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN))
 
-    def encode(self, sticks: RcSticks, *, enabled: bool) -> tuple[int, ...]:
+    def encode(self, sticks: RcSticks, *, enabled: bool, velocity_hold: bool = False) -> tuple[int, ...]:
         channels = [CRSF_CHANNEL_MID] * CRSF_CHANNEL_COUNT
         channels[self.roll - 1] = self._stick_count(sticks.roll)
         channels[self.pitch - 1] = self._stick_count(sticks.pitch)
@@ -162,6 +168,11 @@ class CrsfChannelMap:
         channels[self.throttle - 1] = self._throttle_count(sticks.throttle)
         channels[self.arm - 1] = CRSF_CHANNEL_MAX if enabled else CRSF_CHANNEL_MIN
         channels[self.mode - 1] = self.angle_mode_count if enabled else self.disabled_mode_count
+        if self.velocity:
+            channels[self.velocity - 1] = (CRSF_CHANNEL_MAX if enabled and velocity_hold
+                                           else CRSF_CHANNEL_MIN)
+        elif velocity_hold:
+            raise ValueError("velocity hold asked for, but the channel map has no velocity channel")
         return tuple(channels)
 
     def decode_sticks(self, channels: Sequence[int]) -> CrsfStickState:

@@ -7,7 +7,7 @@ import time
 from typing import Optional
 
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Vector3
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from std_msgs.msg import Bool, UInt8MultiArray
@@ -71,6 +71,11 @@ class CrsfSimReceiverNode(Node):
             'receiver_rx_topic': '/uav/radio/receiver_rx_bytes',
             'receiver_tx_topic': '/uav/radio/receiver_tx_bytes',
             'plant_odom_topic': '/uav/radio/plant_odom',
+            # What a flight controller sends as attitude telemetry is its *own*
+            # estimate. When a firmware-in-the-loop plant publishes it here
+            # (roll, pitch, yaw; ENU/FLU like the odometry) it is used while
+            # fresh; otherwise the plant's true attitude is sent.
+            'fc_attitude_topic': '/uav/radio/fc_attitude_rpy',
             'decoded_cmd_topic': '/uav/radio/decoded_cmd_twist',
             'decoded_manual_topic': '/uav/radio/decoded_manual',
             'decoded_manual_mode': 'angle',
@@ -139,6 +144,11 @@ class CrsfSimReceiverNode(Node):
         self.create_subscription(
             Odometry, str(g('plant_odom_topic').value), self._on_odom, 20
         )
+        self.fc_attitude: Optional[tuple[float, float, float]] = None
+        self.fc_attitude_time = 0.0
+        self.create_subscription(
+            Vector3, str(g('fc_attitude_topic').value), self._on_fc_attitude, 20
+        )
         output_hz = max(float(g('output_rate_hz').value), 1.0)
         telemetry_hz = max(float(g('telemetry_rate_hz').value), 1.0)
         self.create_timer(1.0 / output_hz, self._tick_commands)
@@ -152,6 +162,10 @@ class CrsfSimReceiverNode(Node):
                     self.last_rx_time = time.monotonic()
                 except ValueError:
                     pass
+
+    def _on_fc_attitude(self, msg: Vector3) -> None:
+        self.fc_attitude = (float(msg.x), float(msg.y), float(msg.z))
+        self.fc_attitude_time = time.monotonic()
 
     def _on_odom(self, msg: Odometry) -> None:
         self.last_odom = msg
@@ -213,6 +227,8 @@ class CrsfSimReceiverNode(Node):
         if odom is None:
             return
         roll, pitch, yaw = euler_from_quaternion(odom.pose.pose.orientation)
+        if self.fc_attitude is not None and time.monotonic() - self.fc_attitude_time < 0.5:
+            roll, pitch, yaw = self.fc_attitude
         position = odom.pose.pose.position
         velocity = odom.twist.twist.linear
         speed = math.hypot(velocity.x, velocity.y)

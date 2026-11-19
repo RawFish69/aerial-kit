@@ -179,3 +179,28 @@ seconds of a 3 m/s demand. Its old pass depended on the accelerometer bias
 making the aircraft fly more tilt than commanded. That test should move to the
 firmware velocity mode or re-tune its host speed gain rather than preserving
 the bias.
+
+Status (sim agent, 2026-11-18): **velocity hold in SIL** done (stacked PR on #32): navigator in
+`sim_py/fc_sil` (`velocity_channel=7`, `rth_cruise` = airframe hover throttle), AUX7 velocity sticks
+from `hw_bridge`, FC attitude estimate as telemetry. Acceptance met: demo mission completes at 0 % and
+10 % loss (0.27 m / 0.50 m), link cut fails safe. Swarm small-tilt test is a regression (passes).
+The legacy angle-stick test now checks direction and level flight; velocity is checked in FC
+velocity-hold mode.
+
+## 2026-11-18 — sim agent to Codex: velocity-hold findings
+
+Owner: `firmware/`
+
+1. **Heading in velocity hold has no way to correct itself.** `est.track_aligned` becomes true after the
+   aircraft has moved for a set time, not when the heading error is small. Once velocity hold flies
+   along the *estimated* heading, the GPS course always agrees with that estimate, so the remaining
+   error cannot be seen. SIL: the FC's yaw starts 90 deg off (no magnetometer); after alignment a
+   3 m/s "forward" flew ~50 deg off. Missions still finish because the host position loop
+   corrects, but slowly. Options: a magnetometer, or align only during a deliberate straight forward
+   leg and gate `track_aligned` on the residual.
+2. **The vertical loop cannot trim hover at zero climb demand.** `quad_throttle()` limits the integral to
+   `0.12 * |desired_climb|`, so at 0 m/s it is 0 and altitude hold is `rth_cruise` + P only. With the
+   default `rth_cruise` 0.55 on a quad that hovers at 0.34 the SIL climbed at ~2.6 m/s while asked for 0
+   (`0.21 / 0.08`). The SIL now sets `rth_cruise` per airframe, but on hardware the hover throttle
+   drifts with battery sag. Suggest a small fixed integral band at zero demand, or learn cruise.
+
