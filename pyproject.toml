@@ -34,14 +34,14 @@ sim = ["matplotlib>=3.5", "pyyaml>=6.0"]
 rotorpy = ["matplotlib>=3.5", "pyyaml>=6.0", "rotorpy>=2.0.0"]
 mujoco = ["mujoco>=3.0"]
 radio = ["pyserial>=3.5"]
-mavlink = ["pymavlink>=2.4.49,<3"]
+mavlink = ["pymavlink==2.4.49"]
 all = [
     "matplotlib>=3.5",
     "pyyaml>=6.0",
     "rotorpy>=2.0.0",
     "mujoco>=3.0",
     "pyserial>=3.5",
-    "pymavlink>=2.4.49,<3",
+    "pymavlink==2.4.49",
 ]
 
 [project.scripts]
