@@ -59,6 +59,8 @@ jobs:
         run: python protocols/check_vectors.py
       - name: Shared communications transports
         run: python -m pytest test_comms_transports.py -q
+      - name: MAVLink framing, transforms and opt-in client
+        run: python -m pytest test_mavlink_client.py -q
       - name: CRSF radio and parameters
         run: python -m pytest test_crsf_radio.py -q
       - name: AKP typed client and host firmware
@@ -172,12 +174,14 @@ jobs:
 
           python -m venv /tmp/aerial-kit-mavlink
           /tmp/aerial-kit-mavlink/bin/python -m pip install --upgrade pip
-          /tmp/aerial-kit-mavlink/bin/python -m pip install "${GITHUB_WORKSPACE}[mavlink]"
+          /tmp/aerial-kit-mavlink/bin/python -m pip install "${GITHUB_WORKSPACE}[mavlink]" pytest
           /tmp/aerial-kit-mavlink/bin/python - <<'PY'
           import pymavlink
 
           print("mavlink extra:", pymavlink.__file__)
           PY
+      - name: MAVLink against the pymavlink dialect
+        run: /tmp/aerial-kit-mavlink/bin/python -m pytest test_mavlink_client.py -q
 
       - name: Packaged FC-SIL explains that firmware sources are absent
         run: |

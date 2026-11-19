@@ -70,6 +70,12 @@ MAVLink v2 is the wire protocol for PX4 and ArduPilot. The core codec needs no
 external package. `pymavlink` is an optional dependency used for broader dialect
 support and cross-checking vectors.
 
+The dependency-free codec covers heartbeat, attitude, position and velocity,
+GPS, battery/status, servo and RC telemetry, parameters, commands and the INT
+mission-item exchange. It writes MAVLink v2 and reads both v2 and older v1
+frames. `PymavlinkDialect` is the optional escape hatch for messages outside
+that set; it imports pymavlink only when instantiated.
+
 Vehicle commands, parameter writes, mission writes and setpoints are blocked by
 default. A read-only client can heartbeat, identify the vehicle, request
 telemetry and download parameters/missions. Mutating operations require both
@@ -139,6 +145,11 @@ Protocol vectors are generated from source definitions and checked without
 hardware. Serial reconnect, TCP/UDP timeouts, packet loss, CRSF segmentation,
 MAVLink request/response handling and AKP refusal paths are exercised with
 memory transports or fake devices.
+
+The MAVLink codec is cross-checked against `pymavlink==2.4.49` for every
+supported message in both directions. The reference-built fake vehicle is run
+over both memory and UDP, including identity, telemetry and the complete
+parameter-list exchange.
 
 Nothing in this layer claims a real radio link, flight controller or vehicle
 has been tested. Hardware bench procedures remain a separate checklist and

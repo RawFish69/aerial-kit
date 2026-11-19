@@ -50,6 +50,7 @@ rather than by changing this default.
 import argparse
 import math
 import os
+import socket
 import struct
 import sys
 import time
@@ -84,7 +85,7 @@ PARAMETER_NAMES = ["RATE_RLL_P", "RATE_PIT_P", "RATE_YAW_P", "ANGLE_MAX",
 
 
 class Vehicle:
-    def __init__(self, version=2, drop_param=None, px4=False):
+    def __init__(self, version=2, drop_param=None, px4=False, output=None):
         self.mav = mavlink2.MAVLink(None)
         # pymavlink picks the frame version from this string, which is what
         # makes "the same vehicle speaking v1" one line rather than a second
@@ -109,6 +110,7 @@ class Vehicle:
         self.next_state = 0.0
         self.params_pending = 0        # parameters still to send
         self.armed = False
+        self.output = output or self._stdout
         # One parameter the link "loses": dropped from the list burst and
         # answered the moment it is asked for by index. That is how the
         # recovery path is checked deterministically rather than by hoping a
@@ -117,10 +119,13 @@ class Vehicle:
 
     # -- sending ----------------------------------------------------------
 
-    def emit(self, message):
-        data = message.pack(self.mav)
+    @staticmethod
+    def _stdout(data):
         sys.stdout.buffer.write(data)
         sys.stdout.buffer.flush()
+
+    def emit(self, message):
+        self.output(message.pack(self.mav))
 
     def heartbeat(self):
         # `MAV_MODE_FLAG_SAFETY_ARMED` is 128, not 1 — and this line said 1
@@ -263,6 +268,80 @@ class Vehicle:
             self.params_pending -= 1
 
 
+def _serve_stdio(vehicle, parser, arm_after):
+    # The file descriptor, not the buffered stream: `select` on a
+    # `BufferedReader` is a `select` on the file *descriptor*, and Python may
+    # already have the next bytes in its own buffer - so a vehicle that waits
+    # for the descriptor to be readable stops with a request sitting in
+    # Python's buffer and nothing new arriving. Reading the descriptor
+    # directly is the only version of this that cannot stall.
+    fd = sys.stdin.fileno()
+    next_beat = 0.0
+    while True:
+        now = time.time()
+        if now >= next_beat:
+            next_beat = now + 1.0
+            vehicle.heartbeat()
+        if arm_after > 0.0 and not vehicle.armed and \
+                now - vehicle.started >= arm_after:
+            vehicle.armed = True
+            vehicle.heartbeat()
+        vehicle.tick(now)
+
+        # Reading with a deadline rather than blocking, so a client that is
+        # waiting for the stream to arrive is not waiting for a byte to come
+        # the other way before it gets one.
+        import select
+        if not select.select([fd], [], [], 0.02)[0]:
+            continue
+        byte = os.read(fd, 1)
+        if not byte:
+            return 0
+        # pymavlink's byte-at-a-time entry point returns the message a byte
+        # completed, or None - and it keeps its own buffer, so one byte in is
+        # the right way to drive it.
+        message = parser.parse_char(byte)
+        if message is not None and not message.get_type().startswith("BAD_DATA"):
+            vehicle.handle(message)
+
+
+def _serve_udp(vehicle, parser, port, arm_after):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", port))
+    sock.setblocking(False)
+    peer = None
+
+    def output(data):
+        if peer is not None:
+            sock.sendto(data, peer)
+
+    vehicle.output = output
+    print("ready %u" % sock.getsockname()[1], flush=True)
+    next_beat = 0.0
+    while True:
+        import select
+        now = time.time()
+        readable, _, _ = select.select([sock], [], [], 0.02)
+        if readable:
+            data, address = sock.recvfrom(65535)
+            peer = address
+            for byte in data:
+                message = parser.parse_char(bytes((byte,)))
+                if message is not None and \
+                        not message.get_type().startswith("BAD_DATA"):
+                    vehicle.handle(message)
+        now = time.time()
+        if peer is not None and now >= next_beat:
+            next_beat = now + 1.0
+            vehicle.heartbeat()
+        if peer is not None and arm_after > 0.0 and not vehicle.armed and \
+                now - vehicle.started >= arm_after:
+            vehicle.armed = True
+            vehicle.heartbeat()
+        if peer is not None:
+            vehicle.tick(now)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--v1", action="store_true",
@@ -276,6 +355,9 @@ def main():
                         help="announce PX4 (autopilot 12) instead of ArduPilot, "
                              "so the window's naming and refusals are exercised "
                              "for the other of the two MAVLink firmwares")
+    parser.add_argument("--udp-port", type=int, default=None,
+                        help="listen for MAVLink UDP datagrams on this localhost "
+                             "port instead of speaking on stdin/stdout")
     args = parser.parse_args()
 
     vehicle = Vehicle(version=1 if args.v1 else 2, drop_param=args.drop_param,
@@ -295,34 +377,9 @@ def main():
     # for the descriptor to be readable stops with a request sitting in
     # Python's buffer and nothing new arriving. Reading the descriptor
     # directly is the only version of this that cannot stall.
-    fd = sys.stdin.fileno()
-    next_beat = 0.0
-    while True:
-        now = time.time()
-        if now >= next_beat:
-            next_beat = now + 1.0
-            vehicle.heartbeat()
-        if args.arm_after > 0.0 and not vehicle.armed and \
-                now - vehicle.started >= args.arm_after:
-            vehicle.armed = True
-            vehicle.heartbeat()
-        vehicle.tick(now)
-
-        # Reading with a deadline rather than blocking, so a client that is
-        # waiting for the stream to arrive is not waiting for a byte to come
-        # the other way before it gets one.
-        import select
-        if not select.select([fd], [], [], 0.02)[0]:
-            continue
-        byte = os.read(fd, 1)
-        if not byte:
-            return 0
-        # pymavlink's byte-at-a-time entry point returns the message a byte
-        # completed, or None - and it keeps its own buffer, so one byte in is
-        # the right way to drive it.
-        message = parser_v2.parse_char(byte)
-        if message is not None and not message.get_type().startswith("BAD_DATA"):
-            vehicle.handle(message)
+    if args.udp_port is not None:
+        return _serve_udp(vehicle, parser_v2, args.udp_port, args.arm_after)
+    return _serve_stdio(vehicle, parser_v2, args.arm_after)
 
 
 if __name__ == "__main__":
