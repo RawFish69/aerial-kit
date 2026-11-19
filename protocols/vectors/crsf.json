@@ -1,0 +1,256 @@
+{
+  "cases": [
+    {
+      "address": 200,
+      "decoded": {
+        "channels": [
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992,
+          992
+        ],
+        "units": "raw CRSF counts"
+      },
+      "frame_type": 22,
+      "name": "rc_channels_centre",
+      "payload_hex": "e0031ff8c0073ef0810f7ce0031ff8c0073ef0810f7c",
+      "raw_hex": "c81816e0031ff8c0073ef0810f7ce0031ff8c0073ef0810f7cad"
+    },
+    {
+      "address": 234,
+      "decoded": {
+        "channels": [
+          172,
+          1811,
+          172,
+          1811,
+          992,
+          992,
+          992,
+          992,
+          172,
+          1811,
+          172,
+          1811,
+          992,
+          992,
+          992,
+          992
+        ],
+        "units": "raw CRSF counts"
+      },
+      "frame_type": 22,
+      "name": "rc_channels_extremes",
+      "payload_hex": "ac98382b260e3ef0810f7cac98382b260e3ef0810f7c",
+      "raw_hex": "ea1816ac98382b260e3ef0810f7cac98382b260e3ef0810f7cfb"
+    },
+    {
+      "address": 234,
+      "decoded": {
+        "pitch_rad": 0.1,
+        "roll_rad": -0.5,
+        "yaw_rad": 1.2
+      },
+      "frame_type": 30,
+      "name": "attitude",
+      "payload_hex": "03e8ec782ee0",
+      "raw_hex": "ea081e03e8ec782ee084"
+    },
+    {
+      "address": 234,
+      "decoded": {
+        "capacity_mah": 1500,
+        "current_a": 12.3,
+        "remaining_percent": 88,
+        "voltage_v": 16.8
+      },
+      "frame_type": 8,
+      "name": "battery",
+      "payload_hex": "00a8007b0005dc58",
+      "raw_hex": "ea0a0800a8007b0005dc58d1"
+    },
+    {
+      "address": 234,
+      "decoded": {
+        "altitude_m": 450.0,
+        "groundspeed_mps": 10.0,
+        "heading_deg": 90.0,
+        "latitude_deg": 47.3977,
+        "longitude_deg": 8.544,
+        "satellites": 12
+      },
+      "frame_type": 2,
+      "name": "gps",
+      "payload_hex": "02d33b4400825f000064232805aa0c",
+      "raw_hex": "ea110202d33b4400825f000064232805aa0c05"
+    },
+    {
+      "address": 234,
+      "decoded": {
+        "altitude_m": 123.4,
+        "vertical_speed_mps": -2.5
+      },
+      "frame_type": 9,
+      "name": "barometer",
+      "payload_hex": "2be2ff06",
+      "raw_hex": "ea06092be2ff0688"
+    },
+    {
+      "address": 234,
+      "decoded": {
+        "active_antenna": 1,
+        "downlink_link_quality": 70,
+        "downlink_rssi_dbm": -80,
+        "downlink_snr_db": 4,
+        "rf_mode": 2,
+        "uplink_link_quality": 88,
+        "uplink_rssi_1_dbm": -90,
+        "uplink_rssi_2_dbm": -92,
+        "uplink_snr_db": 7,
+        "uplink_tx_power": 3
+      },
+      "frame_type": 20,
+      "name": "link_statistics",
+      "payload_hex": "5a5c5807010203504604",
+      "raw_hex": "ea0c145a5c5807010203504604d7"
+    },
+    {
+      "address": 234,
+      "decoded": {
+        "mode": "ANGLE"
+      },
+      "frame_type": 33,
+      "name": "flight_mode",
+      "payload_hex": "414e474c4500",
+      "raw_hex": "ea0821414e474c450087"
+    },
+    {
+      "address": 200,
+      "decoded": {
+        "destination": "radio transmitter",
+        "note": "extended CRSF address header",
+        "origin": "flight controller"
+      },
+      "frame_type": 40,
+      "name": "device_ping",
+      "payload_hex": "eac80000",
+      "raw_hex": "c80628eac800000a"
+    },
+    {
+      "address": 200,
+      "decoded": {
+        "destination": "radio transmitter",
+        "name": "aerialkit-f405",
+        "origin": "flight controller",
+        "parameter_count": 0,
+        "parameter_version": 1
+      },
+      "frame_type": 41,
+      "name": "device_info",
+      "payload_hex": "eac861657269616c6b69742d66343035000000000000000000000000000001",
+      "raw_hex": "c82129eac861657269616c6b69742d66343035000000000000000000000000000001dd"
+    },
+    {
+      "address": 234,
+      "decoded": {
+        "field": 1,
+        "note": "representative extended parameter-frame envelope",
+        "type": "uint8"
+      },
+      "frame_type": 43,
+      "name": "parameter_settings_entry",
+      "payload_hex": "c8ea00010b0100000000",
+      "raw_hex": "ea0c2bc8ea00010b010000000094"
+    },
+    {
+      "address": 200,
+      "decoded": {
+        "chunk": 0,
+        "field": 1
+      },
+      "frame_type": 44,
+      "name": "parameter_read",
+      "payload_hex": "eac80001",
+      "raw_hex": "c8062ceac8000178"
+    },
+    {
+      "address": 200,
+      "decoded": {
+        "chunks": 1,
+        "field": 1,
+        "value": 2,
+        "write": true
+      },
+      "frame_type": 45,
+      "name": "parameter_write",
+      "payload_hex": "eac800010264",
+      "raw_hex": "c8082deac800010264a7"
+    },
+    {
+      "address": 200,
+      "decoded": {
+        "bind": true,
+        "destination": "radio transmitter",
+        "origin": "flight controller",
+        "subsystem": "receiver",
+        "write": true
+      },
+      "frame_type": 50,
+      "name": "command",
+      "payload_hex": "eac81001",
+      "raw_hex": "c80632eac81001ae"
+    },
+    {
+      "address": 200,
+      "decoded": {
+        "direction": "uplink",
+        "note": "candidate AKP tunnel envelope"
+      },
+      "frame_type": 122,
+      "name": "msp_request",
+      "payload_hex": "eac8000000010001",
+      "raw_hex": "c80a7aeac8000000010001fd"
+    },
+    {
+      "address": 234,
+      "decoded": {
+        "direction": "downlink",
+        "note": "candidate AKP tunnel envelope"
+      },
+      "frame_type": 123,
+      "name": "msp_response",
+      "payload_hex": "c8ea000000010001",
+      "raw_hex": "ea0a7bc8ea00000001000155"
+    },
+    {
+      "address": 200,
+      "decoded": {
+        "direction": "uplink",
+        "note": "candidate AKP tunnel envelope",
+        "write": true
+      },
+      "frame_type": 124,
+      "name": "msp_write",
+      "payload_hex": "eac8000000010001",
+      "raw_hex": "c80a7ceac80000000100014f"
+    }
+  ],
+  "protocol": "crsf",
+  "schema_version": 1,
+  "source": {
+    "encoder": "firmware/src/core/flight/ak_crsf.c and ak_crsf_telemetry.c",
+    "layout": "ExpressLRS 4.1.0 src/include/crsf_protocol.h"
+  }
+}

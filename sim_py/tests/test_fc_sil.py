@@ -154,7 +154,7 @@ class TestFirmwareFliesMujoco(unittest.TestCase):
         roll_2s = _roll_pitch_yaw_deg(sim.state.attitude_quat)[0]
         self.assertAlmostEqual(roll_2s, roll_1s, delta=2.0)          # holds, does not keep rolling
         self.assertAlmostEqual(roll_2s, 17.5, delta=5.0)              # half of the 35 deg limit (20.3 measured)
-        # Codex's acceptance figure (change-requests.md, 2026-11-18): within 3 deg (2.78 measured).
+        # Firmware-agent acceptance figure (change-requests.md, 2026-11-18): within 3 deg (2.78 measured).
         self.assertAlmostEqual(roll_2s, math.degrees(sim.fc.attitude()[0]), delta=3.0)
 
     def test_refuses_airframes_the_firmware_cannot_drive(self) -> None:

@@ -1,7 +1,7 @@
 # Finding: the AK estimator misreads pitch on a powered flying wing (angle mode dives it in)
 
 Found by: agent, firmware-in-the-loop (`sim_py.fc_sil.WingFirmwareInTheLoop`, unmodified
-`firmware/src/core` at `main` after the quad estimator fix), 2026-11-18. Owner: Codex (firmware).
+`firmware/src/core` at `main` after the quad estimator fix), 2026-11-18. Owner: firmware agent.
 Simulation only.
 
 ## Setup

@@ -1,7 +1,7 @@
 # Finding: below the 7 deg gate the quad estimator still under-reads tilt
 
 Found by: agent, firmware swarm (`sim_py.fc_sil.swarm.FirmwareSwarm`, unmodified firmware at
-`main` with PR #26), 2026-11-18. Owner: Codex (firmware). Simulation only.
+`main` with PR #26), 2026-11-18. Owner: firmware agent. Simulation only.
 
 The quad fix (PR #17) stops accelerometer levelling once armed and tilted beyond 7 deg. Below 7
 deg it still levels on the accelerometer, and while the quad accelerates that reads thrust

@@ -1,4 +1,4 @@
-# Review: overnight ELRS / CRSF radio work (Codex, 2026-11-17)
+# Review: overnight ELRS / CRSF radio work (firmware agent, 2026-11-17)
 
 Reviewer: agent. Scope: commits `ce2c5ae`, `f8310cd`, `952b981` on `overnight-2026-11-17`
 (`aerial_kit/comms/crsf.py`, `hw_bridge/crsf_*`, `sim_elrs_link_node.py`, `HOST-LINK.md`,

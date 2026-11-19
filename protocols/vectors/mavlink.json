@@ -1,0 +1,195 @@
+{
+  "cases": [
+    {
+      "component_id": 1,
+      "crc_extra": 50,
+      "decoded": {
+        "autopilot": 12,
+        "base_mode": 81,
+        "custom_mode": 0,
+        "mavlink_version": 3,
+        "system_status": 4,
+        "type": 2
+      },
+      "message": "HEARTBEAT",
+      "message_id": 0,
+      "name": "heartbeat",
+      "payload_hex": "00000000020c510403",
+      "raw_hex": "fd09000000010100000000000000020c5104031b74",
+      "sequence": 0,
+      "system_id": 1
+    },
+    {
+      "component_id": 1,
+      "crc_extra": 39,
+      "decoded": {
+        "pitch": -0.2,
+        "pitchspeed": -0.02,
+        "roll": 0.1,
+        "rollspeed": 0.01,
+        "time_boot_ms": 1234,
+        "yaw": 1.3,
+        "yawspeed": 0.03
+      },
+      "message": "ATTITUDE",
+      "message_id": 30,
+      "name": "attitude",
+      "payload_hex": "d2040000cdcccc3dcdcc4cbe6666a63f0ad7233c0ad7a3bc8fc2f53c",
+      "raw_hex": "fd1c00000001011e0000d2040000cdcccc3dcdcc4cbe6666a63f0ad7233c0ad7a3bc8fc2f53c3c8b",
+      "sequence": 0,
+      "system_id": 1
+    },
+    {
+      "component_id": 1,
+      "crc_extra": 104,
+      "decoded": {
+        "alt": 450000,
+        "hdg": 9000,
+        "lat": 47397700,
+        "lon": 8544000,
+        "relative_alt": 12000,
+        "time_boot_ms": 1234,
+        "vx": 300,
+        "vy": -100,
+        "vz": 20
+      },
+      "message": "GLOBAL_POSITION_INT",
+      "message_id": 33,
+      "name": "global_position_int",
+      "payload_hex": "d2040000443bd302005f8200d0dd0600e02e00002c019cff14002823",
+      "raw_hex": "fd1c0000000101210000d2040000443bd302005f8200d0dd0600e02e00002c019cff1400282364e7",
+      "sequence": 0,
+      "system_id": 1
+    },
+    {
+      "component_id": 1,
+      "crc_extra": 24,
+      "decoded": {
+        "alt": 450000,
+        "cog": 9000,
+        "eph": 90,
+        "epv": 120,
+        "fix_type": 3,
+        "lat": 47397700,
+        "lon": 8544000,
+        "satellites_visible": 14,
+        "time_usec": 1700000000000000,
+        "vel": 1000
+      },
+      "message": "GPS_RAW_INT",
+      "message_id": 24,
+      "name": "gps_raw_int",
+      "payload_hex": "00401e18240a0600443bd302005f8200d0dd06005a007800e8032823030e",
+      "raw_hex": "fd1e000000010118000000401e18240a0600443bd302005f8200d0dd06005a007800e8032823030e4b54",
+      "sequence": 0,
+      "system_id": 1
+    },
+    {
+      "component_id": 1,
+      "crc_extra": 159,
+      "decoded": {
+        "target_component": 1,
+        "target_system": 1
+      },
+      "message": "PARAM_REQUEST_LIST",
+      "message_id": 21,
+      "name": "param_request_list",
+      "payload_hex": "0101",
+      "raw_hex": "fd0200000001011500000101bdfa",
+      "sequence": 0,
+      "system_id": 1
+    },
+    {
+      "component_id": 1,
+      "crc_extra": 220,
+      "decoded": {
+        "param_count": 46,
+        "param_id": "rate_kp_roll",
+        "param_index": 0,
+        "param_type": 9,
+        "param_value": 0.25
+      },
+      "message": "PARAM_VALUE",
+      "message_id": 22,
+      "name": "param_value",
+      "payload_hex": "0000803e2e000000726174655f6b705f726f6c6c0000000009",
+      "raw_hex": "fd1900000001011600000000803e2e000000726174655f6b705f726f6c6c00000000091685",
+      "sequence": 0,
+      "system_id": 1
+    },
+    {
+      "component_id": 1,
+      "crc_extra": 152,
+      "decoded": {
+        "command": 400,
+        "confirmation": 0,
+        "param1": 0.0,
+        "param2": 0.0,
+        "param3": 0.0,
+        "param4": 0.0,
+        "param5": 0.0,
+        "param6": 0.0,
+        "param7": 0.0,
+        "target_component": 1,
+        "target_system": 1
+      },
+      "message": "COMMAND_LONG",
+      "message_id": 76,
+      "name": "command_long",
+      "payload_hex": "0000000000000000000000000000000000000000000000000000000090010101",
+      "raw_hex": "fd2000000001014c000000000000000000000000000000000000000000000000000000000000900101012cab",
+      "sequence": 0,
+      "system_id": 1
+    },
+    {
+      "component_id": 1,
+      "crc_extra": 83,
+      "decoded": {
+        "severity": 6,
+        "text": "preflight passed"
+      },
+      "message": "STATUSTEXT",
+      "message_id": 253,
+      "name": "statustext",
+      "payload_hex": "06707265666c6967687420706173736564",
+      "raw_hex": "fd110000000101fd000006707265666c69676874207061737365645a55",
+      "sequence": 0,
+      "system_id": 1
+    },
+    {
+      "component_id": 1,
+      "crc_extra": 143,
+      "decoded": {
+        "afx": 0.0,
+        "afy": 0.0,
+        "afz": 0.0,
+        "coordinate_frame": 1,
+        "target_component": 1,
+        "target_system": 1,
+        "time_boot_ms": 1234,
+        "type_mask": 4088,
+        "vx": 0.1,
+        "vy": 0.2,
+        "vz": -0.3,
+        "x": 1.0,
+        "y": 2.0,
+        "yaw": 0.0,
+        "yaw_rate": 0.0,
+        "z": -3.0
+      },
+      "message": "SET_POSITION_TARGET_LOCAL_NED",
+      "message_id": 84,
+      "name": "set_position_target_local_ned",
+      "payload_hex": "d20400000000803f00000040000040c0cdcccc3dcdcc4c3e9a9999be0000000000000000000000000000000000000000f80f010101",
+      "raw_hex": "fd350000000101540000d20400000000803f00000040000040c0cdcccc3dcdcc4c3e9a9999be0000000000000000000000000000000000000000f80f010101bb8a",
+      "sequence": 0,
+      "system_id": 1
+    }
+  ],
+  "protocol": "mavlink",
+  "schema_version": 1,
+  "source": {
+    "dialect": "v20 common",
+    "implementation": "pymavlink 2.4.49"
+  }
+}
