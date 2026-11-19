@@ -299,3 +299,9 @@ The firmware host harness in `firmware/tools/host/test_akp_radio.c` covers the
 receiver route without hardware. No RF, serial device or real flight controller
 is needed for this request.
 
+Status (sim agent, 2026-11-19): done. The simulated ELRS link multiplexes
+AKP MSP frames on a separate 40 Hz lane alongside 150 Hz RC. `AkClient`
+hello/status/parameter queries pass; the firmware mission reaches within
+0.32 m at 0 % and 10 % loss, and the mid-flight link cut disables the receiver
+and lands. Evidence is in `akp-radio-sil-2026-11-19.md`.
+

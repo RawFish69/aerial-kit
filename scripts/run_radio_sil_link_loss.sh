@@ -23,16 +23,22 @@ base="$repo/docs/evidence/radio-sil-${tag}-${stamp}"
 log="$base.log"
 summary="$base.json"
 
-setsid ros2 launch sim_fast bringup.launch.py \
-    start_demo:=true \
-    start_monitor:=false \
-    sim_backend:=mujoco \
-    airframe:="$airframe" \
-    radio_sim:=true \
-    radio_rate_hz:=150.0 \
-    radio_latency_ms:=8.0 \
-    radio_packet_loss_percent:=0.0 \
-    flight_controller:="${FLIGHT_CONTROLLER:-sim}" \
+launch_args=(
+    start_demo:=true
+    start_monitor:=false
+    sim_backend:=mujoco
+    airframe:="$airframe"
+    radio_sim:=true
+    radio_rate_hz:=150.0
+    radio_latency_ms:=8.0
+    radio_packet_loss_percent:=0.0
+    flight_controller:="${FLIGHT_CONTROLLER:-sim}"
+)
+if [[ "${AKP_SIM:-false}" == "true" ]]; then
+    launch_args+=(akp_sim:=true akp_output_path:="${base}.akp.json")
+fi
+
+setsid ros2 launch sim_fast bringup.launch.py "${launch_args[@]}" \
     >"$log" 2>&1 &
 launch_pid=$!
 
@@ -54,6 +60,19 @@ trap cleanup EXIT INT TERM
 
 python3 "$repo/scripts/radio_sil_link_loss_probe.py" \
     --out "$summary" --timeout "${RADIO_SIL_LINK_LOSS_TIMEOUT_SEC:-180}"
+
+if [[ "${AKP_SIM:-false}" == "true" ]]; then
+    python3 - "$base.akp.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    result = json.load(source)
+if not result.get("ok"):
+    raise SystemExit("AKP-over-ELRS probe failed: " + json.dumps(result))
+print("akp-over-elrs: ok")
+PY
+fi
 
 echo "log=$log"
 echo "summary=$summary"

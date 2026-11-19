@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "attempts": 7,
+  "stage": "done",
+  "latency_ms": {
+    "hello": 70.339,
+    "status": 71.429,
+    "parameter": 71.263
+  },
+  "retries": {
+    "hello": 2,
+    "status": 2,
+    "parameter": 0
+  },
+  "hello": {
+    "product": "aerialkit-sim-radio",
+    "parameters": 3
+  },
+  "status": {
+    "flight_state": 1,
+    "link_live": 1,
+    "gps_satellites": 12
+  },
+  "parameter": {
+    "name": "rate_kp_roll",
+    "value": "0.250",
+    "status": 0
+  }
+}
