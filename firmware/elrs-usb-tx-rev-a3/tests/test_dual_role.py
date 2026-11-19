@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 import struct
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,6 +74,26 @@ def selected_slot(
     return -99
 
 
+def app_trailer(data: bytes, offset: int) -> tuple[str, dict[str, object]]:
+    product = (
+        data[offset : offset + assemble.APPENDED_PRODUCT_SIZE]
+        .split(b"\0", 1)[0]
+        .decode("utf-8")
+    )
+    hardware_offset = (
+        offset
+        + assemble.APPENDED_PRODUCT_SIZE
+        + assemble.APPENDED_DEVICE_SIZE
+        + assemble.APPENDED_OPTIONS_SIZE
+    )
+    hardware = json.loads(
+        data[hardware_offset : hardware_offset + assemble.APPENDED_HARDWARE_SIZE]
+        .split(b"\0", 1)[0]
+        .decode("utf-8")
+    )
+    return product, hardware
+
+
 class DualRoleArtifactTests(unittest.TestCase):
     def test_source_partition_layout(self) -> None:
         rows = assemble.read_partitions(ROOT / "partitions" / "dual-role.csv")
@@ -101,11 +123,61 @@ class DualRoleArtifactTests(unittest.TestCase):
             "CRSF_FRAMETYPE_RC_CHANNELS_PACKED",
             "SerialUSB_device",
             "new SerialCRSF(USBSerial, USBSerial)",
-            "aerialkitRoleHeartbeat",
-            "two blue pulses identify RX",
-            "one green pulse identifies TX",
         ):
             self.assertIn(required, patch)
+        self.assertNotIn("aerialkitRoleHeartbeat", patch)
+
+    def test_selector_linker_script_is_parameterized(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "selector.ld"
+            assemble.render_selector_linker_script(
+                ROOT / "bootloader" / "selector.ld",
+                output,
+                select_function=0x403CD9C8,
+                mmap_function=0x403CD384,
+                munmap_function=0x403CD3EC,
+            )
+            rendered = output.read_text(encoding="utf-8")
+        self.assertIn(".trampoline 0x403cd9c8", rendered)
+        self.assertIn("bootloader_mmap = 0x403cd384;", rendered)
+        self.assertIn("bootloader_munmap = 0x403cd3ec;", rendered)
+        self.assertNotIn("@BOOTLOADER_", rendered)
+
+    def test_sdk_memory_type_selects_matching_bootloader(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            map_path = Path(temporary) / "firmware.map"
+            map_path.write_text(
+                "/toolchain/esp32s3/qio_qspi/libspi_flash.a\n"
+                "/toolchain/esp32s3/qio_qspi/libbootloader_support.a\n",
+                encoding="utf-8",
+            )
+            memory_type = assemble.sdk_memory_type_from_map(map_path)
+        self.assertEqual(memory_type, "qio_qspi")
+        self.assertEqual(
+            assemble.bootloader_name_for_memory_type(memory_type),
+            "bootloader_qio_80m.elf",
+        )
+
+    def test_bootloader_source_mismatch_is_fatal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temp = Path(temporary)
+            expected = temp / "bootloader.bin"
+            output = temp / "regenerated.bin"
+            expected.write_bytes(b"qio bootloader")
+
+            def write_wrong_image(command: list[str], **_: object) -> None:
+                self.assertEqual(command[command.index("--flash_mode") + 1], "dio")
+                output.write_bytes(b"dio bootloader")
+
+            with mock.patch.object(assemble, "run", side_effect=write_wrong_image):
+                with self.assertRaisesRegex(RuntimeError, "flash mode mismatch"):
+                    assemble.verify_bootloader_source(
+                        bootloader_elf=temp / "bootloader_qio_80m.elf",
+                        build_bootloader=expected,
+                        flash_mode="dio",
+                        esptool=temp / "esptool.py",
+                        output=output,
+                    )
 
     def test_usb_crsf_channel_frame_is_26_bytes(self) -> None:
         from aerial_kit.comms.crsf import CrsfParser, make_rc_channels_frame
@@ -141,6 +213,50 @@ class DualRoleArtifactTests(unittest.TestCase):
         self.assertTrue(all(byte == 0xFF for byte in data[0x590000:0x590010]))
         self.assertEqual(parse_role_records(data, 0x6D0000)[0][2:], (0, 2))
         self.assertIn(b"littlefs", data[0x6D2000 + 8 : 0x6D2000 + 24])
+        self.assertEqual(
+            manifest["bootloader"]["elf"], "bootloader_qio_80m.elf"
+        )
+        self.assertEqual(
+            manifest["bootloader"]["sdk_memory_type"], "qio_qspi"
+        )
+        self.assertEqual(manifest["bootloader"]["app_flash_mode"], "dio")
+        self.assertEqual(manifest["bootloader"]["flash_mode"], "dio")
+
+        targets = (
+            ROOT
+            / ".vendor"
+            / "ExpressLRS"
+            / "src"
+            / "hardware"
+        )
+        for role, slot, product in (
+            (
+                "tx",
+                "tx_0",
+                "Aerial Kit ELRS USB TX Rev A3 2.4GHz TX",
+            ),
+            (
+                "rx",
+                "rx_0",
+                "Aerial Kit ELRS USB TX Rev A3 2.4GHz RX",
+            ),
+        ):
+            app_offset = partitions[slot][0]
+            image_end = manifest["applications"][role]["image_size"]
+            product_name, hardware = app_trailer(data, app_offset + image_end)
+            expected_hardware = json.loads(
+                (
+                    targets
+                    / role.upper()
+                    / "AerialKit ELRS USB TX Rev A3.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(product_name, product)
+            self.assertEqual(hardware, expected_hardware)
+            self.assertEqual(
+                image_end + assemble.APPENDED_BLOCK_SIZE,
+                manifest["applications"][role]["size"],
+            )
 
         self.assertEqual(
             selected_slot(data, partitions, "tx", 0),

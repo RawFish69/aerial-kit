@@ -34,6 +34,11 @@ on every boot, reads the role-state records, and falls back only to the other
 slot for the same role. Each application also checks GPIO4 at startup and
 holds both FEM enables low if it was booted in the wrong role.
 
+The factory image uses `bootloader_qio_80m.elf`, matching the applications'
+`qio_qspi` SDK libraries. The assembler reads the bootloader symbols instead of
+assuming fixed DIO addresses and requires the unpatched ELF conversion to
+match PlatformIO's own `bootloader.bin` byte-for-byte.
+
 Wi-Fi OTA updates the inactive slot for the running role and records the new
 slot only after `Update.end()` succeeds. Use the full factory artifact for the
 initial install and recovery.
@@ -61,6 +66,10 @@ path. RX emits `RC_CHANNELS_PACKED` to the host and accepts host telemetry.
 The nominal rates are 400000 baud for TX-host and 420000 baud for RX-FC; USB
 CDC ignores the requested baud rate. Two boards appear as distinct
 `/dev/ttyACM*` devices.
+
+Open the port with DTR and RTS deasserted. `aerial_kit.comms.SerialTransport`
+does this by default. Resynchronize on CRSF sync byte `0xC8` after any reset or
+boot text; Arduino core logging is disabled so post-boot output remains CRSF.
 
 ## Build
 
@@ -119,14 +128,29 @@ acquisition and range cannot be validated without one.
 
 ## Current bench record
 
-The 2026-11-17 diagnostic run passed ESP32-S3 boot, native USB, UART0,
-SX1280 SPI, WS2812, FEM control and shutdown tests. The SX1280 returned
-firmware version `0xA9B7`. No remote I2C device was present.
+The 2026-11-17 diagnostic run passed ESP32-S3 boot, native USB, UART0, SX1280
+SPI, WS2812, FEM control and shutdown tests. The SX1280 returned firmware
+version `0xA9B7`. No remote I2C device was present.
 
 GPIO4 read low while the switch was physically labelled RX. That conflicts
 with the design note (`low=TX`, `high=RX`), so the switch orientation must be
 checked by continuity before relying on its label. The dual-role mapping uses
 the electrical design, not the printed label.
+
+On 2026-11-19, a hardware A/B test showed that the earlier `7210…` factory image
+paired a DIO bootloader with QIO-built applications. The resulting invalid
+flash reads prevented target configuration and LittleFS from loading, causing
+the dark TX and RX panic loop. Replacing only the bootloader with the matching
+QIO image made the LED initialize and removed the panic. The release image now
+builds that pairing permanently. The corrected release is:
+
+```text
+size: 8331264 bytes
+sha256: aef3e31a4d89e662af275439dd8cf11da3f11807164455293747f5de69a21f77
+```
+
+TX CRSF behavior with the corrected bootloader, exact LED pulse counts, device
+ping responses and RF link statistics still require bench verification.
 
 ## Licensing
 

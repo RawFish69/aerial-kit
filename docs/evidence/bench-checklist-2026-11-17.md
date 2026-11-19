@@ -15,10 +15,15 @@ It caused an RX LittleFS format failure and invalid-image panic.
 Use the four-slot factory artifact whose manifest records SHA-256:
 
 ```text
-7210b9ff0600c2458e3fc3f429c0bbb6a9d282f1ddbe5ad4bd9c0bcb23a6cca7
+aef3e31a4d89e662af275439dd8cf11da3f11807164455293747f5de69a21f77
 ```
 
-The replaced image must list `tx_1`, `rx_0`, `rx_1` and `role_state`.
+Do not use `7210b9ff…`: it paired a DIO bootloader with QIO-built
+applications and caused invalid flash reads, LittleFS failures and an RX panic.
+
+The `aef3e31a…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
+its manifest must record `bootloader_qio_80m.elf`, SDK memory type
+`qio_qspi`, application header mode `dio` and bootloader mode `dio`.
 
 ## Stop conditions
 
@@ -94,6 +99,12 @@ remains available for configuration, and repeated reset/power-cycle tests
 boot the role selected by GPIO4 every time. A role mismatch must leave both
 FEM enables low; it must not transmit or receive.
 
+After flashing, use `--after watchdog_reset` if the board remains in download
+mode. A plain RTS reset can leave the boot strap latched. Verify the write
+immediately after flashing; runtime LittleFS writes intentionally change one
+flash region after boot, so a later whole-image verification is not expected
+to remain byte-identical.
+
 The factory image must report these offsets:
 
 ```text
@@ -151,6 +162,14 @@ Expected USB behavior:
 
 At boot, expect one green pulse for TX or two blue pulses for RX at the
 configured low brightness, followed by the normal ExpressLRS LED state.
+The TX heartbeat is one pulse, not two. Stop if both LEDs are dark, colors or
+pulse counts disagree with the selected role, or a slow red fault pattern
+appears.
+
+Open the host port with DTR and RTS deasserted. `aerial_kit.comms`
+`SerialTransport` does this by default. If a tool nevertheless resets the
+board while opening the port, resynchronize on CRSF sync byte `0xC8`; do not
+treat ROM or bootloader text as a protocol frame.
 
 ## 7. Optional J3 UART test
 
@@ -247,10 +266,9 @@ that test.
 
 ## 10. Configurator binding and Wi-Fi workflow
 
-Use the configurator's **Device → Radio module** page. Native USB is for
-flashing and the ExpressLRS native Wi-Fi page; stock ExpressLRS 4.1.0 does not
-carry CRSF handset traffic over native USB. Connect through J3 with a 3.3 V
-USB-UART adapter:
+Use the configurator's **Device → Radio module** page and the board's native
+USB CDC path. The custom Rev A3 image carries CRSF over native USB in both
+roles; a J3 adapter is optional:
 
 - TX role: **USB serial TX (400000 baud)**;
 - RX role: **USB serial RX (420000 baud)**.
@@ -258,9 +276,8 @@ USB-UART adapter:
 Power off before changing SW2. GPIO4 is sampled at reset: low boots TX and high
 boots RX. The combined image does not need to be reflashed to change roles.
 Verify the electrical position by continuity because the prototype's printed
-label was wrong. The configurator's TX/RX connection option changes only the
-UART baud; the role shown after connection comes from the module's CRSF device
-information.
+label was wrong. CDC ignores the selected baud. The role shown after connection
+comes from the module's CRSF device information and should agree with GPIO4.
 
 After **Connect radio** and **Allow changes**, open **Binding and Wi-Fi**. These
 are three separate operations:

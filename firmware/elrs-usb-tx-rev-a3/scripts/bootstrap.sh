@@ -10,7 +10,19 @@ targets_commit="8e72245fc2608592b29cd50b4ebd98eea08c1387"
 patch_file="$root/patches/expresslrs-4.1.0-aerialkit.patch"
 usb_patch_file="$root/patches/expresslrs-4.1.0-native-usb.patch"
 handset_patch_file="$root/patches/expresslrs-4.1.0-native-handset.patch"
+hardening_patch_file="$root/patches/expresslrs-4.1.0-hardening.patch"
+stamp_file="$express/.aerialkit-bootstrap.sha256"
 mkdir -p "$vendor"
+
+stamp="$({
+    find \
+        "$root/patches" \
+        "$root/expresslrs-overlay" \
+        "$root/partitions" \
+        "$root/targets" \
+        "$root/tools/apply_targets.py" \
+        -type f -print0
+} | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
 
 if [[ ! -e "$express/.git" ]]; then
     git clone --depth 1 --branch 4.1.0 \
@@ -28,36 +40,20 @@ fi
 git -C "$targets" fetch --depth 1 origin "$targets_commit"
 git -C "$targets" checkout --detach "$targets_commit"
 
-if grep -q 'AERIALKIT_ELRS_USB_TX_REV_A3_via_UART' \
-       "$express/src/targets/esp32s3-tx.ini" &&
-   grep -q 'AERIALKIT_ELRS_USB_TX_REV_A3_RX_via_UART' \
-       "$express/src/targets/esp32s3-rx.ini" &&
-   grep -q 'AERIALKIT_DUAL_ROLE=1' "$express/src/targets/esp32s3-tx.ini" &&
-   grep -q 'AERIALKIT_DUAL_ROLE=1' "$express/src/targets/esp32s3-rx.ini" &&
-   grep -q 'board_build.partitions' "$express/src/targets/esp32s3-tx.ini" &&
-   grep -q 'board_build.partitions' "$express/src/targets/esp32s3-rx.ini"; then
-    echo "ExpressLRS patch already applied"
-elif git -C "$express" apply --reverse --check "$patch_file" 2>/dev/null; then
-    echo "ExpressLRS patch already applied"
+if [[ -f "$stamp_file" ]] && [[ "$(cat "$stamp_file")" == "$stamp" ]]; then
+    echo "ExpressLRS vendor tree is current"
 else
+    echo "Resetting ExpressLRS vendor tree for a clean patch application"
+    git -C "$express" reset --hard "$express_commit"
+    git -C "$express" clean -fd -e hardware
+    git -C "$targets" reset --hard "$targets_commit"
+    git -C "$targets" clean -fd
+
     git -C "$express" apply "$patch_file"
-fi
-
-if grep -q 'SetUARTRequestedBaud' "$express/src/lib/Handset/CRSFHandset.h"; then
-    echo "Native handset helper already applied"
-elif git -C "$express" apply --reverse --check "$handset_patch_file" 2>/dev/null; then
-    echo "Native handset helper already applied"
-else
     git -C "$express" apply "$handset_patch_file"
-fi
-
-if grep -q 'SerialUSB_device' "$express/src/src/rx-serial/devSerialIO.h" &&
-   grep -q 'UsbCrsfConnected' "$express/src/src/tx_main.cpp"; then
-    echo "Native USB patch already applied"
-elif git -C "$express" apply --reverse --check "$usb_patch_file" 2>/dev/null; then
-    echo "Native USB patch already applied"
-else
     git -C "$express" apply "$usb_patch_file"
+    git -C "$express" apply "$hardening_patch_file"
+    printf '%s\n' "$stamp" > "$stamp_file"
 fi
 
 cp "$root/partitions/dual-role.csv" \

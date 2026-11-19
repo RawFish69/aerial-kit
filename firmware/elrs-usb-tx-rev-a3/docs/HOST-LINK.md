@@ -22,6 +22,12 @@ for both roles and does not require a USB-UART adapter or Wi-Fi:
 
 Two boards enumerate as two distinct `/dev/ttyACM*` devices.
 
+Open native USB without asserting DTR or RTS. The Python `SerialTransport`
+does this by default. If another tool resets the board while opening the port,
+the ROM banner and bootloader `load:` text may precede CRSF. Resynchronize on
+sync byte `0xC8`; do not parse that text as CRSF. Arduino core logging is
+disabled in these target images so post-boot serial output remains CRSF.
+
 ## Optional UART bench transport
 
 Use a **3.3 V USB-UART adapter** connected to UART0 on J3:
@@ -48,10 +54,7 @@ Native USB on GPIO19/20 supports:
 
 - ROM flashing.
 - ExpressLRS configuration and firmware-update workflows.
-- Other ExpressLRS TxUSB traffic exposed by the firmware.
-
-It does **not** carry `RC_CHANNELS_PACKED` from the host to the CRSF handset
-parser without a custom firmware bridge.
+- CRSF RC frames and telemetry through the Aerial Kit native USB bridge.
 
 ## TX and RX roles
 
@@ -70,6 +73,12 @@ The active slot for each role is stored in two independently erasable
 `role_state` records at `0x6d0000`. If the selected image is invalid, the
 bootloader falls back only to the other slot for the same role. It never boots
 the opposite RF role.
+
+The factory image uses the QIO bootloader that matches the `qio_qspi` SDK
+libraries used by both applications. The assembler derives the selector hook
+and flash-map symbols from that bootloader ELF and refuses to build if
+regenerating the unpatched ELF does not exactly match PlatformIO's
+`bootloader.bin`.
 
 This is a boot-time choice, not a live runtime switch. Change SW2 and reboot;
 do not change roles with the board powered and RF active. Verify the switch by
@@ -108,6 +117,9 @@ commit `a9d4a9cb5b5687c4c9d7e9e7fbdf44ad93651da6`. It:
 - bridges CRSF over native USB-CDC in both roles;
 - emits a one-green-pulse TX or two-blue-pulse RX boot heartbeat;
 - samples GPIO4 again before radio setup and fails safe on a role mismatch.
+- derives the QIO bootloader and selector addresses from the actual build
+  instead of pairing a DIO bootloader with QIO libraries;
+- enters a visible red fault loop if target hardware metadata is unavailable.
 
 Both applications and their combined flash image build in this repository.
 No hardware was flashed or opened as part of this host-link milestone.

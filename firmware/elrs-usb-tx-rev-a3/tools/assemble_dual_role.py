@@ -7,7 +7,9 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 import sys
@@ -20,11 +22,32 @@ PARTITION_TABLE_OFFSET = 0x8000
 OTA_DATA_OFFSET = 0xE000
 
 BOOTLOADER_SELECTOR_ADDRESS = 0x403CC000
-BOOTLOADER_SELECT_FUNCTION = 0x403CD868
-BOOTLOADER_SELECT_SEGMENT = 0x403CC700
 
 ROLE_RECORD_MAGIC = 0x414B5253
 ROLE_STATE_SECTOR_SIZE = 0x1000
+APPENDED_PRODUCT_SIZE = 128
+APPENDED_DEVICE_SIZE = 16
+APPENDED_OPTIONS_SIZE = 512
+APPENDED_HARDWARE_SIZE = 2048
+APPENDED_BLOCK_SIZE = (
+    APPENDED_PRODUCT_SIZE
+    + APPENDED_DEVICE_SIZE
+    + APPENDED_OPTIONS_SIZE
+    + APPENDED_HARDWARE_SIZE
+)
+
+SDK_MEMORY_TYPES = {
+    "dio_qspi",
+    "opi_opi",
+    "opi_qspi",
+    "qio_qspi",
+}
+FLASH_MODE_NAMES = {
+    0: "qio",
+    1: "qout",
+    2: "dio",
+    3: "dout",
+}
 
 
 def run(command: list[str], *, cwd: Path | None = None) -> None:
@@ -101,18 +124,144 @@ def verify_binary_partitions(
             )
 
 
-def import_esptool(vendor: Path):
-    esptool_dir = vendor / "ExpressLRS" / "src" / "python" / "external" / "esptool"
-    sys.path.insert(0, str(esptool_dir))
+def import_esptool(esptool: Path):
+    sys.path.insert(0, str(esptool.resolve().parent))
     from esptool.bin_image import ESP32S3FirmwareImage
 
     return ESP32S3FirmwareImage
+
+
+def default_esptool(vendor: Path) -> Path:
+    configured = os.environ.get("ESPTOOLPY")
+    if configured:
+        return Path(configured)
+    platformio = (
+        Path.home()
+        / ".platformio"
+        / "packages"
+        / "tool-esptoolpy"
+        / "esptool.py"
+    )
+    if platformio.is_file():
+        return platformio
+    return (
+        vendor
+        / "ExpressLRS"
+        / "src"
+        / "python"
+        / "external"
+        / "esptool"
+        / "esptool.py"
+    )
+
+
+def sdk_memory_type_from_map(map_path: Path) -> str:
+    matches = set(
+        re.findall(
+            r"(?:^|[/\\])esp32s3[/\\]([a-z]+_[a-z]+)[/\\]",
+            map_path.read_text(encoding="utf-8", errors="replace"),
+        )
+    ) & SDK_MEMORY_TYPES
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"{map_path} references SDK memory types {sorted(matches)}; expected one"
+        )
+    return matches.pop()
+
+
+def bootloader_name_for_memory_type(memory_type: str) -> str:
+    prefix = memory_type.split("_", 1)[0]
+    if prefix not in {"dio", "opi", "qio"}:
+        raise RuntimeError(f"unsupported ESP32-S3 SDK memory type: {memory_type}")
+    return f"bootloader_{prefix}_80m.elf"
+
+
+def bootloader_symbols(nm: Path, bootloader_elf: Path) -> dict[str, int]:
+    output = subprocess.check_output([str(nm), "-n", str(bootloader_elf)], text=True)
+    symbols: dict[str, int] = {}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 3:
+            try:
+                symbols[parts[-1]] = int(parts[0], 16)
+            except ValueError:
+                continue
+    return symbols
+
+
+def render_selector_linker_script(
+    template: Path,
+    output: Path,
+    *,
+    select_function: int,
+    mmap_function: int,
+    munmap_function: int,
+) -> None:
+    replacements = {
+        "@BOOTLOADER_SELECT_FUNCTION@": f"0x{select_function:08x}",
+        "@BOOTLOADER_MMAP@": f"0x{mmap_function:08x}",
+        "@BOOTLOADER_MUNMAP@": f"0x{munmap_function:08x}",
+    }
+    rendered = template.read_text(encoding="utf-8")
+    for token, value in replacements.items():
+        if token not in rendered:
+            raise RuntimeError(f"selector linker template is missing {token}")
+        rendered = rendered.replace(token, value)
+    output.write_text(rendered, encoding="utf-8")
+
+
+def app_flash_mode(image_class, path: Path) -> str:
+    with path.open("rb") as stream:
+        image = image_class(stream)
+    try:
+        return FLASH_MODE_NAMES[image.flash_mode]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"{path} has unknown ESP image flash mode {image.flash_mode}"
+        ) from exc
+
+
+def verify_bootloader_source(
+    *,
+    bootloader_elf: Path,
+    build_bootloader: Path,
+    flash_mode: str,
+    esptool: Path,
+    output: Path,
+) -> None:
+    run(
+        [
+            sys.executable,
+            str(esptool),
+            "--chip",
+            "esp32s3",
+            "elf2image",
+            "--flash_mode",
+            flash_mode,
+            "--flash_freq",
+            "80m",
+            "--flash_size",
+            "8MB",
+            "-o",
+            str(output),
+            str(bootloader_elf),
+        ]
+    )
+    if output.read_bytes() != build_bootloader.read_bytes():
+        raise RuntimeError(
+            "bootloader/app flash mode mismatch: regenerating "
+            f"{bootloader_elf.name} does not match {build_bootloader}"
+        )
 
 
 def compile_selector(
     cache: Path,
     source_dir: Path,
     build_dir: Path,
+    *,
+    linker_script: Path,
+    select_function: int,
+    select_segment: int,
 ) -> tuple[bytes, bytes]:
     toolchain = cache / "toolchain-xtensa-esp32s3" / "bin"
     prefix = toolchain / "xtensa-esp32s3-elf-"
@@ -134,7 +283,7 @@ def compile_selector(
             "-mlongcalls",
             "-mtext-section-literals",
             "-Wl,--build-id=none",
-            f"-Wl,-T,{source_dir / 'selector.ld'}",
+            f"-Wl,-T,{linker_script}",
             "-Wl,--gc-sections",
             "-o",
             str(selector_elf),
@@ -173,7 +322,7 @@ def compile_selector(
         if (parts := line.split())
         and len(parts) >= 3
     }
-    if symbols.get("bootloader_utility_get_selected_boot_partition") != BOOTLOADER_SELECT_FUNCTION:
+    if symbols.get("bootloader_utility_get_selected_boot_partition") != select_function:
         raise RuntimeError("bootloader trampoline moved outside its reserved address")
     selector_function = symbols.get("aerialkit_select_boot_partition")
     if selector_function is None or not (
@@ -188,7 +337,7 @@ def compile_selector(
         raise RuntimeError("selector image is empty")
     if (
         BOOTLOADER_SELECTOR_ADDRESS + len(selector)
-        > BOOTLOADER_SELECT_SEGMENT
+        > select_segment
     ):
         raise RuntimeError("selector does not fit in the bootloader IRAM gap")
     return trampoline, selector
@@ -202,6 +351,9 @@ def patch_bootloader(
     *,
     toolchain: Path,
     esptool: Path,
+    select_function: int,
+    select_segment: int,
+    flash_mode: str,
 ) -> None:
     objcopy = toolchain / "xtensa-esp32s3-elf-objcopy"
     loader_section = output_path.with_suffix(".loader.bin")
@@ -215,7 +367,7 @@ def patch_bootloader(
     )
 
     loader = bytearray(loader_section.read_bytes())
-    function_offset = BOOTLOADER_SELECT_FUNCTION - BOOTLOADER_SELECT_SEGMENT
+    function_offset = select_function - select_segment
     if function_offset < 0 or function_offset + len(trampoline) > len(loader):
         raise RuntimeError("bootloader selector function is outside its IRAM section")
     if loader[function_offset : function_offset + len(trampoline)] == trampoline:
@@ -253,7 +405,7 @@ def patch_bootloader(
             "esp32s3",
             "elf2image",
             "--flash_mode",
-            "dio",
+            flash_mode,
             "--flash_freq",
             "80m",
             "--flash_size",
@@ -363,6 +515,8 @@ def verify_patched_bootloader(
     *,
     esptool: Path,
     image_class,
+    select_function: int,
+    select_segment: int,
 ) -> None:
     with path.open("rb") as stream:
         image = image_class(stream)
@@ -371,14 +525,14 @@ def verify_patched_bootloader(
         None,
     )
     loader_segment = next(
-        (segment for segment in image.segments if segment.addr == BOOTLOADER_SELECT_SEGMENT),
+        (segment for segment in image.segments if segment.addr == select_segment),
         None,
     )
     if selector_segment is None or loader_segment is None:
         raise RuntimeError("patched bootloader has an unexpected segment map")
     if selector_segment.data[: len(selector)] != selector:
         raise RuntimeError("bootloader does not contain the four-slot selector")
-    function_offset = BOOTLOADER_SELECT_FUNCTION - loader_segment.addr
+    function_offset = select_function - loader_segment.addr
     if loader_segment.data[
         function_offset : function_offset + len(trampoline)
     ] != trampoline:
@@ -410,6 +564,64 @@ def verify_app(esptool: Path, path: Path, label: str) -> None:
     )
 
 
+def firmware_application_end(path: Path) -> int:
+    data = path.read_bytes()
+    if len(data) < 24 or data[0] != 0xE9:
+        raise RuntimeError(f"{path} is not an ESP application image")
+    position = 24
+    for _ in range(data[1]):
+        if position + 8 > len(data):
+            raise RuntimeError(f"{path} has a truncated segment table")
+        _address, size = struct.unpack_from("<II", data, position)
+        position += 8 + size
+        if position > len(data):
+            raise RuntimeError(f"{path} has a truncated image segment")
+    return ((position + 16) & ~15) + 32
+
+
+def verify_app_trailer(
+    path: Path,
+    *,
+    product_name: str,
+    hardware_layout: dict[str, object],
+) -> int:
+    data = path.read_bytes()
+    image_end = firmware_application_end(path)
+    if image_end + APPENDED_BLOCK_SIZE != len(data):
+        raise RuntimeError(
+            f"{path} trailer is {len(data) - image_end} bytes, "
+            f"expected {APPENDED_BLOCK_SIZE}"
+        )
+    product = (
+        data[image_end : image_end + APPENDED_PRODUCT_SIZE]
+        .split(b"\0", 1)[0]
+        .decode("utf-8")
+    )
+    hardware_offset = (
+        image_end
+        + APPENDED_PRODUCT_SIZE
+        + APPENDED_DEVICE_SIZE
+        + APPENDED_OPTIONS_SIZE
+    )
+    try:
+        hardware = json.loads(
+            data[
+                hardware_offset : hardware_offset + APPENDED_HARDWARE_SIZE
+            ]
+            .split(b"\0", 1)[0]
+            .decode("utf-8")
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"{path} has an invalid hardware layout trailer") from exc
+    if product != product_name:
+        raise RuntimeError(
+            f"{path} product trailer is {product!r}, expected {product_name!r}"
+        )
+    if hardware != hardware_layout:
+        raise RuntimeError(f"{path} hardware layout trailer disagrees with target")
+    return image_end
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -417,6 +629,7 @@ def main() -> int:
     parser.add_argument("--vendor", type=Path, required=True)
     parser.add_argument("--mklittlefs", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--esptool", type=Path)
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -432,7 +645,7 @@ def main() -> int:
         expresslrs / "src" / ".pio" / "build" / "AERIALKIT_ELRS_USB_TX_REV_A3_RX_via_UART"
     )
     for build in (tx_build, rx_build):
-        for name in ("firmware.bin", "partitions.bin", "bootloader.bin"):
+        for name in ("firmware.bin", "firmware.map", "partitions.bin", "bootloader.bin"):
             if not (build / name).is_file():
                 raise FileNotFoundError(build / name)
     if (tx_build / "partitions.bin").read_bytes() != (
@@ -445,25 +658,94 @@ def main() -> int:
         raise RuntimeError("TX and RX builds have different bootloaders")
     verify_binary_partitions(tx_build / "partitions.bin", partition_rows)
 
-    image_class = import_esptool(vendor)
-    esptool = expresslrs / "src" / "python" / "external" / "esptool" / "esptool.py"
+    esptool = (args.esptool or default_esptool(vendor)).resolve()
+    if not esptool.is_file():
+        raise FileNotFoundError(esptool)
+    image_class = import_esptool(esptool)
+    sdk_memory_types = {
+        sdk_memory_type_from_map(tx_build / "firmware.map"),
+        sdk_memory_type_from_map(rx_build / "firmware.map"),
+    }
+    if len(sdk_memory_types) != 1:
+        raise RuntimeError(
+            f"TX and RX use different SDK memory types: {sorted(sdk_memory_types)}"
+        )
+    sdk_memory_type = sdk_memory_types.pop()
+    bootloader_name = bootloader_name_for_memory_type(sdk_memory_type)
+    bootloader_elf = (
+        cache
+        / "framework-arduinoespressif32"
+        / "tools"
+        / "sdk"
+        / "esp32s3"
+        / "bin"
+        / bootloader_name
+    )
+    if not bootloader_elf.is_file():
+        raise FileNotFoundError(bootloader_elf)
+
+    tx_flash_mode = app_flash_mode(image_class, tx_build / "firmware.bin")
+    rx_flash_mode = app_flash_mode(image_class, rx_build / "firmware.bin")
+    if tx_flash_mode != rx_flash_mode:
+        raise RuntimeError(
+            f"TX and RX application flash modes differ: "
+            f"{tx_flash_mode!r} != {rx_flash_mode!r}"
+        )
+    source_bootloader_flash_mode = tx_flash_mode
+    toolchain_prefix = cache / "toolchain-xtensa-esp32s3" / "bin" / "xtensa-esp32s3-elf-"
+    symbols = bootloader_symbols(Path(str(toolchain_prefix) + "nm"), bootloader_elf)
+    required_symbols = {
+        "bootloader_utility_get_selected_boot_partition",
+        "bootloader_mmap",
+        "bootloader_munmap",
+        "bootloader_iram_loader_seg_start",
+    }
+    missing_symbols = required_symbols - symbols.keys()
+    if missing_symbols:
+        raise RuntimeError(
+            f"{bootloader_name} is missing symbols {sorted(missing_symbols)}"
+        )
+    select_function = symbols["bootloader_utility_get_selected_boot_partition"]
+    select_segment = symbols["bootloader_iram_loader_seg_start"]
+    mmap_function = symbols["bootloader_mmap"]
+    munmap_function = symbols["bootloader_munmap"]
+
     with tempfile.TemporaryDirectory(prefix="aerialkit-four-slot-") as temporary:
         temp = Path(temporary)
-        trampoline, selector = compile_selector(cache, root / "bootloader", temp)
+        verify_bootloader_source(
+            bootloader_elf=bootloader_elf,
+            build_bootloader=tx_build / "bootloader.bin",
+            flash_mode=source_bootloader_flash_mode,
+            esptool=esptool,
+            output=temp / "unpatched-bootloader.bin",
+        )
+        linker_script = temp / "selector.ld"
+        render_selector_linker_script(
+            root / "bootloader" / "selector.ld",
+            linker_script,
+            select_function=select_function,
+            mmap_function=mmap_function,
+            munmap_function=munmap_function,
+        )
+        trampoline, selector = compile_selector(
+            cache,
+            root / "bootloader",
+            temp,
+            linker_script=linker_script,
+            select_function=select_function,
+            select_segment=select_segment,
+        )
         patched_bootloader = temp / "bootloader.bin"
         patch_bootloader(
-            cache
-            / "framework-arduinoespressif32"
-            / "tools"
-            / "sdk"
-            / "esp32s3"
-            / "bin"
-            / "bootloader_dio_80m.elf",
+            bootloader_elf,
             trampoline,
             selector,
             patched_bootloader,
             toolchain=cache / "toolchain-xtensa-esp32s3" / "bin",
             esptool=esptool,
+            select_function=select_function,
+            select_segment=select_segment,
+            flash_mode=source_bootloader_flash_mode,
         )
         verify_patched_bootloader(
             patched_bootloader,
@@ -471,6 +753,8 @@ def main() -> int:
             selector,
             esptool=esptool,
             image_class=image_class,
+            select_function=select_function,
+            select_segment=select_segment,
         )
 
         role_state = make_role_state(int(partition_rows["role_state"]["size"]))
@@ -483,6 +767,33 @@ def main() -> int:
         rx = rx_build / "firmware.bin"
         verify_app(esptool, tx, "TX")
         verify_app(esptool, rx, "RX")
+        targets = expresslrs / "src" / "hardware"
+        target_products = {
+            "tx": "Aerial Kit ELRS USB TX Rev A3 2.4GHz TX",
+            "rx": "Aerial Kit ELRS USB TX Rev A3 2.4GHz RX",
+        }
+        target_layouts = {
+            role: json.loads(
+                (
+                    targets
+                    / role.upper()
+                    / "AerialKit ELRS USB TX Rev A3.json"
+                ).read_text(encoding="utf-8")
+            )
+            for role in target_products
+        }
+        app_image_ends = {
+            "tx": verify_app_trailer(
+                tx,
+                product_name=target_products["tx"],
+                hardware_layout=target_layouts["tx"],
+            ),
+            "rx": verify_app_trailer(
+                rx,
+                product_name=target_products["rx"],
+                hardware_layout=target_layouts["rx"],
+            ),
+        }
 
         merged = output / "aerialkit-rev-a3-elrs-dual-role.bin"
         image_size, sizes = merge_image(
@@ -524,15 +835,21 @@ def main() -> int:
                 "tx": {
                     "slot": "tx_0",
                     "size": sizes[int(partition_rows["tx_0"]["offset"])],
+                    "image_size": app_image_ends["tx"],
                     "sha256": sha256(tx),
                 },
                 "rx": {
                     "slot": "rx_0",
                     "size": sizes[int(partition_rows["rx_0"]["offset"])],
+                    "image_size": app_image_ends["rx"],
                     "sha256": sha256(rx),
                 },
             },
             "bootloader": {
+                "elf": bootloader_name,
+                "sdk_memory_type": sdk_memory_type,
+                "app_flash_mode": tx_flash_mode,
+                "flash_mode": source_bootloader_flash_mode,
                 "size": sizes[BOOTLOADER_OFFSET],
                 "sha256": sha256(patched_bootloader),
             },

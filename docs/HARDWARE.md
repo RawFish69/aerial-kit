@@ -27,8 +27,8 @@ The host UART is 400000 baud, 8N1, non-inverted and full duplex. This is the
 handset rate in the ELRS autobaud table. The RX-to-FC UART remains 420000 baud.
 One combined Rev A3 image contains both roles. GPIO4 is sampled on every reset:
 low boots TX and high boots RX, so changing SW2 requires a reboot but not a
-reflash. Pin mapping, the need for a 3.3 V USB-UART adapter, role selection and
-native USB-CDC limits are in
+reflash. Pin mapping, optional UART wiring, role selection and native USB-CDC
+behavior are in
 [`firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md`](../firmware/elrs-usb-tx-rev-a3/docs/HOST-LINK.md).
 
 The Rev A3 firmware also exposes native USB-CDC as a CRSF transport in both
@@ -36,6 +36,16 @@ roles. This is the bench path when no J3 adapter is available: the TX consumes
 host `RC_CHANNELS_PACKED` frames and the RX emits them for the FC side. The
 logical rates remain 400000 baud TX-host and 420000 baud RX-FC; CDC ignores
 the host's baud setting.
+
+Open the CDC or UART port with DTR and RTS deasserted. The Python serial
+transport does this by default. If another tool resets the module while
+opening the port, resynchronize on CRSF sync byte `0xC8`.
+
+The factory image pairs the ESP32-S3 QIO bootloader with the applications'
+`qio_qspi` SDK libraries. The assembler verifies that pairing against a fresh
+PlatformIO `bootloader.bin`; a mismatch fails the release build. The earlier
+DIO-bootloader image produced invalid flash reads, LittleFS failures and an RX
+panic loop and must not be used.
 
 The channel map is AETR on channels 1-4, flight mode on channel 5, and arm on
 channel 6, matching AerialKit firmware defaults. Switch values use the same
