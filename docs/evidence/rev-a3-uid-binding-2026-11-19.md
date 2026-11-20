@@ -57,11 +57,12 @@ TX application: ec2c2803f95474bb56a88b45b8379eff0906d2e59712d53eac5a968bef81e7b9
 RX application: 76f6dcdbd5e05b5b356b8b11bc5900c4a46d998a2959aacdec06ef5cc6c9e80b
 ```
 
-The companion 0.4.3 client rejects `chunksRemaining=0xff` as an out-of-range
+The companion 0.4.4 client rejects `chunksRemaining=0xff` as an out-of-range
 stale chunk, validates response addressing, preserves adjacent CRSF frames
-from the same USB read, addresses RX parameters to `0xEC`, and paces every
-successive chunk before retrying missing chunks. Its `ak radio diag` command
-captures `AK-BOOT` as JSON.
+from the same USB read, addresses RX parameters to `0xEC`, uses ELRS-Lua
+origin `0xEF` so RX replies are not claimed by the RF OTA connector, and paces
+every successive chunk before retrying missing chunks. Its `ak radio diag`
+command captures `AK-BOOT` as JSON.
 
 The next candidate aligns RX's initial search mode with TX's default LoRa
 250 Hz mode. `bfff8af5…` exposed TX `rate_idx=6/enum=27/4000us` and RX
@@ -78,7 +79,7 @@ RX application: 8fdf39b9ce67628adba804e0b92c88b6c4f6bbc27b7681f5656ce0ea243da5c0
 
 ## Verification
 
-- Firmware Python host suite: 25 passed, 1 skipped before the final rebuild.
+- Firmware Python host suite: 27 passed.
 - ExpressLRS native suite: 104 passed.
 - The native routing test drives two RC frames around an addressed TX UID
   request and requires the `0x7B` response to reach the USB connector.
@@ -87,16 +88,23 @@ RX application: 8fdf39b9ce67628adba804e0b92c88b6c4f6bbc27b7681f5656ce0ea243da5c0
 
 ## Hardware status
 
-No hardware was flashed or opened during this work. Hardware PASS remains
-blocked until the bench reports:
+The bench flashed `70de34ee…` to both boards with a verified data hash. UID
+binding passes, and original and swapped board mappings both fail RF
+acquisition identically:
 
-1. both boards flash `70de34ee…` and verify the data hash;
-2. `ak radio diag` shows matching `uid`, `seed`, `crc`, `rate_enum`, `fhss0`
-   and `freq`, with the expected FEM pin for each role;
-3. `ak radio uid` reads both endpoints without timeout;
-4. `ak radio pair` writes one phrase and reads the same non-zero UID from both;
-5. `ak radio params` completes against both roles;
-6. RX RC capture succeeds;
-7. link statistics are observed from both directions.
+- UID: `10:73:a1:1f:a8:0f` on both endpoints;
+- seed `0xa11fa80b`, CRC `0xac0f`, rate index 6, enum 27, 4000 us interval,
+  FHSS start 40, initial frequency 12302619, domain `ISM2G4`;
+- TX drives 4500 host RC frames in 30 seconds;
+- RX captures zero RC frames;
+- all LQ, RSSI and SNR fields remain zero.
 
-PR #59 remains draft until those results exist.
+Swapping the two physical boards between TX and RX produced the same failure,
+which excludes a single board-role assignment as the cause. TP5/TP6 electrical
+measurements remain NOT TESTED because no multimeter or oscilloscope is
+available. RF acquisition is therefore bounded to the shared electrical,
+FEM, antenna/RF-path or RF-design layer rather than Python/C L OTA data
+configuration. PR #59 remains draft.
+
+The companion CLI's parameter-tree fix is software-complete and hardware
+pending on `aerial-kit==0.4.4`.
