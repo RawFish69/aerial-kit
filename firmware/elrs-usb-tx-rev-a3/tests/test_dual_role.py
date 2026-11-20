@@ -197,6 +197,28 @@ class DualRoleArtifactTests(unittest.TestCase):
             bootstrap,
         )
 
+    def test_rf_probe_is_wired_into_both_role_loops(self) -> None:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import apply_rf_probe
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)
+            (source / "tx_main.cpp").write_text(
+                "void loop() {\n  uint32_t now = millis();\n}\n",
+                encoding="utf-8",
+            )
+            (source / "rx_main.cpp").write_text(
+                "void loop() {\n    unsigned long now = millis();\n}\n",
+                encoding="utf-8",
+            )
+            apply_rf_probe.apply_tree(source)
+            tx = (source / "tx_main.cpp").read_text(encoding="utf-8")
+            rx = (source / "rx_main.cpp").read_text(encoding="utf-8")
+        self.assertIn(apply_rf_probe.MARKER, tx)
+        self.assertIn(apply_rf_probe.MARKER, rx)
+        bootstrap = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn('python3 "$root/tools/apply_rf_probe.py"', bootstrap)
+
     def test_gpio4_high_is_tx_and_low_is_rx_everywhere(self) -> None:
         selector = (ROOT / "bootloader" / "selector.c").read_text(
             encoding="utf-8"

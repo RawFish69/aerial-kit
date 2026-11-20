@@ -21,6 +21,15 @@
 namespace
 {
 bool roleHighAtBoot;
+uint32_t bootStartedAt;
+bool haveBootStartedAt;
+uint32_t lastRfSampleAt;
+uint8_t previousTxEnable;
+uint8_t previousRxEnable;
+uint32_t txEnableHighSamples;
+uint32_t rxEnableHighSamples;
+uint32_t txEnableRises;
+uint32_t rxEnableRises;
 
 const char *resetReasonName(esp_reset_reason_t reason)
 {
@@ -185,6 +194,65 @@ void aerialkitBootReport()
                         static_cast<size_t>(length) < sizeof(line)
                             ? static_cast<size_t>(length)
                             : sizeof(line) - 1);
+    }
+}
+
+void aerialkitRfSample(uint32_t now)
+{
+    if (!haveBootStartedAt)
+    {
+        bootStartedAt = now;
+        haveBootStartedAt = true;
+        previousTxEnable = digitalRead(TX_ENABLE_PIN);
+        previousRxEnable = digitalRead(RX_ENABLE_PIN);
+    }
+
+    const uint8_t txEnable = digitalRead(TX_ENABLE_PIN);
+    const uint8_t rxEnable = digitalRead(RX_ENABLE_PIN);
+    txEnableHighSamples += txEnable != 0;
+    rxEnableHighSamples += rxEnable != 0;
+    txEnableRises += previousTxEnable == 0 && txEnable != 0;
+    rxEnableRises += previousRxEnable == 0 && rxEnable != 0;
+    previousTxEnable = txEnable;
+    previousRxEnable = rxEnable;
+
+    if ((now - bootStartedAt) > 15000U || (now - lastRfSampleAt) < 1000U)
+    {
+        return;
+    }
+    lastRfSampleAt = now;
+
+    const auto *rate = ExpressLRS_currAirRate_Modparams;
+    const int8_t rssiInst = Radio.GetRssiInst(SX12XX_Radio_All);
+    const uint16_t irq = Radio.GetIrqStatus(SX12XX_Radio_All);
+    char line[320];
+    const int length = snprintf(
+        line,
+        sizeof(line),
+        "AK-RF role=%s conn=%u rate_idx=%u rate_enum=%u "
+        "txen=%u rxen=%u tx_high=%lu rx_high=%lu tx_rise=%lu rx_rise=%lu "
+        "rssi_inst=%d last_rssi=%d last_snr=%d irq=0x%04x\r\n",
+        RX_ROLE ? "rx" : "tx",
+        static_cast<unsigned>(connectionState),
+        rate != nullptr ? static_cast<unsigned>(rate->index) : 0xffU,
+        rate != nullptr ? static_cast<unsigned>(rate->enum_rate) : 0xffU,
+        static_cast<unsigned>(txEnable),
+        static_cast<unsigned>(rxEnable),
+        static_cast<unsigned long>(txEnableHighSamples),
+        static_cast<unsigned long>(rxEnableHighSamples),
+        static_cast<unsigned long>(txEnableRises),
+        static_cast<unsigned long>(rxEnableRises),
+        static_cast<int>(rssiInst),
+        static_cast<int>(Radio.LastPacketRSSI),
+        static_cast<int>(Radio.LastPacketSNRRaw),
+        static_cast<unsigned>(irq));
+    if (length > 0)
+    {
+        USBSerial.write(
+            reinterpret_cast<const uint8_t *>(line),
+            static_cast<size_t>(length) < sizeof(line)
+                ? static_cast<size_t>(length)
+                : sizeof(line) - 1);
     }
 }
 

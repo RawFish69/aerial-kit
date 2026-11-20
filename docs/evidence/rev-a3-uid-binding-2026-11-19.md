@@ -57,7 +57,7 @@ TX application: ec2c2803f95474bb56a88b45b8379eff0906d2e59712d53eac5a968bef81e7b9
 RX application: 76f6dcdbd5e05b5b356b8b11bc5900c4a46d998a2959aacdec06ef5cc6c9e80b
 ```
 
-The companion 0.4.4 client rejects `chunksRemaining=0xff` as an out-of-range
+The companion 0.4.5 client rejects `chunksRemaining=0xff` as an out-of-range
 stale chunk, validates response addressing, preserves adjacent CRSF frames
 from the same USB read, addresses RX parameters to `0xEC`, uses ELRS-Lua
 origin `0xEF` so RX replies are not claimed by the RF OTA connector, and paces
@@ -107,4 +107,23 @@ FEM, antenna/RF-path or RF-design layer rather than Python/C L OTA data
 configuration. PR #59 remains draft.
 
 The companion CLI's parameter-tree fix is software-complete and hardware
-pending on `aerial-kit==0.4.4`.
+pending on `aerial-kit==0.4.5`.
+
+### Live RF/FEM probe candidate
+
+`70de34ee…` and the swapped board mapping still produced identical RF
+configuration but zero RF reception. The `d308720e…` diagnostic candidate adds
+10-second `AK-RF` reports containing GPIO6/7 high-sample and rising-edge
+counters, instantaneous RSSI, last-packet RSSI/SNR, and SX1280 IRQ status:
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: d308720e12bb3c8e049ae5a40cd3a55f404f49ef1c167d123c60528cda4115ed
+TX application: 9420b9378156cba8ba9aed4ae34a60ab1331e226efe299657d3f140a40a6368e
+RX application: 245172869621b768ac8ae9c50ea6089ba24bc01ee3054869d8ebc2d8fc979814
+```
+
+Use `ak radio diag --watch-rf --duration 10` from the companion 0.4.5 client
+while the TX is driven. These counters distinguish software FEM control and
+SX1280 activity from an analog RF/antenna failure without external instruments.
