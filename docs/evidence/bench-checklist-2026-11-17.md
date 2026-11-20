@@ -25,8 +25,9 @@ The `9b48f01f…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
 its manifest must record `bootloader_qio_80m.elf`, SDK memory type
 `qio_qspi`, application header mode `dio` and bootloader mode `dio`.
 
-This artifact uses the bench-confirmed G-R-B physical order. The final visual
-gate is blue-only TX, green-only RX, one TX boot pulse and two RX boot pulses.
+This artifact uses the bench-confirmed G-R-B physical order. The replacement
+A+B pair passed connected LED and RF acquisition checks on 2026-11-20.
+Power cycles 2-3 and extended range/attenuation remain NOT TESTED.
 
 ## Stop conditions
 

@@ -190,3 +190,34 @@ remain NOT TESTED.
 The full TX parameter tree now passes fields 0 through 20 in 18.442 seconds
 with the merged CLI progress/retry fix. The RX tree passes all 12 entries in
 11.64 seconds.
+
+### Replacement-pair acceptance
+
+The failed original receiver was board C,
+`90:70:69:27:20:64`. Its `RADIO_BUSY` and `RADIO_DIO1` pins are bridged. It
+was removed from the accepted pair.
+
+The replacement pair A+B runs the frozen `9b48f01f…` artifact:
+
+- A TX: `90:70:69:28:56:E4`;
+- B RX: `90:70:69:27:20:38`;
+- shared UID: `10:73:a1:1f:a8:0f`;
+- packet rate: 250 Hz;
+- selected RF power: 25 mW.
+
+Functional and telemetry results:
+
+- TX drove 3,000 RC frames with zero write stalls and zero bad CRCs;
+- RX received 1,767 RC frames and 137 link-statistics frames;
+- TX received 340 battery frames during the concurrent telemetry test;
+- uplink link quality was 100%, approximately -29 dBm, +13 dB SNR;
+- downlink link quality was 100%, approximately -33 dBm, +12 dB SNR;
+- RX-injected telemetry reached TX;
+- connected LEDs were visually confirmed solid blue on TX and solid green on
+  RX;
+- power cycle 1 of 3 reacquired RF with RC, telemetry and link statistics
+  passing.
+
+Power cycles 2-3 and extended range/attenuation remain NOT TESTED. The accepted
+hardware scope is the A+B pair with the exact artifact and checksums recorded
+in `firmware/elrs-usb-tx-rev-a3/releases/9b48f01f/`.

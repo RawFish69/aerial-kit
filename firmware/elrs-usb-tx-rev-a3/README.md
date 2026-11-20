@@ -205,10 +205,10 @@ The printed switch labels are authoritative. The final dual-role selector
 therefore maps high GPIO4 to TX and low GPIO4 to RX. Both applications enforce
 the same mapping before RF setup and hold both FEM enables low on disagreement.
 
-On 2026-11-19, a hardware A/B test showed that the earlier `7210…` factory image
+On 2026-11-19, a hardware comparison showed that the earlier `7210…` factory image
 paired a DIO bootloader with QIO-built applications. The corrected QIO image
-removed the panic and LittleFS failures. The current GRB color diagnostic
-artifact is:
+removed the panic and LittleFS failures. The tested `AK USB ELRS Rev A3`
+factory artifact is:
 
 ```text
 size: 8331264 bytes
@@ -217,11 +217,14 @@ sha256: 9b48f01f522783d872b72f36c69c7171bcc851e2fcbfe5f60cb717efcb0331b4
 
 The operational wire order is the bench-confirmed G-R-B mapping. Role and
 pattern logic are unchanged. The UID-persistence patch is included. Records
-are in `releases/9b48f01f/`; the final hardware gate is one blue TX boot pulse
-at GPIO4 high, two green RX boot pulses at GPIO4 low, then blue-only TX and
-green-only RX state patterns. This is a diagnostic candidate, not final
-acceptance. It adds native-USB byte and frame counters to distinguish an empty
-CDC receive path from a parser or scheduler failure.
+are in `releases/9b48f01f/`.
+
+Hardware acceptance passed on replacement pair A+B at 25 mW and 250 Hz:
+3,000 TX frames with zero stalls, 1,767 received RC frames and 137 link
+statistics frames at RX, approximately 100% link quality in both directions,
+telemetry forwarding, and solid blue TX / green RX connected LEDs. Board C
+(`90:70:69:27:20:64`) is defective because `RADIO_BUSY` and `RADIO_DIO1` are
+bridged. Power cycles 2-3 and extended range/attenuation remain NOT TESTED.
 
 ## Licensing
 
