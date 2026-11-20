@@ -140,10 +140,16 @@ TX application: b4c4434f86950489dd6fb2cd38766c8f3a65ca226f20bc9bc8e8206b62c49dcc
 RX application: b137cc1d05a5c607b207c991ef56e79ccc8992cd73138d7654ecff122a7befb6
 ```
 
-Hardware on `2edc686e…` then reported `usb_frames=0`, `usb_rc=0`,
-`last_usb_type=0x00`, `linkmode=0`, `conn=5`, `txen=0` and `tx_rise=0`
-while the host sent 1,789 RC frames. The next probe measures the raw CDC read
-boundary before CRSF parsing:
+An initial reset capture on `2edc686e…` reported `usb_frames=0`, `usb_rc=0`,
+`last_usb_type=0x00`, `linkmode=0`, `conn=5`, `txen=0` and `tx_rise=0`.
+That sample was taken before the first RC frame reached the firmware and was
+not evidence of a broken native-USB path. With a reset, three-second settle
+and an 11-second 150 Hz drive, the same TX reported `usb_frames=1661`,
+`usb_rc=1650`, `last_usb_type=0x16`, `tx_rise=963`, and `conn` leaving
+`noCrossfire` through states 5, 2 and 3. Native-USB ingress and scheduler
+activation therefore work.
+
+The next probe makes that boundary observable without relying on timing:
 
 ```text
 path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
@@ -155,6 +161,5 @@ RX application: bc9b30c8a426037c03c546660aca72f0d362ab881bab5d61bcccc601cd68f090
 
 `AK-RF` now includes `usb_avail_max`, `usb_reads` and the actual byte count
 returned by `readBytes` as `usb_bytes`, alongside `usb_frames`, `usb_rc`,
-`last_usb_type`, `linkmode`, `conn`, `txen` and `tx_rise`. No hardware PASS is
-claimed for this candidate. It is read-only instrumentation for the next RF
-bench run.
+`last_usb_type`, `linkmode`, `conn`, `txen` and `tx_rise`. It is read-only
+instrumentation for the next RF bench run.
