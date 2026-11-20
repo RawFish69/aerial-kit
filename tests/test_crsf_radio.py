@@ -379,6 +379,49 @@ def test_parameter_reader_rejects_chunks_addressed_to_another_endpoint() -> None
     assert parameter.value == "correct-endpoint"
 
 
+def test_parameter_reader_keeps_adjacent_chunks_from_one_usb_read() -> None:
+    record = _entry(
+        13,
+        0,
+        10,
+        "version",
+        b"two-crsf-frames-delivered-back-to-back\0",
+    )
+    chunks = _chunk_entry(13, record, (len(record) + 3) // 4)
+    assert len(chunks) == 4
+    transport = MemoryTransport()
+    parser = CrsfParser()
+    original_write = transport.write
+
+    def answer_requests(data: bytes) -> int:
+        result = original_write(data)
+        for request in parser.feed(transport.drain_tx()):
+            if request.frame_type != 0x2C or request.payload[2] != 13:
+                continue
+            requested = request.payload[3]
+            if requested == 2:
+                transport.feed(
+                    make_frame(0x2B, bytes((0xEA, 0xEE)) + chunks[2])
+                    + make_frame(0x2B, bytes((0xEA, 0xEE)) + chunks[3])
+                )
+            elif requested < len(chunks):
+                transport.feed(
+                    make_frame(0x2B, bytes((0xEA, 0xEE)) + chunks[requested])
+                )
+        return result
+
+    transport.write = answer_requests  # type: ignore[method-assign]
+    client = CrsfParameterClient(
+        CrsfLink(transport),
+        destination=0xEE,
+        origin=0xEA,
+        timeout=0.05,
+        chunk_interval=0,
+    )
+    parameter = client.read_parameter(13)
+    assert parameter.value == "two-crsf-frames-delivered-back-to-back"
+
+
 def test_parameter_tree_walks_folder_children() -> None:
     records = {
         0: _entry(0, 0, 11, "Radio", b"\x01\x02\xFF"),
