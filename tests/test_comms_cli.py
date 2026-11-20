@@ -113,7 +113,7 @@ def test_parameter_client_uses_the_selected_endpoint() -> None:
     rx = _parameter_client(link, role="rx", timeout=1.0)
     assert tx.destination == 0xEE
     assert rx.destination == 0xEC
-    assert tx.origin == rx.origin == 0xEA
+    assert tx.origin == rx.origin == 0xEF
 
 
 def test_missing_write_arguments_fail_before_opening_a_transport(monkeypatch) -> None:
