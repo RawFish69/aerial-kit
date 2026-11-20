@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import struct
 import sys
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 
 from aerial_kit.comms import (
     Msp,
+    MspClient,
     MspProtocolError,
     MspWriteRefused,
     build_msp,
@@ -76,11 +78,58 @@ def test_msp_settings_and_refusal_are_typed() -> None:
         pipe.close()
 
 
+def test_msp_client_gates_every_mutation_and_reads_back_raw_rc() -> None:
+    pipe = Pipe()
+    reader = msp.Deadline(pipe)
+    client = MspClient(reader.read_some, pipe.write, timeout=2.0)
+    channels = (1500, 1490, 1000, 1510, 1000, 1500, 1500, 1500)
+    try:
+        with pytest.raises(msp.MspWriteRefused):
+            client.set_setting("failsafe_throttle", 1200)
+        with pytest.raises(msp.MspWriteRefused):
+            client.save()
+        with pytest.raises(msp.MspWriteRefused):
+            client.set_raw_rc(channels)
+
+        assert (
+            client.set_setting(
+                "failsafe_throttle", 1200, allow_write=True
+            )
+            == "failsafe_throttle = 1200"
+        )
+        assert client.set_raw_rc(channels, allow_write=True) == channels
+        assert client.rc_channels() == channels
+        client.save(allow_write=True)
+    finally:
+        pipe.close()
+
+
+def test_msp_client_rejects_raw_rc_outside_pwm_bounds() -> None:
+    client = MspClient(lambda _count, _timeout: b"", lambda _data: None)
+    with pytest.raises(ValueError, match="800..2200"):
+        client.set_raw_rc((1.5, 1.5, 1.0), allow_write=True)
+    with pytest.raises(ValueError, match="1..16"):
+        client.set_raw_rc((), allow_write=True)
+
+
 def test_msp_rejects_malformed_or_truncated_frames() -> None:
     with pytest.raises(MspProtocolError):
         msp.parse(b"$M>\x04\x01\x00\x01\x30\xFF")
     with pytest.raises(MspProtocolError):
         msp.parse(b"$M>\x04\x01\x00\x01")
+
+
+def test_msp_status_reports_arming_disable_flags_from_the_extended_frame() -> None:
+    payload = (
+        struct.pack("<HHHI", 1000, 0, 0x2B, 0)
+        + bytes((0,))
+        + struct.pack("<H", 0)
+        + bytes((0, 3))
+        + struct.pack("<I", 0x104)
+    )
+    status = msp.decode_status(payload)
+    assert status["arming_disable_flags"] == 0x104
+    assert status["load_pct"] == 0
 
 
 def test_firmware_tool_is_a_thin_importable_wrapper() -> None:

@@ -53,6 +53,18 @@ ak radio drive \
   --port /dev/ttyACM0 --baud 400000 \
   --hz 150 --duration 10 --pattern arm-test --write --json drive.json
 
+# A Betaflight vehicle with arm on AUX1/CH5 and its mode switch on CH7.
+ak radio drive \
+  --port /dev/ttyACM0 --baud 400000 \
+  --profile betaflight --pattern arm-test --write
+
+# Hold an explicit roll,pitch,yaw,throttle setpoint after the arm sequence.
+# This is bounded bench control and always sends a safe throttle-low/arm-low
+# sequence on exit.
+ak radio drive \
+  --port /dev/ttyACM0 --profile betaflight --duration 2 \
+  --sticks 0.2,0,0,0.35 --confirm-arm --write --json stick-test.json
+
 # Capture FC-facing receiver frames and channels.
 ak radio capture \
   --port /dev/ttyACM1 --baud 420000 --duration 10 --json capture.json
@@ -131,6 +143,17 @@ refuses mismatched or all-zero endpoint UIDs before transmitting RC. Arm
 patterns wait at low throttle for longer than the firmware's
 500 ms arm hold. Every drive exit path, including timeout and Ctrl-C, sends a
 throttle-low/armed frame followed by an arm-low frame before returning.
+
+`--profile aerial-kit` keeps the Aerial Kit default of arm on CH6 and mode on
+CH5. `--profile betaflight` uses the bench-verified arm default of CH5 and the
+workflow's mode default of CH7, which must still be checked against the
+vehicle's Betaflight modes tab. `--arm-channel`, `--mode-channel` and
+`--velocity-channel` override those defaults for a particular vehicle.
+
+`--sticks` is a second explicit control gate on top of `--write`: it also
+requires `--confirm-arm`, waits for a throttle-low arm hold, then holds the
+requested normalised values for the bounded duration. Do not use the bounded
+bench command as an in-flight stick controller; its exit path disarms.
 
 Use antennas or 50-ohm loads and minimum RF power for physical testing. Do not
 change the Rev A3 role switch while powered.

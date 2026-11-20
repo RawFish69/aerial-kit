@@ -65,11 +65,12 @@ MSP_RC = 105
 MSP_RAW_GPS = 106
 MSP_ATTITUDE = 108
 MSP_ANALOG = 110
+MSP_SET_RAW_RC = 200
 
-# The one command in this file that changes the board rather than reporting it,
-# and the one both firmwares share: value 250 in Betaflight's
-# `msp_protocol.h` and in INAV's. It writes the running configuration to flash,
-# and **both refuse it while armed** -- Betaflight's `mspFcProcessCommand` and
+# The configuration-persistence command both firmwares share: value 250 in
+# Betaflight's `msp_protocol.h` and in INAV's. It writes the running
+# configuration to flash, and **both refuse it while armed** -- Betaflight's
+# `mspFcProcessCommand` and
 # INAV's `mspFcProcessOutCommand` each check the arming flag before calling
 # their own `writeEEPROM`. The client's own gate is a second copy of that rule,
 # so this stand-in has to be able to make the refusal or the rule is untested.
@@ -241,13 +242,14 @@ class Board:
         self.api = (INAV_API_MAJOR, INAV_API_MINOR) if inav else (API_MAJOR,
                                                                   API_MINOR)
         self.board_id = INAV_BOARD_ID if inav else BOARD_ID
+        self.raw_rc: tuple[int, ...] = ()
 
     @property
     def armed(self):
         return self.arm_after > 0.0 and \
             time.time() - self.started >= self.arm_after
 
-    def answer(self, command):
+    def answer(self, command, payload=b""):
         """The v1 commands.
 
         Three outcomes, and the difference between the last two is the point:
@@ -295,8 +297,19 @@ class Board:
             return struct.pack("<8H", 1000 + self.polls, 1100, 1200, 1300,
                                0, 0, 0, 0), True
         if command == MSP_RC:
+            if self.raw_rc:
+                return struct.pack("<%dH" % len(self.raw_rc), *self.raw_rc), True
             return struct.pack("<8H", 992, 992, 992, 172, 992, 1811, 992,
                                992), True
+        if command == MSP_SET_RAW_RC:
+            # This is the input path a Betaflight board exposes when MSP is its
+            # receiver or when MSP override is active. The stand-in stores the
+            # values and answers them through MSP_RC so the write/readback path
+            # can be tested without suggesting that every receiver setup uses it.
+            if len(payload) % 2 or len(payload) // 2 > 16:
+                return b"", False
+            self.raw_rc = struct.unpack("<%dH" % (len(payload) // 2), payload)
+            return b"", True
         if command == MSP_EEPROM_WRITE:
             # The refusal is the whole reason this is here. Both firmwares
             # check the arming flag before writing their configuration to
@@ -529,7 +542,7 @@ def main():
         if check[0] != checksum(command, payload):
             continue                            # dropped, not answered
 
-        answer = board.answer(command)
+        answer = board.answer(command, payload)
         if answer is None:
             continue                    # a command this board does not know
         payload, ok = answer

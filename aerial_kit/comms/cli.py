@@ -8,15 +8,17 @@ effects.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import re
 import sys
 import time
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlsplit
 
-from .akp import AkClient, AkError
+from .akp import AkClient, AkError, AkHello
 from .crsf import (
     CRSF_BAUD,
     CRSF_ADDRESS_BROADCAST,
@@ -27,6 +29,7 @@ from .crsf import (
     CRSF_RX_FC_BAUD,
     CrsfAkpTunnel,
     CaptureReport,
+    CrsfChannelMap,
     DriveReport,
     CrsfLink,
     CrsfParameter,
@@ -34,6 +37,7 @@ from .crsf import (
     CrsfError,
     CrsfProtocolError,
     MonitorReport,
+    RcSticks,
     SerialTransport,
     capture_link,
     drive_link,
@@ -48,7 +52,13 @@ from .crsf import (
     unpack_channels,
 )
 from .mavlink import MavlinkError, MavlinkVehicle
-from .msp import MspError
+from .msp import (
+    MspClient,
+    MspError,
+    identify as identify_msp,
+    describe as describe_msp,
+    state as msp_state,
+)
 from .transport import TcpTransport, UdpTransport
 from .transport import Transport
 
@@ -486,6 +496,7 @@ def _radio_pair(args: argparse.Namespace) -> int:
             rx_path=args.rx,
             duration=args.duration,
             hz=args.hz,
+            channel_map=_radio_channel_map(args),
         )
     finally:
         tx_transport.close()
@@ -551,6 +562,7 @@ def _radio_bench(args: argparse.Namespace) -> int:
             rx_path=args.rx,
             duration=args.duration,
             hz=args.hz,
+            channel_map=_radio_channel_map(args),
         )
     finally:
         tx_transport.close()
@@ -567,6 +579,40 @@ def _radio_bench(args: argparse.Namespace) -> int:
 def _require_write(args: argparse.Namespace) -> None:
     if not args.write:
         raise PermissionError("this command changes a device; pass --write explicitly")
+
+
+def _radio_channel_map(args: argparse.Namespace) -> CrsfChannelMap:
+    profile = getattr(args, "profile", "aerial-kit")
+    defaults = (
+        {"arm": 5, "mode": 7}
+        if profile == "betaflight"
+        else {"arm": 6, "mode": 5}
+    )
+    arm = getattr(args, "arm_channel", None)
+    mode = getattr(args, "mode_channel", None)
+    velocity = getattr(args, "velocity_channel", None)
+    return CrsfChannelMap(
+        arm=int(defaults["arm"] if arm is None else arm),
+        mode=int(defaults["mode"] if mode is None else mode),
+        velocity=int(0 if velocity is None else velocity),
+    )
+
+
+def _radio_sticks(text: str | None) -> RcSticks | None:
+    if text is None:
+        return None
+    parts = text.split(",")
+    if len(parts) != 4:
+        raise ValueError("--sticks requires roll,pitch,yaw,throttle")
+    try:
+        roll, pitch, yaw, throttle = (float(part) for part in parts)
+    except ValueError as exc:
+        raise ValueError("--sticks values must be numeric") from exc
+    if any(not -1.0 <= value <= 1.0 for value in (roll, pitch, yaw)):
+        raise ValueError("roll, pitch and yaw sticks must be in -1..1")
+    if not 0.0 <= throttle <= 1.0:
+        raise ValueError("throttle stick must be in 0..1")
+    return RcSticks(roll=roll, pitch=pitch, yaw=yaw, throttle=throttle)
 
 
 def _print_parameter(parameter: CrsfParameter) -> None:
@@ -594,6 +640,11 @@ def _radio(args: argparse.Namespace) -> int:
             raise ValueError("radio value must be an integer") from exc
     if args.radio_action in {"set", "bind", "drive", "inject", "bench"}:
         _require_write(args)
+    requested_sticks = _radio_sticks(getattr(args, "sticks", None))
+    if requested_sticks is not None and not getattr(args, "confirm_arm", False):
+        raise PermissionError(
+            "a custom stick command can arm; pass --confirm-arm explicitly"
+        )
     if args.radio_action == "bench":
         return _radio_bench(args)
     if args.radio_action == "pair":
@@ -666,6 +717,8 @@ def _radio(args: argparse.Namespace) -> int:
                 pattern=args.pattern,
                 arm_hold_sec=args.arm_hold,
                 allow_write=True,
+                channel_map=_radio_channel_map(args),
+                sticks=requested_sticks,
             )
             if args.json:
                 _write_json(args.json, report.to_dict())
@@ -706,56 +759,323 @@ def _akp_client(args: argparse.Namespace) -> AkClient:
     return AkClient(_transport_from_args(args), timeout=args.timeout)
 
 
-def _fc(args: argparse.Namespace) -> None:
-    if args.fc_action == "get" and args.index is None:
-        raise ValueError("fc get requires --index")
-    if args.fc_action == "set" and (
-        args.index is None or args.value is None
-    ):
-        raise ValueError("fc set requires --index and --value")
-    client = _akp_client(args)
+@dataclass
+class _FcSession:
+    protocol: str
+    client: AkClient | MspClient
+    transport: Transport
+    identity: AkHello | dict[str, object]
+
+
+def _connect_fc(args: argparse.Namespace) -> _FcSession:
+    requested = getattr(args, "protocol", "auto")
+    if args.radio:
+        if requested == "betaflight":
+            raise ValueError("MSP/Betaflight is not carried over the AKP radio tunnel")
+        link = CrsfLink(
+            SerialTransport(args.radio, baudrate=CRSF_BAUD, timeout=args.timeout)
+        )
+        client = AkClient(CrsfAkpTunnel(link), timeout=args.timeout)
+        return _FcSession("akp", client, link.transport, client.hello())
+
+    transport = _transport_from_args(args)
+    if requested == "akp":
+        client = AkClient(transport, timeout=args.timeout)
+        return _FcSession("akp", client, transport, client.hello())
+
+    msp_client = MspClient(
+        transport.read,
+        transport.write,
+        timeout=args.timeout,
+    )
+    if requested == "betaflight":
+        return _FcSession("betaflight", msp_client, transport, identify_msp(msp_client))
+
+    akp_client = AkClient(transport, timeout=args.timeout)
     try:
-        if args.fc_action == "hello":
-            hello = client.hello()
-            print(
-                f"{hello.product} protocol={hello.version} "
-                f"parameters={hello.parameter_count} changed={hello.changed}"
-            )
-        elif args.fc_action == "params":
-            for item in client.parameter_info():
+        return _FcSession("akp", akp_client, transport, akp_client.hello())
+    except (AkError, OSError, TimeoutError) as akp_error:
+        try:
+            identity = identify_msp(msp_client)
+        except (MspError, OSError, TimeoutError) as msp_error:
+            transport.close()
+            raise TimeoutError(
+                "no Aerial Kit or Betaflight reply; "
+                f"AKP: {akp_error}; MSP: {msp_error}"
+            ) from msp_error
+        return _FcSession("betaflight", msp_client, transport, identity)
+
+
+def _fc_identity_line(session: _FcSession) -> str:
+    if session.protocol == "akp":
+        assert isinstance(session.identity, AkHello)
+        hello = session.identity
+        return (
+            f"protocol=akp product={hello.product} firmware={hello.version} "
+            f"parameters={hello.parameter_count} changed={hello.changed}"
+        )
+    identity = session.identity
+    assert isinstance(identity, dict)
+    return f"protocol=betaflight {describe_msp(identity)}"
+
+
+def _fc_state(session: _FcSession) -> dict[str, object]:
+    if session.protocol == "akp":
+        assert isinstance(session.client, AkClient)
+        status = session.client.status()
+        return {
+            "armed": int(status.flight_state),
+            "link_live": status.link_live,
+            "roll_deg": status.roll_deg,
+            "pitch_deg": status.pitch_deg,
+            "yaw_deg": status.yaw_deg,
+            "gps_fix_type": status.gps_fix_type,
+            "gps_satellites": status.gps_satellites,
+            "latitude": status.latitude,
+            "longitude": status.longitude,
+            "motors": list(status.motors),
+        }
+    assert isinstance(session.client, MspClient)
+    state = dict(msp_state(session.client))
+    state["armed"] = state.get("flight_state")
+    return state
+
+
+def _print_fc_state(state: dict[str, object]) -> None:
+    fields = [
+        f"armed={_as_int(state.get('armed', 0))}",
+        f"roll_deg={_as_float(state.get('roll_deg', 0.0)):.1f}",
+        f"pitch_deg={_as_float(state.get('pitch_deg', 0.0)):.1f}",
+        f"yaw_deg={_as_float(state.get('yaw_deg', 0.0)):.1f}",
+    ]
+    if state.get("vbat_v") is not None:
+        fields.append(f"vbat_v={_as_float(state['vbat_v']):.2f}")
+    if state.get("mah") is not None:
+        fields.append(f"mah={_as_int(state['mah'])}")
+    if state.get("gps_fix_type") is not None:
+        fields.append(f"gps_fix={state['gps_fix_type']}")
+        fields.append(f"sats={state.get('gps_satellites')}")
+    print(" ".join(fields))
+
+
+def _as_int(value: object) -> int:
+    if isinstance(value, (bool, int, float, str, bytes, bytearray)):
+        return int(value)
+    raise ValueError(f"{value!r} is not an integer value")
+
+
+def _as_float(value: object) -> float:
+    if isinstance(value, (bool, int, float, str, bytes, bytearray)):
+        return float(value)
+    raise ValueError(f"{value!r} is not a numeric value")
+
+
+def _require_fc_disarmed(session: _FcSession) -> None:
+    state = _fc_state(session)
+    armed = state.get("armed")
+    if armed is None:
+        raise PermissionError("the flight controller did not report an armed state")
+    if _as_int(armed) != 0:
+        raise PermissionError("the flight controller is armed; refusing the operation")
+
+
+def _fc_argument_value(args: argparse.Namespace) -> object | None:
+    positional = cast(object | None, getattr(args, "fc_value", None))
+    if positional is not None:
+        return positional
+    return cast(object | None, args.value)
+
+
+def _fc_selected_name(args: argparse.Namespace) -> str | None:
+    named = cast(object, args.name)
+    if isinstance(named, list) and named:
+        return str(named[0])
+    if isinstance(named, str) and named:
+        return named
+    field = cast(object, getattr(args, "field", None))
+    return field if isinstance(field, str) and field else None
+
+
+def _akp_index_for_name(client: AkClient, name: str) -> int:
+    for item in client.parameter_info():
+        if item.name == name:
+            return int(item.index)
+    raise ValueError(f"Aerial Kit has no parameter named {name!r}")
+
+
+def _fc_index(args: argparse.Namespace, client: AkClient) -> int:
+    if args.index is not None:
+        return int(args.index)
+    name = _fc_selected_name(args)
+    if not name:
+        raise ValueError("fc get/set requires --index or a parameter/setting name")
+    if name.isdigit():
+        return int(name)
+    return _akp_index_for_name(client, name)
+
+
+def _fc_msp_setting_name(args: argparse.Namespace) -> str:
+    name = _fc_selected_name(args)
+    if not name:
+        raise ValueError("Betaflight settings are selected by name, not by index")
+    return name
+
+
+def _fc(session: _FcSession, args: argparse.Namespace) -> int:
+    action = args.fc_action
+    if action in {"hello", "info"}:
+        print(_fc_identity_line(session))
+        return 0
+
+    if action == "status":
+        print(_fc_identity_line(session))
+        state = _fc_state(session)
+        _print_fc_state(state)
+        if args.json:
+            _write_json(args.json, {"identity": _fc_identity_line(session), "state": state})
+        return 0
+
+    if action == "params":
+        if session.protocol == "akp":
+            assert isinstance(session.client, AkClient)
+            for item in session.client.parameter_info():
                 print(
                     f"{item.index:3d} {item.name or '':24s} "
-                    f"{item.type or ''} {item.group_name or ''}"
+                    f"{item.type if item.type is not None else ''} "
+                    f"{item.group_name or ''}"
                 )
-        elif args.fc_action == "get":
-            value = client.get_parameter(args.index)
+            return 0
+        assert isinstance(session.client, MspClient)
+        names = args.name or []
+        if not names:
+            print(
+                "Betaflight does not enumerate settings; use "
+                "`--name NAME` (repeatable) or `ak fc get NAME`."
+            )
+            return 0
+        for name in names:
+            print(session.client.setting(name))
+        return 0
+
+    if action == "get":
+        if session.protocol == "akp":
+            assert isinstance(session.client, AkClient)
+            value = session.client.get_parameter(_fc_index(args, session.client))
             print(f"{value.name}={value.value} status={value.status}")
-        elif args.fc_action == "set":
-            _require_write(args)
-            result = client.set_parameter(
-                args.index, str(args.value), allow_write=True
+        else:
+            assert isinstance(session.client, MspClient)
+            print(session.client.setting(_fc_msp_setting_name(args)))
+        return 0
+
+    if action == "set":
+        _require_write(args)
+        value = _fc_argument_value(args)
+        if value is None:
+            raise ValueError("fc set requires a value")
+        _require_fc_disarmed(session)
+        if session.protocol == "akp":
+            assert isinstance(session.client, AkClient)
+            result = session.client.set_parameter(
+                _fc_index(args, session.client),
+                str(value),
+                allow_write=True,
             )
             print(f"status={result.status} {result.message}")
-        elif args.fc_action == "save":
-            _require_write(args)
-            result = client.save_parameters(allow_write=True)
+        else:
+            assert isinstance(session.client, MspClient)
+            print(session.client.set_setting(
+                _fc_msp_setting_name(args),
+                value,
+                allow_write=True,
+            ))
+        return 0
+
+    if action == "save":
+        _require_write(args)
+        _require_fc_disarmed(session)
+        if session.protocol == "akp":
+            assert isinstance(session.client, AkClient)
+            result = session.client.save_parameters(allow_write=True)
             print(f"status={result.status} {result.message}")
-        elif args.fc_action == "telemetry":
-            rate = client.telemetry_subscribe(args.hz)
-            print(f"telemetry_rate={rate}")
-            if rate:
-                telemetry = client.telemetry_next()
-                print(
-                    f"uptime_ms={telemetry.uptime_ms} "
-                    f"flight_state={telemetry.status.flight_state} "
-                    f"link_live={telemetry.status.link_live}"
-                )
-        elif args.fc_action == "logs":
-            print(f"records={client.log_info().count}")
-            if args.index is not None:
-                print(client.log_record(args.index))
+        else:
+            assert isinstance(session.client, MspClient)
+            session.client.save(allow_write=True)
+            print("save acknowledged by the flight controller")
+        return 0
+
+    if action in {"telemetry", "monitor"}:
+        samples = 1 if action == "telemetry" else max(
+            1, int(round(args.duration * args.hz))
+        )
+        interval = 0.0 if action == "telemetry" else 1.0 / max(1.0, args.hz)
+        rows: list[dict[str, object]] = []
+        for number in range(samples):
+            state = _fc_state(session)
+            rows.append({"time": time.time(), "state": state})
+            _print_fc_state(state)
+            if number + 1 < samples:
+                time.sleep(interval)
+        if args.json:
+            _write_json(args.json, rows)
+        return 0
+
+    if action == "rc":
+        if session.protocol == "akp":
+            assert isinstance(session.client, AkClient)
+            rc = session.client.rc_channels()
+            print(
+                f"status={rc.status_name} protocol={rc.protocol_name or ''} "
+                f"link={'link' in rc.flag_names} "
+                f"channels={','.join(map(str, rc.channels)) or 'none'}"
+            )
+        else:
+            assert isinstance(session.client, MspClient)
+            print("channels=" + ",".join(map(str, session.client.rc_channels())))
+        return 0
+
+    if action == "preflight":
+        if session.protocol == "akp":
+            assert isinstance(session.client, AkClient)
+            for line in session.client.preflight():
+                print(f"{line.name} verdict={line.verdict} {line.detail}")
+        else:
+            state = _fc_state(session)
+            print(
+                f"armed={_as_int(state.get('armed', 0))} "
+                f"arming_disable_flags={state.get('arming_disable_flags', 'unknown')}"
+            )
+        return 0
+
+    if action == "logs":
+        if session.protocol != "akp":
+            raise ValueError("MSP/Betaflight does not expose the Aerial Kit log store")
+        assert isinstance(session.client, AkClient)
+        print(f"records={session.client.log_info().count}")
+        if args.index is not None:
+            print(session.client.log_record(args.index))
+        return 0
+
+    raise ValueError(f"unknown flight-controller action {action!r}")
+
+
+def _fc_command(args: argparse.Namespace) -> int:
+    if args.fc_action in {"set", "save"}:
+        _require_write(args)
+    if args.fc_action in {"get", "set"} and (
+        args.index is None and _fc_selected_name(args) is None
+    ):
+        raise ValueError("fc get/set requires --index or a parameter/setting name")
+    if args.fc_action == "set" and _fc_argument_value(args) is None:
+        raise ValueError("fc set requires a value")
+    if args.duration < 0:
+        raise ValueError("fc duration must not be negative")
+    if args.hz <= 0:
+        raise ValueError("fc hz must be positive")
+    session = _connect_fc(args)
+    try:
+        return _fc(session, args)
     finally:
-        client.close()
+        session.transport.close()
 
 
 def _mavlink(args: argparse.Namespace) -> None:
@@ -832,6 +1152,31 @@ def build_parser(prog: str = "aerial-kit-link") -> argparse.ArgumentParser:
         default="disarmed",
     )
     radio.add_argument("--arm-hold", type=float, default=0.75)
+    radio.add_argument(
+        "--sticks",
+        metavar="ROLL,PITCH,YAW,THROTTLE",
+        help="hold one normalised stick command after the arm sequence",
+    )
+    radio.add_argument(
+        "--confirm-arm",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="required together with --write for --sticks",
+    )
+    radio.add_argument(
+        "--profile",
+        choices=("aerial-kit", "betaflight"),
+        default="aerial-kit",
+        help="switch defaults: Aerial Kit arm CH6/mode CH5; Betaflight arm CH5/mode CH7",
+    )
+    radio.add_argument("--arm-channel", type=int)
+    radio.add_argument("--mode-channel", type=int)
+    radio.add_argument(
+        "--velocity-channel",
+        type=int,
+        default=0,
+        help="Aerial Kit velocity-hold AUX channel; 0 disables it",
+    )
     radio.add_argument("--role", choices=("auto", "tx", "rx"), default="auto")
     radio.add_argument("--file")
     radio.add_argument("--uid")
@@ -853,19 +1198,61 @@ def build_parser(prog: str = "aerial-kit-link") -> argparse.ArgumentParser:
     )
     radio.set_defaults(handler=_radio)
 
-    fc = commands.add_parser("fc", help="query an Aerial Kit flight controller")
+    fc = commands.add_parser("fc", help="query Aerial Kit or Betaflight")
+    fc_transport = fc.add_mutually_exclusive_group()
+    fc_transport.add_argument("--port", default=argparse.SUPPRESS)
+    fc_transport.add_argument("--host", default=argparse.SUPPRESS)
+    fc_transport.add_argument(
+        "--radio",
+        metavar="PORT",
+        default=argparse.SUPPRESS,
+        help="carry Aerial Kit AKP over an ELRS transmitter module",
+    )
+    fc.add_argument("--baud", type=int, default=argparse.SUPPRESS)
+    fc.add_argument("--timeout", type=float, default=argparse.SUPPRESS)
     fc.add_argument(
         "fc_action",
-        choices=("hello", "params", "get", "set", "save", "telemetry", "logs"),
+        choices=(
+            "hello",
+            "info",
+            "status",
+            "params",
+            "get",
+            "set",
+            "save",
+            "telemetry",
+            "monitor",
+            "rc",
+            "preflight",
+            "logs",
+        ),
+    )
+    fc.add_argument(
+        "field",
+        nargs="?",
+        help="parameter index or Betaflight setting name",
+    )
+    fc.add_argument("fc_value", nargs="?")
+    fc.add_argument(
+        "--protocol",
+        choices=("auto", "akp", "betaflight"),
+        default="auto",
     )
     fc.add_argument("--index", type=int)
+    fc.add_argument(
+        "--name",
+        action="append",
+        help="Betaflight setting name; repeatable for `fc params`",
+    )
     fc.add_argument("--value", type=float)
-    fc.add_argument("--hz", type=int, default=0)
+    fc.add_argument("--hz", type=float, default=5.0)
+    fc.add_argument("--duration", type=float, default=1.0)
+    fc.add_argument("--json")
     fc.add_argument(
         "--write", action="store_true", default=argparse.SUPPRESS,
         help="allow a device mutation",
     )
-    fc.set_defaults(handler=_fc)
+    fc.set_defaults(handler=_fc_command)
 
     mav = commands.add_parser("mavlink", help="query a PX4 or ArduPilot vehicle")
     mav.add_argument("mav_action", choices=("status", "params", "mission"))

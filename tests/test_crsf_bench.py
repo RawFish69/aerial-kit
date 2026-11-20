@@ -17,6 +17,7 @@ from aerial_kit.comms.crsf import (
     CRSF_FRAMETYPE_LINK_STATISTICS,
     CrsfChannelMap,
     CrsfParser,
+    RcSticks,
     MemoryTransport,
     capture_link,
     default_telemetry_frames,
@@ -215,6 +216,43 @@ def test_drive_requires_write_and_disarms_when_cancelled() -> None:
     final = CrsfParser().feed(armed_transport.drain_tx())[-1]
     final_channels = unpack_channels(final.payload)
     assert final_channels[CrsfChannelMap().arm - 1] < CrsfChannelMap().arm_threshold
+
+
+def test_drive_holds_an_explicit_stick_setpoint_after_arming() -> None:
+    transport = MemoryTransport(timeout=0.0)
+    channel_map = CrsfChannelMap(arm=5, mode=7)
+    sticks = RcSticks(roll=0.2, pitch=-0.1, yaw=0.3, throttle=0.4)
+    report = drive_link(
+        transport,
+        hz=100,
+        duration=0.70,
+        pattern="disarmed",
+        arm_hold_sec=0.55,
+        allow_write=True,
+        channel_map=channel_map,
+        sticks=sticks,
+    )
+    assert report.passed
+    assert report.pattern == "custom"
+    frames = [
+        frame
+        for frame in CrsfParser().feed(transport.drain_tx())
+        if frame.frame_type == 0x16
+    ]
+    decoded = [unpack_channels(frame.payload) for frame in frames]
+    armed = [
+        channels for channels in decoded
+        if channels[channel_map.arm - 1] >= channel_map.arm_threshold
+    ]
+    assert armed
+    command_frames = [
+        channels for channels in armed
+        if channels[channel_map.throttle - 1] > CRSF_CHANNEL_MIN
+    ]
+    assert command_frames
+    assert command_frames[-1][channel_map.roll - 1] > CRSF_CHANNEL_MID
+    assert command_frames[-1][channel_map.pitch - 1] < CRSF_CHANNEL_MID
+    assert command_frames[-1][channel_map.yaw - 1] > CRSF_CHANNEL_MID
 
 
 def test_inject_validates_and_sends_telemetry_only(tmp_path: Path) -> None:

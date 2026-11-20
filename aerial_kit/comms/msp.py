@@ -10,10 +10,12 @@ MAVLink. A window that talks to more than one of them knows more than one of
 them, and this is the file that knows MSP - what the owner asked for
 (`docs/27-configurator.md`).
 
-**What it is not.** Read-only, deliberately, and for the reason the goal's note
-gives: parameter *writes* to somebody else's firmware are how a tool crashes an
-aircraft. Nothing here has a write command, and the window says so rather than
-offering a button that does nothing.
+**What is safe by default.** The `Msp` alias and the firmware command wrapper
+are read-only. `MspClient` exposes the settings, save and raw-RC writes the
+unified CLI needs, but every one requires `allow_write=True`, and the CLI adds
+`--write` plus a fresh disarmed-state check. Parameter writes to somebody
+else's firmware are how a tool crashes an aircraft, so none of them are
+reachable through construction or a read.
 
 **Where the bytes come from.** Every frame below is Betaflight's own
 implementation, not a summary of it: `upstream/betaflight-2026.6.1/src/main/
@@ -53,6 +55,8 @@ import struct
 import sys
 import threading
 import time
+from collections.abc import Callable, Iterable
+from typing import cast
 
 FRAME_REQUEST = b"$M<"
 FRAME_REPLY = b"$M>"
@@ -79,6 +83,12 @@ MSP_RC = 105
 MSP_RAW_GPS = 106
 MSP_ATTITUDE = 108
 MSP_ANALOG = 110
+
+# The write side used by the opt-in client and the unified flight-controller
+# CLI. `MSP_SET_RAW_RC` is only effective when Betaflight is configured to use
+# MSP as the receiver or has MSP override enabled; the client does not infer
+# that from a successful frame.
+MSP_SET_RAW_RC = 200
 
 # The two commands a Betaflight board's *settings* answer on, from
 # `msp_protocol_v2_betaflight.h` - and the reason they are up here rather than
@@ -130,7 +140,7 @@ class Error(IOError):
 
 
 class MspWriteRefused(Error):
-    """The library-facing MSP client is query-only."""
+    """A mutation was requested without the client's explicit write gate."""
 
 
 # Stable library-facing names. The legacy tools already import the short
@@ -578,6 +588,127 @@ class ReadOnlyMsp:
 Msp = ReadOnlyMsp
 
 
+RawRcValue = int | float | str | bytes | bytearray
+
+
+def _validate_raw_rc(channels: Iterable[RawRcValue]) -> tuple[int, ...]:
+    """Normalise one PWM channel set for `MSP_SET_RAW_RC`.
+
+    Betaflight accepts the same pulse widths its receiver would produce. The
+    bounds are deliberately narrower than `uint16`: a typo such as milliseconds
+    instead of microseconds must not become a command near the top of that
+    integer range.
+    """
+
+    try:
+        values = tuple(int(value) for value in channels)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("raw RC channels must be integers") from exc
+    if not 1 <= len(values) <= 16:
+        raise ValueError("raw RC requires 1..16 channels")
+    if any(value < 800 or value > 2200 for value in values):
+        raise ValueError("raw RC channel values must be in 800..2200 us")
+    return values
+
+
+class MspClient:
+    """Typed MSP client with mutations available only through explicit gates.
+
+    Reads are ordinary methods. ``set_setting``, ``save`` and ``set_raw_rc``
+    require ``allow_write=True`` at the call site; construction and reads never
+    mutate a board. The CLI adds its own ``--write`` command-line gate and an
+    armed-state check before using this class.
+    """
+
+    def __init__(
+        self,
+        read: Callable[[int, float | None], bytes],
+        write: Callable[[bytes], object],
+        timeout: float = 1.0,
+    ) -> None:
+        self.timeout = float(timeout)
+        self._client = _MspClient(read, write, timeout=timeout)
+
+    @property
+    def frames(self) -> int:
+        return int(self._client.frames)
+
+    @property
+    def unsolicited(self) -> int:
+        return int(self._client.unsolicited)
+
+    @property
+    def noise(self) -> int:
+        return int(self._client.noise)
+
+    def request(
+        self,
+        command: int,
+        payload: bytes = b"",
+        timeout: float | None = None,
+    ) -> bytes:
+        return cast(bytes, self._client.request(command, payload, timeout))
+
+    def request_v2(
+        self,
+        function: int,
+        payload: bytes = b"",
+        timeout: float | None = None,
+    ) -> tuple[bytes, int]:
+        return cast(
+            tuple[bytes, int],
+            self._client.request_v2(function, payload, timeout),
+        )
+
+    def setting(self, name: str, timeout: float | None = None) -> str:
+        return str(self._client.setting(name, timeout))
+
+    def setting_info(self, name: str, timeout: float | None = None) -> str:
+        return str(self._client.setting_info(name, timeout))
+
+    def rc_channels(self) -> tuple[int, ...]:
+        payload = self.request(MSP_RC)
+        return tuple(int(value) for value in decode_rc(payload)["channels"])
+
+    def set_setting(
+        self,
+        name: str,
+        value: object,
+        *,
+        allow_write: bool = False,
+        timeout: float | None = None,
+    ) -> str:
+        if not allow_write:
+            raise MspWriteRefused("MSP setting writes require allow_write=True")
+        if not name:
+            raise ValueError("setting name must not be empty")
+        return str(self._client.set_setting(name, value, timeout))
+
+    def save(
+        self,
+        *,
+        allow_write: bool = False,
+        timeout: float | None = None,
+    ) -> None:
+        if not allow_write:
+            raise MspWriteRefused("MSP save requires allow_write=True")
+        self._client.save(timeout)
+
+    def set_raw_rc(
+        self,
+        channels: Iterable[RawRcValue],
+        *,
+        allow_write: bool = False,
+        timeout: float | None = None,
+    ) -> tuple[int, ...]:
+        if not allow_write:
+            raise MspWriteRefused("MSP raw RC requires allow_write=True")
+        values = _validate_raw_rc(channels)
+        payload = b"".join(struct.pack("<H", value) for value in values)
+        self._client.request(MSP_SET_RAW_RC, payload, timeout)
+        return values
+
+
 # --- the commands this file reads, and what their answers mean -------------
 #
 # Each decoder is written against the handler in Betaflight's msp.c and cites
@@ -650,13 +781,25 @@ def decode_board_info(payload):
 
 
 def decode_status(payload):
-    """`MSP_STATUS` -> cycle time, sensors, the arming flags (msp.c)."""
+    """`MSP_STATUS` -> timing, sensors, mode and arming-disable flags (msp.c)."""
     if len(payload) < 11:
         raise ProtocolError("status needs 11 bytes, got %u" % len(payload))
     cycle, i2c_errors, sensors = struct.unpack_from("<HHH", payload, 0)
     modes = struct.unpack_from("<I", payload, 6)[0]
-    return {"cycletime_us": cycle, "i2c_errors": i2c_errors,
-            "sensors": sensors, "modes": modes, "profile": payload[10]}
+    out = {"cycletime_us": cycle, "i2c_errors": i2c_errors,
+           "sensors": sensors, "modes": modes, "profile": payload[10],
+           "load_pct": None, "arming_disable_flags": None}
+    if len(payload) >= 13:
+        out["load_pct"] = struct.unpack_from("<H", payload, 11)[0]
+    # The current status frame carries a counted extension of the mode flags,
+    # then the count and value of the arming-disable flags. Older replies stop
+    # earlier; leaving these as None is different from claiming "not disabled".
+    if len(payload) >= 15:
+        extended = payload[13]
+        at = 14 + extended
+        if len(payload) >= at + 5:
+            out["arming_disable_flags"] = struct.unpack_from("<I", payload, at + 1)[0]
+    return out
 
 
 def decode_attitude(payload):
@@ -777,6 +920,8 @@ def state(msp):
         "vbat_v": analog["vbat_v"],
         "mah": analog["mah"],
         "cycletime_us": status["cycletime_us"],
+        "load_pct": status["load_pct"],
+        "arming_disable_flags": status["arming_disable_flags"],
         "sensors": status["sensors"],
         "modes": status["modes"],
     }

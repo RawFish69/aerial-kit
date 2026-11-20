@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from argparse import Namespace
 import json
+import struct
 from types import SimpleNamespace
 
 import pytest
 
 from aerial_kit.comms.cli import (
     _parameter_client,
+    _radio_channel_map,
     _radio_link,
     _require_write,
     build_parser,
@@ -17,6 +19,7 @@ from aerial_kit.comms.akp import AkError
 from aerial_kit.comms import msp
 from aerial_kit.comms.crsf import CRSF_BAUD
 from aerial_kit.comms.crsf import CrsfTimeout
+from aerial_kit.comms.transport import MemoryTransport
 
 
 def test_cli_has_all_protocol_command_families() -> None:
@@ -30,6 +33,16 @@ def test_cli_has_all_protocol_command_families() -> None:
     assert radio.radio_action == "status"
     assert fc.fc_action == "hello"
     assert mav.mav_action == "status"
+
+
+def test_fc_options_are_accepted_before_and_after_the_subcommand() -> None:
+    parser = build_parser()
+    before = parser.parse_args(["--port", "/dev/a", "fc", "status"])
+    after = parser.parse_args(
+        ["fc", "status", "--port", "/dev/a", "--protocol", "betaflight"]
+    )
+    assert before.port == after.port == "/dev/a"
+    assert after.protocol == "betaflight"
 
 
 def test_cli_writes_require_explicit_flag() -> None:
@@ -122,9 +135,12 @@ def test_missing_write_arguments_fail_before_opening_a_transport(monkeypatch) ->
     def fail(_args):
         pytest.fail("transport was opened before argument validation")
 
-    monkeypatch.setattr("aerial_kit.comms.cli._akp_client", fail)
+    monkeypatch.setattr("aerial_kit.comms.cli._connect_fc", fail)
     assert main(["--port", "/dev/fake", "fc", "get"]) == 1
     assert main(["--port", "/dev/fake", "fc", "set", "--index", "1"]) == 1
+    assert main(
+        ["fc", "set", "failsafe_throttle", "1200", "--port", "/dev/fake"]
+    ) == 1
 
 
 def test_write_flag_is_accepted_after_the_subcommand() -> None:
@@ -139,7 +155,7 @@ def test_protocol_failures_are_printed_without_a_traceback(monkeypatch, capsys) 
     def fail(_args):
         raise AkError("board refused the query")
 
-    monkeypatch.setattr("aerial_kit.comms.cli._akp_client", fail)
+    monkeypatch.setattr("aerial_kit.comms.cli._connect_fc", fail)
     assert main(["--port", "/dev/fake", "fc", "hello"]) == 1
     captured = capsys.readouterr()
     assert "board refused the query" in captured.err
@@ -198,12 +214,49 @@ def test_radio_bench_parser_supports_documented_forms() -> None:
     assert (bench.tx, bench.rx) == ("/dev/ttyACM0", "/dev/ttyACM1")
 
 
+def test_radio_profiles_map_aerial_kit_and_betaflight_switches() -> None:
+    parser = build_parser()
+    ak = parser.parse_args(["radio", "drive", "--port", "/dev/a"])
+    bf = parser.parse_args(
+        ["radio", "drive", "--port", "/dev/a", "--profile", "betaflight"]
+    )
+    override = parser.parse_args(
+        [
+            "radio", "drive", "--port", "/dev/a", "--profile", "betaflight",
+            "--arm-channel", "8", "--mode-channel", "9",
+        ]
+    )
+    assert (_radio_channel_map(ak).arm, _radio_channel_map(ak).mode) == (6, 5)
+    assert (_radio_channel_map(bf).arm, _radio_channel_map(bf).mode) == (5, 7)
+    assert (
+        _radio_channel_map(override).arm,
+        _radio_channel_map(override).mode,
+    ) == (8, 9)
+
+
+def test_radio_custom_sticks_require_a_second_arm_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(_args):
+        pytest.fail("transport was opened before arm confirmation")
+
+    monkeypatch.setattr("aerial_kit.comms.cli._radio_link", fail)
+    assert main([
+        "radio", "drive", "--port", "/dev/a", "--duration", "1",
+        "--sticks", "0.2,-0.1,0.3,0.4", "--write",
+    ]) == 1
+
+
 def test_radio_mutation_is_refused_before_opening_a_port(monkeypatch) -> None:
     def fail(_args):
         pytest.fail("transport was opened before write authorization")
 
     monkeypatch.setattr("aerial_kit.comms.cli._radio_link", fail)
     assert main(["radio", "drive", "--port", "/dev/fake"]) == 1
+    assert main([
+        "radio", "drive", "--port", "/dev/fake",
+        "--sticks", "0,0,0", "--confirm-arm", "--write",
+    ]) == 1
     assert main(["radio", "inject", "--port", "/dev/fake", "--file", "x"]) == 1
     assert main(
         ["radio", "bench", "--tx", "/dev/a", "--rx", "/dev/b"]
@@ -469,6 +522,154 @@ def test_no_capture_frames_is_failure(monkeypatch) -> None:
     assert main(["radio", "capture", "--port", "/dev/radio", "--duration", "1"]) == 1
 
 
-def test_write_capable_msp_client_is_private() -> None:
+def test_public_msp_client_keeps_writes_explicitly_gated() -> None:
     assert hasattr(msp, "Msp")
-    assert not hasattr(msp, "MspClient")
+    assert hasattr(msp, "MspClient")
+    with pytest.raises(msp.MspWriteRefused):
+        msp.MspClient(lambda _n, _t: b"", lambda _b: None).set_raw_rc((1500,))
+
+
+class _BetaflightTransport(MemoryTransport):
+    def __init__(self) -> None:
+        super().__init__(timeout=0.0)
+        self.saved = 0
+        self.armed = False
+        self.setting_writes: list[tuple[str, str]] = []
+
+    def _write(self, data: bytes) -> int:
+        if data.startswith(b"$M<"):
+            command = data[4]
+            payload = data[5:-1]
+            self._answer_v1(command, payload)
+        elif data.startswith(b"$X<"):
+            function = data[4] | (data[5] << 8)
+            size = data[6] | (data[7] << 8)
+            self._answer_v2(function, data[8:8 + size])
+        return len(data)
+
+    def _reply_v1(self, command: int, payload: bytes) -> None:
+        self.feed(
+            b"$M>" + bytes((len(payload), command)) + payload
+            + bytes((msp.checksum(command, payload),))
+        )
+
+    def _reply_v2(self, function: int, payload: bytes) -> None:
+        header = bytes(
+            (
+                0,
+                function & 0xFF,
+                function >> 8,
+                len(payload) & 0xFF,
+                len(payload) >> 8,
+            )
+        )
+        self.feed(
+            b"$X>" + header + payload + bytes((msp.crc8_dvb_s2(header + payload),))
+        )
+
+    def _answer_v1(self, command: int, payload: bytes) -> None:
+        if command == msp.MSP_API_VERSION:
+            self._reply_v1(command, bytes((0, 1, 48)))
+        elif command == msp.MSP_FC_VARIANT:
+            self._reply_v1(command, b"BTFL")
+        elif command == msp.MSP_FC_VERSION:
+            self._reply_v1(command, bytes((26, 6, 1, 8)) + b"2026.6.1")
+        elif command == msp.MSP_BOARD_INFO:
+            self._reply_v1(
+                command,
+                b"S405" + bytes(4)
+                + bytes((7,)) + b"AKTEST" + bytes((9,)) + b"AerialKit"
+                + bytes((2,)) + b"AK",
+            )
+        elif command == msp.MSP_STATUS:
+            self._reply_v1(
+                command,
+                struct.pack("<HHHI", 1000, 0, 0x2B, int(self.armed))
+                + bytes((0, 0))
+                + bytes((0, 3))
+                + struct.pack("<I", 0),
+            )
+        elif command == msp.MSP_ATTITUDE:
+            self._reply_v1(command, bytes(6))
+        elif command == msp.MSP_ANALOG:
+            self._reply_v1(command, bytes((126, 0, 0, 0, 0, 0, 0, 0, 0)))
+        elif command == msp.MSP_RAW_GPS:
+            self._reply_v1(command, bytes(16))
+        elif command == msp.MSP_MOTOR:
+            self._reply_v1(command, bytes(16))
+        elif command == msp.MSP_EEPROM_WRITE:
+            self.saved += 1
+            self._reply_v1(command, b"")
+
+    def _answer_v2(self, function: int, payload: bytes) -> None:
+        if function != msp.MSP2_CLI_SETTING:
+            self._reply_v2(function, b"")
+            return
+        text = payload.decode("ascii")
+        name, separator, value = text.partition("=")
+        if name.strip() != "failsafe_throttle":
+            self._reply_v2(function, b"")
+            return
+        if separator:
+            self.setting_writes.append((name.strip(), value.strip()))
+        answer = "failsafe_throttle = %s" % (
+            value.strip() if separator else "1050"
+        )
+        self._reply_v2(function, answer.encode())
+
+
+def test_fc_auto_detects_betaflight_and_uses_named_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = _BetaflightTransport()
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._transport_from_args",
+        lambda _args: transport,
+    )
+    assert main(
+        ["fc", "status", "--port", "/dev/fake", "--timeout", "0.01"]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "protocol=betaflight Betaflight 2026.6.1" in output
+    assert "armed=0" in output
+
+
+def test_fc_betaflight_set_checks_arming_and_is_explicitly_gated(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = _BetaflightTransport()
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._transport_from_args",
+        lambda _args: transport,
+    )
+    assert main(
+        [
+            "fc", "set", "failsafe_throttle", "1200",
+            "--port", "/dev/fake", "--protocol", "betaflight",
+            "--timeout", "0.01", "--write",
+        ]
+    ) == 0
+    assert "failsafe_throttle = 1200" in capsys.readouterr().out
+
+
+def test_fc_betaflight_rejects_writes_while_armed(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = _BetaflightTransport()
+    transport.armed = True
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._transport_from_args",
+        lambda _args: transport,
+    )
+    assert main(
+        [
+            "fc", "set", "failsafe_throttle", "1200",
+            "--port", "/dev/fake", "--protocol", "betaflight",
+            "--timeout", "0.01", "--write",
+        ]
+    ) == 1
+    assert "is armed" in capsys.readouterr().err
+    assert transport.setting_writes == []
