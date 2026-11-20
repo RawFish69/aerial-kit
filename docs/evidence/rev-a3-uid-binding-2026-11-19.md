@@ -57,10 +57,11 @@ TX application: ec2c2803f95474bb56a88b45b8379eff0906d2e59712d53eac5a968bef81e7b9
 RX application: 76f6dcdbd5e05b5b356b8b11bc5900c4a46d998a2959aacdec06ef5cc6c9e80b
 ```
 
-The companion 0.4.2 client rejects `chunksRemaining=0xff` as an out-of-range
-stale chunk, validates response addressing, and paces every successive chunk
-before retrying missing chunks. Its `ak radio diag` command captures `AK-BOOT`
-as JSON.
+The companion 0.4.3 client rejects `chunksRemaining=0xff` as an out-of-range
+stale chunk, validates response addressing, preserves adjacent CRSF frames
+from the same USB read, addresses RX parameters to `0xEC`, and paces every
+successive chunk before retrying missing chunks. Its `ak radio diag` command
+captures `AK-BOOT` as JSON.
 
 The next candidate aligns RX's initial search mode with TX's default LoRa
 250 Hz mode. `bfff8af5…` exposed TX `rate_idx=6/enum=27/4000us` and RX
