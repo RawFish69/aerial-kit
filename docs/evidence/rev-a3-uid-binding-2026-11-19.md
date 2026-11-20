@@ -221,3 +221,21 @@ Functional and telemetry results:
 Power cycles 2-3 and extended range/attenuation remain NOT TESTED. The accepted
 hardware scope is the A+B pair with the exact artifact and checksums recorded
 in `firmware/elrs-usb-tx-rev-a3/releases/9b48f01f/`.
+
+### External Betaflight receiver check
+
+Factory TX board A, `90:70:69:28:56:E4`, was connected to an external
+Betaflight drone receiver configured for 2G4 RX at 100 mW and ExpressLRS
+4.1.0. Both used UID `10:73:a1:1f:a8:0f`. With propellers removed, the
+receiver acquired the link in approximately 10-15 seconds, showed a solid
+link LED and produced live changing `MSP_RC` frames.
+
+Control paths verified on the vehicle bench:
+
+- AUX1 / CRSF channel 5 performed the arm sequence after a three-second
+  minimum-throttle hold and subsequently disarmed automatically;
+- AUX5 / CRSF channel 9, using the 1950-2050 range, triggered
+  `play_sound 4: ARMING` on the beeper.
+
+This is a props-off receiver/control check. It does not establish flight,
+range, link margin at distance, or production readiness.
