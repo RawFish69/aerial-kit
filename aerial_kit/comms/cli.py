@@ -22,6 +22,7 @@ from .crsf import (
     CRSF_ADDRESS_BROADCAST,
     CRSF_ADDRESS_CRSF_TRANSMITTER,
     CRSF_ADDRESS_ELRS_LUA,
+    CRSF_ADDRESS_RADIO_TRANSMITTER,
     CRSF_ADDRESS_RECEIVER,
     CRSF_RX_FC_BAUD,
     CrsfAkpTunnel,
@@ -210,6 +211,36 @@ def _uid_client(
         link,
         destination=destination,
         origin=CRSF_ADDRESS_ELRS_LUA,
+        timeout=timeout,
+    )
+
+
+def _parameter_client(
+    link: CrsfLink,
+    *,
+    role: str,
+    timeout: float,
+) -> CrsfParameterClient:
+    if role == "rx":
+        destination = CRSF_ADDRESS_RECEIVER
+    elif role == "tx":
+        destination = CRSF_ADDRESS_CRSF_TRANSMITTER
+    else:
+        info = CrsfParameterClient(
+            link,
+            destination=CRSF_ADDRESS_BROADCAST,
+            origin=CRSF_ADDRESS_RADIO_TRANSMITTER,
+            timeout=timeout,
+        ).ping(timeout=max(3.0, timeout))
+        destination = (
+            CRSF_ADDRESS_RECEIVER
+            if info.origin == CRSF_ADDRESS_RECEIVER
+            else CRSF_ADDRESS_CRSF_TRANSMITTER
+        )
+    return CrsfParameterClient(
+        link,
+        destination=destination,
+        origin=CRSF_ADDRESS_RADIO_TRANSMITTER,
         timeout=timeout,
     )
 
@@ -566,7 +597,11 @@ def _radio(args: argparse.Namespace) -> int:
     link = _radio_link(args)
     transport = link.transport
     try:
-        client = CrsfParameterClient(link, timeout=args.timeout)
+        client = (
+            _parameter_client(link, role=args.role, timeout=args.timeout)
+            if args.radio_action in {"params", "get", "set"}
+            else CrsfParameterClient(link, timeout=args.timeout)
+        )
         if args.radio_action == "params":
             for parameter in client.read_parameter_tree().values():
                 _print_parameter(parameter)

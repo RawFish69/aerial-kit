@@ -6,7 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from aerial_kit.comms.cli import _radio_link, _require_write, build_parser, main
+from aerial_kit.comms.cli import (
+    _parameter_client,
+    _radio_link,
+    _require_write,
+    build_parser,
+    main,
+)
 from aerial_kit.comms.akp import AkError
 from aerial_kit.comms import msp
 from aerial_kit.comms.crsf import CRSF_BAUD
@@ -99,6 +105,15 @@ def test_radio_link_defaults_to_crsf_baud(monkeypatch) -> None:
     link = _radio_link(args)
     assert captured["baudrate"] == CRSF_BAUD
     assert link.transport.port == "/dev/radio"
+
+
+def test_parameter_client_uses_the_selected_endpoint() -> None:
+    link = SimpleNamespace()
+    tx = _parameter_client(link, role="tx", timeout=1.0)
+    rx = _parameter_client(link, role="rx", timeout=1.0)
+    assert tx.destination == 0xEE
+    assert rx.destination == 0xEC
+    assert tx.origin == rx.origin == 0xEA
 
 
 def test_missing_write_arguments_fail_before_opening_a_transport(monkeypatch) -> None:

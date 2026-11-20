@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import struct
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 from .codec import (
@@ -272,6 +273,7 @@ class CrsfParameterClient:
         self.origin = origin
         self.timeout = timeout
         self.chunk_interval = max(0.0, float(chunk_interval))
+        self._pending_frames: deque[CrsfFrame] = deque()
 
     def ping(self, *, destination: int | None = None, timeout: float | None = None) -> CrsfDeviceInfo:
         target = self.destination if destination is None else destination
@@ -502,28 +504,26 @@ class CrsfParameterClient:
     ) -> CrsfFrame:
         deadline = time.monotonic() + timeout
         while (remaining := deadline - time.monotonic()) >= 0:
-            frames = self.link.poll(512, timeout=remaining)
-            for frame in frames:
-                if frame.frame_type != frame_type:
+            if self._pending_frames:
+                frame = self._pending_frames.popleft()
+            else:
+                frames = self.link.poll(512, timeout=remaining)
+                if not frames:
                     continue
-                if frame_type == CRSF_FRAMETYPE_DEVICE_INFO:
-                    if len(frame.payload) < 2:
-                        continue
-                    destination, origin = frame.payload[0], frame.payload[1]
-                    if destination not in (self.origin, CRSF_ADDRESS_BROADCAST):
-                        continue
-                    if self.destination != CRSF_ADDRESS_BROADCAST and origin != self.destination:
-                        continue
-                if addresses:
-                    if len(frame.payload) < 2:
-                        continue
-                    destination, origin = frame.payload[0], frame.payload[1]
-                    if destination not in (self.origin, CRSF_ADDRESS_BROADCAST):
-                        continue
-                    if self.destination != CRSF_ADDRESS_BROADCAST and origin != self.destination:
-                        continue
-                if field_id is not None:
-                    if len(frame.payload) < 3 or frame.payload[2] != field_id:
-                        continue
-                return frame
+                self._pending_frames.extend(frames)
+                continue
+            if frame.frame_type != frame_type:
+                continue
+            if frame_type == CRSF_FRAMETYPE_DEVICE_INFO or addresses:
+                if len(frame.payload) < 2:
+                    continue
+                destination, origin = frame.payload[0], frame.payload[1]
+                if destination not in (self.origin, CRSF_ADDRESS_BROADCAST):
+                    continue
+                if self.destination != CRSF_ADDRESS_BROADCAST and origin != self.destination:
+                    continue
+            if field_id is not None:
+                if len(frame.payload) < 3 or frame.payload[2] != field_id:
+                    continue
+            return frame
         raise CrsfTimeout(f"no CRSF frame type 0x{frame_type:02x} before timeout")
