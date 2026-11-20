@@ -12,6 +12,7 @@
 // core-0 task, so frames are never sent concurrently from two contexts.
 
 #include "aerialkit_led_state_machine.h"
+#include "aerialkit_boot_diagnostics.h"
 
 #include "common.h"
 #include "devLED.h"
@@ -200,6 +201,7 @@ void aerialkitLedMarkSerialInput()
 void aerialkitLedObserveFrame(const void *frame)
 {
     const auto *bytes = static_cast<const uint8_t *>(frame);
+    aerialkitRfNoteUsbFrame(bytes[2]);
     if (aerialkit_led_permutation_frame(bytes, OWN_CRSF_ADDRESS))
     {
         permutationTestRequested = true;

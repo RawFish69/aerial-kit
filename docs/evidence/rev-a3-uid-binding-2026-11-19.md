@@ -127,3 +127,15 @@ RX application: 245172869621b768ac8ae9c50ea6089ba24bc01ee3054869d8ebc2d8fc979814
 Use `ak radio diag --watch-rf --duration 10` from the companion 0.4.5 client
 while the TX is driven. These counters distinguish software FEM control and
 SX1280 activity from an analog RF/antenna failure without external instruments.
+
+The first probe (`d308720e…`) showed TX remained in `noCrossfire`, with no
+TXEN transitions, while the host reported sending RC frames. The follow-up
+candidate adds native-USB parser counters and the configured link mode:
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: 2edc686e95af5ec933be8786d2605b8232d00697fd2ec52212131ae012a41cd5
+TX application: b4c4434f86950489dd6fb2cd38766c8f3a65ca226f20bc9bc8e8206b62c49dcc
+RX application: b137cc1d05a5c607b207c991ef56e79ccc8992cd73138d7654ecff122a7befb6
+```

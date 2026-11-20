@@ -218,6 +218,18 @@ class DualRoleArtifactTests(unittest.TestCase):
         self.assertIn(apply_rf_probe.MARKER, rx)
         bootstrap = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
         self.assertIn('python3 "$root/tools/apply_rf_probe.py"', bootstrap)
+        led = (
+            ROOT / "expresslrs-overlay" / "src" / "aerialkit_led_state.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("aerialkitRfNoteUsbFrame", led)
+        diagnostics = (
+            ROOT
+            / "expresslrs-overlay"
+            / "src"
+            / "aerialkit_boot_diagnostics.cpp"
+        ).read_text(encoding="utf-8")
+        for field in ("usb_frames=", "usb_rc=", "last_usb_type=", "linkmode="):
+            self.assertIn(field, diagnostics)
 
     def test_gpio4_high_is_tx_and_low_is_rx_everywhere(self) -> None:
         selector = (ROOT / "bootloader" / "selector.c").read_text(

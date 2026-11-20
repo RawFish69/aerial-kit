@@ -5,6 +5,7 @@
 #include "aerialkit_boot_diagnostics.h"
 #include "aerialkit_boot_logic.h"
 #include "common.h"
+#include "config.h"
 #include "FHSS.h"
 #include "OTA.h"
 
@@ -30,6 +31,9 @@ uint32_t txEnableHighSamples;
 uint32_t rxEnableHighSamples;
 uint32_t txEnableRises;
 uint32_t rxEnableRises;
+uint32_t usbFrames;
+uint32_t usbRcFrames;
+uint8_t lastUsbFrameType;
 
 const char *resetReasonName(esp_reset_reason_t reason)
 {
@@ -225,17 +229,27 @@ void aerialkitRfSample(uint32_t now)
     const auto *rate = ExpressLRS_currAirRate_Modparams;
     const int8_t rssiInst = Radio.GetRssiInst(SX12XX_Radio_All);
     const uint16_t irq = Radio.GetIrqStatus(SX12XX_Radio_All);
+#if defined(TARGET_TX)
+    const unsigned linkMode = config.GetLinkMode();
+#else
+    const unsigned linkMode = 0xffU;
+#endif
     char line[320];
     const int length = snprintf(
         line,
         sizeof(line),
         "AK-RF role=%s conn=%u rate_idx=%u rate_enum=%u "
+        "linkmode=%u usb_frames=%lu usb_rc=%lu last_usb_type=0x%02x "
         "txen=%u rxen=%u tx_high=%lu rx_high=%lu tx_rise=%lu rx_rise=%lu "
         "rssi_inst=%d last_rssi=%d last_snr=%d irq=0x%04x\r\n",
         RX_ROLE ? "rx" : "tx",
         static_cast<unsigned>(connectionState),
         rate != nullptr ? static_cast<unsigned>(rate->index) : 0xffU,
         rate != nullptr ? static_cast<unsigned>(rate->enum_rate) : 0xffU,
+        linkMode,
+        static_cast<unsigned long>(usbFrames),
+        static_cast<unsigned long>(usbRcFrames),
+        static_cast<unsigned>(lastUsbFrameType),
         static_cast<unsigned>(txEnable),
         static_cast<unsigned>(rxEnable),
         static_cast<unsigned long>(txEnableHighSamples),
@@ -254,6 +268,13 @@ void aerialkitRfSample(uint32_t now)
                 ? static_cast<size_t>(length)
                 : sizeof(line) - 1);
     }
+}
+
+void aerialkitRfNoteUsbFrame(uint8_t frame_type)
+{
+    usbFrames++;
+    usbRcFrames += frame_type == CRSF_FRAMETYPE_RC_CHANNELS_PACKED;
+    lastUsbFrameType = frame_type;
 }
 
 [[noreturn]] void aerialkitHardwareUndefinedFault()

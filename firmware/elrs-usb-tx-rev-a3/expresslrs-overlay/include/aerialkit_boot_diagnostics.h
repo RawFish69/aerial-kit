@@ -11,4 +11,5 @@ void aerialkitBootReport();
 // no-instrument bring-up. The sample is cheap; reporting is limited to the
 // first 15 seconds after boot.
 void aerialkitRfSample(uint32_t now);
+void aerialkitRfNoteUsbFrame(uint8_t frame_type);
 #endif
