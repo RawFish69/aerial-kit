@@ -13,6 +13,7 @@ handset_patch_file="$root/patches/expresslrs-4.1.0-native-handset.patch"
 hardening_patch_file="$root/patches/expresslrs-4.1.0-hardening.patch"
 led_state_patch_file="$root/patches/expresslrs-4.1.0-led-state.patch"
 rmt_led_patch_file="$root/patches/expresslrs-4.1.0-rmt-led.patch"
+rxtx_persistence_patch_file="$root/patches/expresslrs-4.1.0-rxtx-persistence.patch"
 stamp_file="$express/.aerialkit-bootstrap.sha256"
 mkdir -p "$vendor"
 
@@ -22,9 +23,10 @@ stamp="$({
         "$root/expresslrs-overlay" \
         "$root/partitions" \
         "$root/targets" \
-        "$root/tools/apply_targets.py" \
+        "$root/tools" \
         -type f -print0
-} | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+} | grep -zv '/__pycache__/' | grep -zv '\.pyc$' |
+    sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
 
 if [[ ! -e "$express/.git" ]]; then
     git clone --depth 1 --branch 4.1.0 \
@@ -57,6 +59,10 @@ else
     git -C "$express" apply "$hardening_patch_file"
     git -C "$express" apply "$led_state_patch_file"
     git -C "$express" apply "$rmt_led_patch_file"
+    git -C "$express" apply "$rxtx_persistence_patch_file"
+    python3 "$root/tools/apply_rf_defaults.py" "$express/src/src/rx_main.cpp"
+    python3 "$root/tools/apply_rf_probe.py" "$express/src/src"
+    python3 "$root/tools/apply_usb_rx_probe.py" "$express/src/src/tx_main.cpp"
     printf '%s\n' "$stamp" > "$stamp_file"
 fi
 

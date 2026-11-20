@@ -823,7 +823,7 @@ def main() -> int:
             "flash_size": FLASH_SIZE,
             "image_size": image_size,
             "sha256": sha256(merged),
-            "roles": {"gpio4_low": "tx", "gpio4_high": "rx"},
+            "roles": {"gpio4_low": "rx", "gpio4_high": "tx"},
             "partitions": {
                 name: {
                     "offset": hex(int(row["offset"])),

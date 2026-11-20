@@ -22,6 +22,62 @@ for both roles and does not require a USB-UART adapter or Wi-Fi:
 
 Two boards enumerate as two distinct `/dev/ttyACM*` devices.
 
+## UID and binding
+
+ExpressLRS's MSP RXTX configuration function is `0x2D`. UID read is
+subcommand `0x00`; binding phrase is subcommand `0x01`. The envelopes are not
+one checksum scheme:
+
+- CRSF `0x7A` MSP-v2 requests use the DVB-S2 inner checksum;
+- MSP-v1 `0x7B` responses and `0x7C` writes use the ExpressLRS XOR checksum.
+
+Tools that apply the outer CRSF DVB-S2 checksum to both inner directions will
+appear to send a valid write while the firmware discards it, and will discard
+the valid RX UID response. Both the Python library and configurator now use
+the correct asymmetric format.
+
+The RX and TX applications commit a UID/phrase change before the scheduled
+reboot. This matters for a native-USB-only module with no RF connection and no
+flight-controller serial peer: a dirty configuration is not guaranteed to be
+durable until an unrelated background commit happens.
+
+```sh
+ak radio uid --port /dev/ttyACM0 --baud 400000 --role tx
+ak radio uid --port /dev/ttyACM1 --baud 420000 --role rx
+
+ak radio bind-phrase replace-with-your-phrase \
+  --port /dev/ttyACM1 --baud 420000 --role rx --write
+ak radio bind-phrase replace-with-your-phrase \
+  --port /dev/ttyACM0 --baud 400000 --role tx --write
+```
+
+UID reads allow four seconds and retry once after reopening the USB endpoint.
+Writes require `--write`; the CLI waits for reboot, reconnects and refuses
+success unless the exact six-byte UID reads back.
+
+The single-command pair workflow is:
+
+```sh
+ak radio pair --tx /dev/ttyACM0 --rx /dev/ttyACM1 \
+  --phrase "replace-with-your-phrase" --duration 15 \
+  --json pair.json --write
+```
+
+The complete two-endpoint check is:
+
+```sh
+python3 tools/verify_uid_binding.py \
+  --tx /dev/ttyACM0 --rx /dev/ttyACM1 \
+  --phrase "replace-with-your-phrase" --write --confirm \
+  --rf-duration 15 --json uid-binding.json
+```
+
+It reads both UIDs, writes and verifies the same phrase, refuses an all-zero
+or mismatched pair, and only then starts the two-board RC/link-statistics
+bench. A zero UID means unbound. Explicit bind mode is separate: both
+endpoints must be in overlapping bind windows, RX must show its bind breathing
+pattern, and link statistics must be observed before claiming RF success.
+
 The ESP32-S3 USB Serial/JTAG resets the chip while RTS is asserted and DTR
 is not. Linux asserts both lines on `open()`; pyserial then clears DTR before
 RTS, which presents the reset state for a moment, so setting `dtr=False,
@@ -40,6 +96,13 @@ dual-role builds; one IDF RMT channel drives GPIO21 with WS2812B-2020 timing
 and an explicit 300 µs latch. A CRSF frame `C8 08 7F <own addr> EA "AKLT"
 <crc>` runs a red/green/blue self-test, one second each, and prints
 `AK-LEDTEST` lines.
+
+The physical channel-order diagnostic uses `"AKLP"` in the same frame. It
+runs logical red, green and blue for one second each under all six possible
+wire orders, with a 500 ms gap between orders, and prints `AK-LEDPERM`
+labels. The operational state uses the bench-confirmed G-R-B table; the
+diagnostic supplies each temporary order explicitly. See
+`../../docs/evidence/rev-a3-led-permutation-diagnostic-2026-11-19.md`.
 
 | State | TX | RX |
 | --- | --- | --- |
@@ -94,8 +157,8 @@ ExpressLRS still builds separate TX and RX applications:
 The normal Rev A3 artifact contains both applications. On every reset, a small
 bootloader selector samples GPIO4 and boots:
 
-- GPIO4 low: the active TX slot (`tx_0` at `0x10000` or `tx_1` at `0x2b0000`);
-- GPIO4 high: the active RX slot (`rx_0` at `0x450000` or `rx_1` at `0x590000`).
+- GPIO4 high: the active TX slot (`tx_0` at `0x10000` or `tx_1` at `0x2b0000`);
+- GPIO4 low: the active RX slot (`rx_0` at `0x450000` or `rx_1` at `0x590000`).
 
 The active slot for each role is stored in two independently erasable
 `role_state` records at `0x6d0000`. If the selected image is invalid, the

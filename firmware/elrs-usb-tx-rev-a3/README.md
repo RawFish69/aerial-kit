@@ -7,7 +7,7 @@ SX1280 and RFX2401C 2.4 GHz transceiver. The paired hardware sources are in
 ## Firmware families
 
 The normal installation is one dual-role image. GPIO4 is sampled on every
-reset: low starts the ExpressLRS TX application and high starts the RX
+reset: high starts the ExpressLRS TX application and low starts the RX
 application. Moving SW2 and rebooting changes roles without reflashing.
 
 | Image | Purpose | RF state |
@@ -76,8 +76,14 @@ on TX, `0xEC` on RX) shows pure red, green and blue for one second each
 through the operational driver:
 
 ```sh
-python3 tools/usb_crsf_bench.py /dev/ttyACM0 --rate 0 --duration 4 --led-selftest 0xEC
+python3 tools/usb_crsf_bench.py /dev/ttyACM0 --baud 420000 \
+  --rate 0 --duration 4 --led-selftest 0xEC --write
 ```
+
+The six-order physical channel diagnostic uses `41 4B 4C 50` (`AKLP`) in the
+same frame. It sends each known logical color for one second under every
+possible wire order and prints `AK-LEDPERM` labels. See
+`docs/evidence/rev-a3-led-permutation-diagnostic-2026-11-19.md`.
 
 | State | TX | RX |
 | --- | --- | --- |
@@ -108,11 +114,18 @@ open" briefly presents exactly that reset state. Clear RTS first, then DTR;
 `tools/usb_crsf_bench.py` does this. Resynchronize on a CRSF sync byte after
 any reset or boot text.
 
+UID read/write and bind-phrase configuration use ExpressLRS MSP RXTX function
+`0x2D`. The `0x7A` request's inner checksum is DVB-S2, while the `0x7B`
+response and `0x7C` write use the ExpressLRS XOR checksum. Both roles commit
+the change before the scheduled reboot; the host then reconnects and must read
+back the exact six-byte UID before reporting a successful write. See
+`docs/HOST-LINK.md` and `tools/verify_uid_binding.py`.
+
 After setup each application writes one ASCII line to native USB, for
 example:
 
 ```text
-AK-BOOT role=tx slot=tx_0 gpio4=low reset=poweron(1) elf=1a2b3c4d led=rmt-ok led_failures=0 led_error=0x0 ws2812_t0h=300ns t1h=750ns latch=300us
+AK-BOOT role=tx slot=tx_0 gpio4=high expect_gpio4=high reset=poweron(1) elf=1a2b3c4d led=rmt-ok led_failures=0 led_error=0x0 ws2812_t0h=300ns t1h=750ns latch=300us
 ```
 
 It reports the compiled role, the running partition, GPIO4 at boot, the reset
@@ -188,25 +201,30 @@ The 2026-11-17 diagnostic run passed ESP32-S3 boot, native USB, UART0, SX1280
 SPI, WS2812, FEM control and shutdown tests. The SX1280 returned firmware
 version `0xA9B7`. No remote I2C device was present.
 
-GPIO4 read low while the switch was physically labelled RX. That conflicts
-with the design note (`low=TX`, `high=RX`), so the switch orientation must be
-checked by continuity before relying on its label. The dual-role mapping uses
-the electrical design, not the printed label.
+The printed switch labels are authoritative. The final dual-role selector
+therefore maps high GPIO4 to TX and low GPIO4 to RX. Both applications enforce
+the same mapping before RF setup and hold both FEM enables low on disagreement.
 
-On 2026-11-19, a hardware A/B test showed that the earlier `7210…` factory image
-paired a DIO bootloader with QIO-built applications. The resulting invalid
-flash reads prevented target configuration and LittleFS from loading, causing
-the dark TX and RX panic loop. Replacing only the bootloader with the matching
-QIO image made the LED initialize and removed the panic. The release image now
-builds that pairing permanently. The corrected release is:
+On 2026-11-19, a hardware comparison showed that the earlier `7210…` factory image
+paired a DIO bootloader with QIO-built applications. The corrected QIO image
+removed the panic and LittleFS failures. The tested `AK USB ELRS Rev A3`
+factory artifact is:
 
 ```text
 size: 8331264 bytes
-sha256: c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4
+sha256: 9b48f01f522783d872b72f36c69c7171bcc851e2fcbfe5f60cb717efcb0331b4
 ```
 
-TX CRSF behavior with the corrected bootloader, exact LED pulse counts, device
-ping responses and RF link statistics still require bench verification.
+The operational wire order is the bench-confirmed G-R-B mapping. Role and
+pattern logic are unchanged. The UID-persistence patch is included. Records
+are in `releases/9b48f01f/`.
+
+Hardware acceptance passed on replacement pair A+B at 25 mW and 250 Hz:
+3,000 TX frames with zero stalls, 1,767 received RC frames and 137 link
+statistics frames at RX, approximately 100% link quality in both directions,
+telemetry forwarding, and solid blue TX / green RX connected LEDs. Board C
+(`90:70:69:27:20:64`) is defective because `RADIO_BUSY` and `RADIO_DIO1` are
+bridged. Power cycles 2-3 and extended range/attenuation remain NOT TESTED.
 
 ## Licensing
 

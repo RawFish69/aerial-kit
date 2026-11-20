@@ -80,6 +80,16 @@ def led_selftest_frame(dest: int, origin: int = 0xEA) -> bytes:
     return build_frame(0xC8, 0x7F, bytes([dest, origin]) + b"AKLT")
 
 
+def led_permutation_frame(dest: int, origin: int = 0xEA) -> bytes:
+    """Start the six-permutation physical LED channel-order diagnostic.
+
+    Each permutation sends logical red, green and blue for one second, then
+    half a second off. The USB stream labels each phase with
+    ``AK-LEDPERM order=... logical=...``.
+    """
+    return build_frame(0xC8, 0x7F, bytes([dest, origin]) + b"AKLP")
+
+
 def battery_frame(decivolts: int = 168, deciamps: int = 0,
                   capacity_mah: int = 0, remaining: int = 100) -> bytes:
     payload = (
@@ -165,12 +175,12 @@ def decode_device_info(frame: Frame) -> dict[str, object]:
     }
 
 
-def open_port(port: str, reset: bool):
+def open_port(port: str, reset: bool, baud: int = 400000):
     import serial  # imported here so the pure helpers test without pyserial
 
     handle = serial.Serial()
     handle.port = port
-    handle.baudrate = 420000
+    handle.baudrate = baud
     handle.timeout = 0.02
     handle.write_timeout = 0.05
     # Leave both lines at their open() state (asserted) and clear them in the
@@ -190,7 +200,7 @@ def open_port(port: str, reset: bool):
 def run(args: argparse.Namespace) -> int:
     import serial
 
-    handle = open_port(args.port, args.reset)
+    handle = open_port(args.port, args.reset, args.baud)
     parser = CrsfStreamParser()
     counts: collections.Counter[str] = collections.Counter()
     infos: list[dict[str, object]] = []
@@ -235,6 +245,8 @@ def run(args: argparse.Namespace) -> int:
     deadline = time.monotonic() + args.duration
     if args.led_selftest is not None:
         handle.write(led_selftest_frame(args.led_selftest))
+    if args.led_permutation is not None:
+        handle.write(led_permutation_frame(args.led_permutation))
     frame = rc_frame()
     while time.monotonic() < deadline:
         now = time.monotonic()
@@ -284,6 +296,8 @@ def run(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("port")
+    parser.add_argument("--baud", type=int, default=400000,
+                        help="logical CRSF rate (TX 400000, RX 420000)")
     parser.add_argument("--rate", type=float, default=150.0, help="RC frames/s (0 = listen only)")
     parser.add_argument("--duration", type=float, default=5.0)
     parser.add_argument("--settle", type=float, default=0.5, help="listen before sending (s)")
@@ -292,8 +306,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reset", action="store_true", help="reset the board after opening")
     parser.add_argument("--led-selftest", type=lambda v: int(v, 0), metavar="ADDR",
                         help="send the LED self-test to 0xEE (TX) or 0xEC (RX) first")
+    parser.add_argument("--led-permutation", type=lambda v: int(v, 0), metavar="ADDR",
+                        help="test all six LED wire orders on 0xEE (TX) or 0xEC (RX)")
     parser.add_argument("--verbose", action="store_true")
-    return run(parser.parse_args(argv))
+    parser.add_argument("--write", action="store_true",
+                        help="allow RC, telemetry, self-test or reset writes")
+    args = parser.parse_args(argv)
+    if (args.rate > 0 or args.telemetry or args.reset or
+            args.led_selftest is not None or
+            args.led_permutation is not None) and not args.write:
+        parser.error("--write is required for RC, telemetry, self-test or reset operations")
+    return run(args)
 
 
 if __name__ == "__main__":

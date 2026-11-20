@@ -135,18 +135,21 @@ throttle-low/armed frame followed by an arm-low frame before returning.
 Use antennas or 50-ohm loads and minimum RF power for physical testing. Do not
 change the Rev A3 role switch while powered.
 
-## Current Rev A3 candidate
+## Current Rev A3 final color artifact
 
-The current locally generated full factory image observed on 2026-11-19 is:
+The bench-confirmed G-R-B operational order is frozen in this final color
+artifact:
 
 ```text
 size: 8331264 bytes
-sha256: 5e9d6c6165bd2698239931da49f2bb1a7043b5847eb1ca764d8e72f6212ebb5e
+sha256: 7c6714425e4a2981ef787267df89627838e61b155e288536e66cf465faeada63
 flash offset: 0x0
 bootloader: bootloader_qio_80m.elf / qio_qspi
 ```
 
-The manifest and `SHA256SUMS` agree. See
-[`evidence/rev-a3-usb-bench-artifact-2026-11-19.md`](evidence/rev-a3-usb-bench-artifact-2026-11-19.md).
-This is a candidate identity, not hardware acceptance. The firmware owner must
-freeze the artifact before the bench operator flashes it.
+The final identity is recorded in
+[`evidence/rev-a3-rx-role-hang-fix-2026-11-19.md`](evidence/rev-a3-rx-role-hang-fix-2026-11-19.md).
+The remaining hardware gate is visual confirmation of one blue TX boot pulse at
+GPIO4 high, two green RX boot pulses at GPIO4 low, blue-only TX states and
+green-only RX states. The superseded role record is
+[`evidence/rev-a3-role-inverted-final-2026-11-19.md`](evidence/rev-a3-role-inverted-final-2026-11-19.md).

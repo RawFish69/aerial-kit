@@ -1,5 +1,8 @@
 # Rev A3 native-USB bench artifact — 2026-11-19
 
+Historical and superseded: this artifact used the old low=TX/high=RX role
+contract. Current labeled hardware uses high=TX/low=RX.
+
 The firmware worktree contains a newer full factory image produced after the
 QIO bootloader correction and deterministic LED state-machine work.
 

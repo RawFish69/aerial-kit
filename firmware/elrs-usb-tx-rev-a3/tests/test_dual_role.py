@@ -148,6 +148,161 @@ class DualRoleArtifactTests(unittest.TestCase):
         for required in ("SlowBreath", "FastBreath", "AmberTriple"):
             self.assertIn(required, led_state)
 
+    def test_rxtx_identity_writes_commit_before_reboot(self) -> None:
+        patch = (
+            ROOT / "patches" / "expresslrs-4.1.0-rxtx-persistence.patch"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(patch.count("+                config.Commit();"), 1)
+        self.assertEqual(patch.count("+            config.Commit();"), 1)
+        self.assertLess(
+            patch.index("config.SetUID(mspPayload);"),
+            patch.index("config.Commit();", patch.index("config.SetUID(mspPayload);")),
+        )
+        self.assertLess(
+            patch.index("config.SetBindPhrase(mspPayload, payloadLen);"),
+            patch.index(
+                "config.Commit();",
+                patch.index("config.SetBindPhrase(mspPayload, payloadLen);"),
+            ),
+        )
+        bootstrap = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'git -C "$express" apply "$rxtx_persistence_patch_file"',
+            bootstrap,
+        )
+
+    def test_rx_search_starts_on_the_tx_default_rate(self) -> None:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import apply_rf_defaults
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "rx_main.cpp"
+            source.write_text(
+                "void setupRadio() {\n"
+                "    scanIndex = config.GetRateInitialIdx();\n"
+                "    for (;;) {}\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            apply_rf_defaults.apply(source)
+            text = source.read_text(encoding="utf-8")
+        self.assertIn(
+            "scanIndex = enumRatetoIndexSafe(RATE_LORA_2G4_250HZ);",
+            text,
+        )
+        self.assertIn(apply_rf_defaults.MARKER, text)
+        bootstrap = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'python3 "$root/tools/apply_rf_defaults.py"',
+            bootstrap,
+        )
+
+    def test_rf_probe_is_wired_into_both_role_loops(self) -> None:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import apply_rf_probe
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)
+            (source / "tx_main.cpp").write_text(
+                "void loop() {\n  uint32_t now = millis();\n}\n",
+                encoding="utf-8",
+            )
+            (source / "rx_main.cpp").write_text(
+                "void loop() {\n    unsigned long now = millis();\n}\n",
+                encoding="utf-8",
+            )
+            apply_rf_probe.apply_tree(source)
+            tx = (source / "tx_main.cpp").read_text(encoding="utf-8")
+            rx = (source / "rx_main.cpp").read_text(encoding="utf-8")
+        self.assertIn(apply_rf_probe.MARKER, tx)
+        self.assertIn(apply_rf_probe.MARKER, rx)
+        bootstrap = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn('python3 "$root/tools/apply_rf_probe.py"', bootstrap)
+        led = (
+            ROOT / "expresslrs-overlay" / "src" / "aerialkit_led_state.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("aerialkitRfNoteUsbFrame", led)
+        diagnostics = (
+            ROOT
+            / "expresslrs-overlay"
+            / "src"
+            / "aerialkit_boot_diagnostics.cpp"
+        ).read_text(encoding="utf-8")
+        for field in ("usb_frames=", "usb_rc=", "last_usb_type=", "linkmode="):
+            self.assertIn(field, diagnostics)
+        for field in ("usb_avail_max=", "usb_reads=", "usb_bytes="):
+            self.assertIn(field, diagnostics)
+
+    def test_native_usb_read_probe_is_wired(self) -> None:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import apply_usb_rx_probe
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "tx_main.cpp"
+            source.write_text(
+                "void HandleUARTin() {\n"
+                "    TxUSB->readBytes(buf, size);\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            apply_usb_rx_probe.apply(source)
+            text = source.read_text(encoding="utf-8")
+        self.assertIn(apply_usb_rx_probe.MARKER, text)
+        self.assertIn("const auto usbAvailable = TxUSB->available();", text)
+        self.assertIn(
+            "const auto usbRead = TxUSB->readBytes(buf, size);",
+            text,
+        )
+        self.assertIn(
+            "static_cast<uint16_t>(usbRead));",
+            text,
+        )
+        self.assertIn("#else\n    TxUSB->readBytes(buf, size);\n#endif", text)
+        bootstrap = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'python3 "$root/tools/apply_usb_rx_probe.py"',
+            bootstrap,
+        )
+        self.assertIn('"$root/tools"', bootstrap)
+        self.assertIn("grep -zv '/__pycache__/'", bootstrap)
+        self.assertIn("grep -zv '\\.pyc$'", bootstrap)
+
+    def test_gpio4_high_is_tx_and_low_is_rx_everywhere(self) -> None:
+        selector = (ROOT / "bootloader" / "selector.c").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "(AERIALKIT_GPIO_IN_REG & (1U << 4)) ? ROLE_TX : ROLE_RX",
+            selector,
+        )
+        boot_logic = (
+            ROOT
+            / "expresslrs-overlay"
+            / "include"
+            / "aerialkit_boot_logic.h"
+        ).read_text(encoding="utf-8")
+        self.assertIn("return role_pin_high != rx_role;", boot_logic)
+        upstream_patch = (
+            ROOT / "patches" / "expresslrs-4.1.0-aerialkit.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "aerialkit_role_matches(roleHigh, false)",
+            upstream_patch,
+        )
+        self.assertIn(
+            "aerialkit_role_matches(roleHigh, true)",
+            upstream_patch,
+        )
+        self.assertNotIn("const bool matches = !roleHigh;", upstream_patch)
+        self.assertNotIn("const bool matches = roleHigh;", upstream_patch)
+        diagnostics = (
+            ROOT
+            / "expresslrs-overlay"
+            / "src"
+            / "aerialkit_boot_diagnostics.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn('RX_ROLE ? "low" : "high"', diagnostics)
+
     def test_selector_linker_script_is_parameterized(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "selector.ld"
@@ -219,6 +374,10 @@ class DualRoleArtifactTests(unittest.TestCase):
 
         data = bytearray(artifact.read_bytes())
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            manifest["roles"],
+            {"gpio4_low": "rx", "gpio4_high": "tx"},
+        )
         self.assertEqual(
             hashlib.sha256(data).hexdigest(),
             manifest["sha256"],

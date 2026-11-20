@@ -24,6 +24,11 @@ class FrameTest(unittest.TestCase):
         self.assertEqual(frame[:9], bytes([0xC8, 8, 0x7F, 0xEC, 0xEA]) + b"AKLT")
         self.assertEqual(bench.crc8_dvb_s2(frame[2:-1]), frame[-1])
 
+    def test_led_permutation_frame(self) -> None:
+        frame = bench.led_permutation_frame(0xEE)
+        self.assertEqual(frame[:9], bytes([0xC8, 8, 0x7F, 0xEE, 0xEA]) + b"AKLP")
+        self.assertEqual(bench.crc8_dvb_s2(frame[2:-1]), frame[-1])
+
     def test_rc_frame_is_26_valid_bytes(self) -> None:
         frame = bench.rc_frame()
         self.assertEqual(len(frame), 26)
@@ -45,7 +50,7 @@ class ParserTest(unittest.TestCase):
         parser = bench.CrsfStreamParser()
         rc = bench.rc_frame()
         stream = (
-            b"SPIWP:0xee\r\nAK-BOOT role=tx slot=tx_0 gpio4=low\r\n"
+            b"SPIWP:0xee\r\nAK-BOOT role=tx slot=tx_0 gpio4=high\r\n"
             + b"\x00\xff"
             + rc[:10]
         )
@@ -53,7 +58,7 @@ class ParserTest(unittest.TestCase):
         frames += parser.feed(rc[10:] + bench.device_ping() + b"\r\n")
         self.assertEqual([frame.name for frame in frames],
                          ["RC_CHANNELS_PACKED", "DEVICE_PING"])
-        self.assertIn("AK-BOOT role=tx slot=tx_0 gpio4=low", parser.lines)
+        self.assertIn("AK-BOOT role=tx slot=tx_0 gpio4=high", parser.lines)
 
     def test_rejects_bad_crc_and_recovers(self) -> None:
         parser = bench.CrsfStreamParser()
@@ -134,6 +139,10 @@ class PortOpenTest(unittest.TestCase):
                 mock.patch.object(bench.time, "sleep"):
             bench.open_port("/dev/null", reset=True)
         self.assertEqual(log.count(("reset", True)), 1)
+
+    def test_mutation_requires_write(self) -> None:
+        with self.assertRaises(SystemExit):
+            bench.main(["/dev/null", "--led-permutation", "0xEC"])
 
 
 if __name__ == "__main__":

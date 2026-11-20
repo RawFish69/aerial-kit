@@ -1,0 +1,223 @@
+# Rev A3 UID/binding fix — 2026-11-19
+
+## Findings
+
+The hardware RX UID response was valid. The tools rejected it because
+ExpressLRS uses two different inner checksums:
+
+- CRSF `0x7A` MSP-v2 UID requests use DVB-S2;
+- MSP-v1 `0x7B` responses and `0x7C` writes use XOR.
+
+Python and the web configurator applied DVB-S2 to responses and writes. This
+made valid RX/TX UID responses look like timeouts and made direct UID/phrase
+writes invalid to the firmware. It also explains identical RX zero-UID reads
+after a write and TX appearing silent while it continued accepting RC frames.
+
+Python parameter reads had a second defect: the client concatenated repeated
+`fieldId,chunksRemaining` network headers into the parameter body. Multi-frame
+parameter tables could therefore fail as "not fully reassembled". The client
+now keys chunks by `chunksRemaining`, retries missing requests, reports the
+missing index, and synthesizes exactly one record header.
+
+The firmware setter also marked RX configuration dirty and scheduled a reboot
+without committing it first. The new patch commits the direct UID or phrase
+before reboot.
+
+## Frozen artifact
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: 96553fa544ed40ac3ce791157429a1072adab6ec632f5a9c2277636358e7837b
+flash offset: 0x0
+bootloader: bootloader_qio_80m.elf / qio_qspi
+TX application: f6d7ee1e28a05ff4666aae26c9fcb8c3339cb7c499f1aa1b81247318d38880e6
+RX application: 5656c97506d1a67a56bcdd2053ed849ad25f2e244c523342f7cbe3eb712204a6
+```
+
+The identity and application hashes are recorded in
+`firmware/elrs-usb-tx-rev-a3/releases/96553fa5/`.
+
+### RF diagnostic candidate
+
+The `96553fa5…` image passed UID binding on hardware but failed RF
+acquisition. Both endpoints read `e9:77:41:50:7c:5f`; TX drove 4500 RC frames
+in 30 seconds, but RX captured no RC, every LQ/RSSI/SNR field was zero, TX
+reported RF mode 27, and RX cycled modes 21 through 30.
+
+The next diagnostic candidate adds UID seed, CRC initializer, rate index/enum,
+FHSS first channel, initial frequency, connection state and FEM pin state to
+the `AK-BOOT` line:
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: bfff8af53735af248cd82240b8a3ff6fa838f8f1a2fcf7f97fdf0cdfba6665d7
+TX application: ec2c2803f95474bb56a88b45b8379eff0906d2e59712d53eac5a968bef81e7b9
+RX application: 76f6dcdbd5e05b5b356b8b11bc5900c4a46d998a2959aacdec06ef5cc6c9e80b
+```
+
+The companion 0.4.5 client rejects `chunksRemaining=0xff` as an out-of-range
+stale chunk, validates response addressing, preserves adjacent CRSF frames
+from the same USB read, addresses RX parameters to `0xEC`, uses ELRS-Lua
+origin `0xEF` so RX replies are not claimed by the RF OTA connector, and paces
+every successive chunk before retrying missing chunks. Its `ak radio diag`
+command captures `AK-BOOT` as JSON.
+
+The next candidate aligns RX's initial search mode with TX's default LoRa
+250 Hz mode. `bfff8af5…` exposed TX `rate_idx=6/enum=27/4000us` and RX
+`rate_idx=0/enum=33/1000us`; the RX sweep did not acquire before the 30-second
+run ended. The replacement artifact is:
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: 70de34ee438385f40c8b53a51e507ea48012c478e07499b0065e1a5a78fefd9d
+TX application: fa0b1a0dfd8c5f13164fb1de4d830c121c4d50e4f340cc09fa7018238c421763
+RX application: 8fdf39b9ce67628adba804e0b92c88b6c4f6bbc27b7681f5656ce0ea243da5c0
+```
+
+## Verification
+
+- Firmware Python host suite: 27 passed.
+- ExpressLRS native suite: 104 passed.
+- The native routing test drives two RC frames around an addressed TX UID
+  request and requires the `0x7B` response to reach the USB connector.
+- Python protocol tests use the exact hardware RX UID response and independent
+  frame bytes.
+
+## Hardware status
+
+The bench flashed `70de34ee…` to both boards with a verified data hash. UID
+binding passes, and original and swapped board mappings both fail RF
+acquisition identically:
+
+- UID: `10:73:a1:1f:a8:0f` on both endpoints;
+- seed `0xa11fa80b`, CRC `0xac0f`, rate index 6, enum 27, 4000 us interval,
+  FHSS start 40, initial frequency 12302619, domain `ISM2G4`;
+- TX drives 4500 host RC frames in 30 seconds;
+- RX captures zero RC frames;
+- all LQ, RSSI and SNR fields remain zero.
+
+Swapping the two physical boards between TX and RX produced the same failure,
+which excludes a single board-role assignment as the cause. TP5/TP6 electrical
+measurements remain NOT TESTED because no multimeter or oscilloscope is
+available. RF acquisition is therefore bounded to the shared electrical,
+FEM, antenna/RF-path or RF-design layer rather than Python/C L OTA data
+configuration. PR #59 remains draft.
+
+The companion CLI's parameter-tree fix is software-complete and hardware
+pending on `aerial-kit==0.4.5`.
+
+### Live RF/FEM probe candidate
+
+`70de34ee…` and the swapped board mapping still produced identical RF
+configuration but zero RF reception. The `d308720e…` diagnostic candidate adds
+10-second `AK-RF` reports containing GPIO6/7 high-sample and rising-edge
+counters, instantaneous RSSI, last-packet RSSI/SNR, and SX1280 IRQ status:
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: d308720e12bb3c8e049ae5a40cd3a55f404f49ef1c167d123c60528cda4115ed
+TX application: 9420b9378156cba8ba9aed4ae34a60ab1331e226efe299657d3f140a40a6368e
+RX application: 245172869621b768ac8ae9c50ea6089ba24bc01ee3054869d8ebc2d8fc979814
+```
+
+Use `ak radio diag --watch-rf --duration 10` from the companion 0.4.5 client
+while the TX is driven. These counters distinguish software FEM control and
+SX1280 activity from an analog RF/antenna failure without external instruments.
+
+The first probe (`d308720e…`) showed TX remained in `noCrossfire`, with no
+TXEN transitions, while the host reported sending RC frames. The follow-up
+candidate adds native-USB parser counters and the configured link mode:
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: 2edc686e95af5ec933be8786d2605b8232d00697fd2ec52212131ae012a41cd5
+TX application: b4c4434f86950489dd6fb2cd38766c8f3a65ca226f20bc9bc8e8206b62c49dcc
+RX application: b137cc1d05a5c607b207c991ef56e79ccc8992cd73138d7654ecff122a7befb6
+```
+
+An initial reset capture on `2edc686e…` reported `usb_frames=0`, `usb_rc=0`,
+`last_usb_type=0x00`, `linkmode=0`, `conn=5`, `txen=0` and `tx_rise=0`.
+That sample was taken before the first RC frame reached the firmware and was
+not evidence of a broken native-USB path. With a reset, three-second settle
+and an 11-second 150 Hz drive, the same TX reported `usb_frames=1661`,
+`usb_rc=1650`, `last_usb_type=0x16`, `tx_rise=963`, and `conn` leaving
+`noCrossfire` through states 5, 2 and 3. Native-USB ingress and scheduler
+activation therefore work.
+
+The next probe makes that boundary observable without relying on timing:
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: 9b48f01f522783d872b72f36c69c7171bcc851e2fcbfe5f60cb717efcb0331b4
+TX application: 7af9f7ded31fe33f326fed37d4606a9cc5e26ff07c358f59b499143f4a8b5148
+RX application: bc9b30c8a426037c03c546660aca72f0d362ab881bab5d61bcccc601cd68f090
+```
+
+`AK-RF` now includes `usb_avail_max`, `usb_reads` and the actual byte count
+returned by `readBytes` as `usb_bytes`, alongside `usb_frames`, `usb_rc`,
+`last_usb_type`, `linkmode`, `conn`, `txen` and `tx_rise`. It is read-only
+instrumentation for the next RF bench run.
+
+### Matched-UID RF isolation
+
+The `9b48f01f…` pair was bound to `10:73:a1:1f:a8:0f`. Both endpoints reported
+the same seed `0xa11fa80b`, CRC initializer `0xac0f`, domain `ISM2G4`, packet
+rate index 6/enum 27, 4000 us interval, FHSS start 40 and initial frequency
+12302619. TX processed 1,800 host RC frames without a write stall or bad CRC,
+left `noCrossfire`, and produced 2,269 TXEN rising edges. RX stayed at
+`rxen=1`, but every sample reported `irq=0x0000`, `rx_rise=0`,
+`last_rssi=0`, `last_snr=0` and no RC frames.
+
+Three hardware A/B tests produced the same result:
+
+- swapping the antennas;
+- swapping the physical TX and RX roles while keeping the swapped antennas;
+- increasing `Max Power` (field 7) from 10 mW to the readback-confirmed
+  25 mW setting.
+
+This rules out one specific board, one role, one antenna assignment,
+native-USB ingress and minimum-output-power selection. The failure remains in
+the RF/FEM/electrical path shared by both assemblies. TP5/TP6 electrical
+measurements, crystal/FEM marking inspection and conducted RF verification
+remain NOT TESTED.
+
+The full TX parameter tree now passes fields 0 through 20 in 18.442 seconds
+with the merged CLI progress/retry fix. The RX tree passes all 12 entries in
+11.64 seconds.
+
+### Replacement-pair acceptance
+
+The failed original receiver was board C,
+`90:70:69:27:20:64`. Its `RADIO_BUSY` and `RADIO_DIO1` pins are bridged. It
+was removed from the accepted pair.
+
+The replacement pair A+B runs the frozen `9b48f01f…` artifact:
+
+- A TX: `90:70:69:28:56:E4`;
+- B RX: `90:70:69:27:20:38`;
+- shared UID: `10:73:a1:1f:a8:0f`;
+- packet rate: 250 Hz;
+- selected RF power: 25 mW.
+
+Functional and telemetry results:
+
+- TX drove 3,000 RC frames with zero write stalls and zero bad CRCs;
+- RX received 1,767 RC frames and 137 link-statistics frames;
+- TX received 340 battery frames during the concurrent telemetry test;
+- uplink link quality was 100%, approximately -29 dBm, +13 dB SNR;
+- downlink link quality was 100%, approximately -33 dBm, +12 dB SNR;
+- RX-injected telemetry reached TX;
+- connected LEDs were visually confirmed solid blue on TX and solid green on
+  RX;
+- power cycle 1 of 3 reacquired RF with RC, telemetry and link statistics
+  passing.
+
+Power cycles 2-3 and extended range/attenuation remain NOT TESTED. The accepted
+hardware scope is the A+B pair with the exact artifact and checksums recorded
+in `firmware/elrs-usb-tx-rev-a3/releases/9b48f01f/`.

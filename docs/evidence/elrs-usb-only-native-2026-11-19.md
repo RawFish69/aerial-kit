@@ -59,3 +59,7 @@ PlatformIO's `bootloader.bin` byte-for-byte.
 
 The earlier `7210…` image is invalid and must not be flashed. Hardware
 acceptance remains gated on the `c166…` image and the USB-only bench checklist.
+
+The `c166…` and subsequent color candidates are historical. The current
+diagnostic identity and observation process are recorded in
+`rev-a3-led-permutation-diagnostic-2026-11-19.md`.

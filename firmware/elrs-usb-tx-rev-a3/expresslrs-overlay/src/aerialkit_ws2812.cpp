@@ -135,12 +135,23 @@ bool sendWord(uint32_t word)
 
 bool aerialkitWs2812Show(const AerialKitLedRgb &color)
 {
-    return sendWord(aerialkit_ws2812_wire_word(color, WS2812_BRIGHTNESS));
+    return aerialkitWs2812ShowOrdered(
+        color, AERIALKIT_WS2812_OPERATIONAL_ORDER);
 }
 
 bool aerialkitWs2812ShowCapped(const AerialKitLedRgb &color)
 {
-    return sendWord(aerialkit_ws2812_wire_word(color, 255));
+    return sendWord(aerialkit_ws2812_wire_word_with_order(
+        color, 255, AERIALKIT_WS2812_OPERATIONAL_ORDER));
+}
+
+bool aerialkitWs2812ShowOrdered(
+    const AerialKitLedRgb &color,
+    const AerialKitWs2812ChannelOrder &order)
+{
+    return sendWord(
+        aerialkit_ws2812_wire_word_with_order(
+            color, WS2812_BRIGHTNESS, order));
 }
 
 bool aerialkitWs2812Healthy()
