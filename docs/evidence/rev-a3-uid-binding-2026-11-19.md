@@ -163,3 +163,30 @@ RX application: bc9b30c8a426037c03c546660aca72f0d362ab881bab5d61bcccc601cd68f090
 returned by `readBytes` as `usb_bytes`, alongside `usb_frames`, `usb_rc`,
 `last_usb_type`, `linkmode`, `conn`, `txen` and `tx_rise`. It is read-only
 instrumentation for the next RF bench run.
+
+### Matched-UID RF isolation
+
+The `9b48f01f…` pair was bound to `10:73:a1:1f:a8:0f`. Both endpoints reported
+the same seed `0xa11fa80b`, CRC initializer `0xac0f`, domain `ISM2G4`, packet
+rate index 6/enum 27, 4000 us interval, FHSS start 40 and initial frequency
+12302619. TX processed 1,800 host RC frames without a write stall or bad CRC,
+left `noCrossfire`, and produced 2,269 TXEN rising edges. RX stayed at
+`rxen=1`, but every sample reported `irq=0x0000`, `rx_rise=0`,
+`last_rssi=0`, `last_snr=0` and no RC frames.
+
+Three hardware A/B tests produced the same result:
+
+- swapping the antennas;
+- swapping the physical TX and RX roles while keeping the swapped antennas;
+- increasing `Max Power` (field 7) from 10 mW to the readback-confirmed
+  25 mW setting.
+
+This rules out one specific board, one role, one antenna assignment,
+native-USB ingress and minimum-output-power selection. The failure remains in
+the RF/FEM/electrical path shared by both assemblies. TP5/TP6 electrical
+measurements, crystal/FEM marking inspection and conducted RF verification
+remain NOT TESTED.
+
+The full TX parameter tree now passes fields 0 through 20 in 18.442 seconds
+with the merged CLI progress/retry fix. The RX tree passes all 12 entries in
+11.64 seconds.
