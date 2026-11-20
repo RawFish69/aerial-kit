@@ -12,4 +12,5 @@ void aerialkitBootReport();
 // first 15 seconds after boot.
 void aerialkitRfSample(uint32_t now);
 void aerialkitRfNoteUsbFrame(uint8_t frame_type);
+void aerialkitRfNoteUsbRead(uint16_t available, uint16_t read);
 #endif

@@ -139,3 +139,22 @@ sha256: 2edc686e95af5ec933be8786d2605b8232d00697fd2ec52212131ae012a41cd5
 TX application: b4c4434f86950489dd6fb2cd38766c8f3a65ca226f20bc9bc8e8206b62c49dcc
 RX application: b137cc1d05a5c607b207c991ef56e79ccc8992cd73138d7654ecff122a7befb6
 ```
+
+Hardware on `2edc686e…` then reported `usb_frames=0`, `usb_rc=0`,
+`last_usb_type=0x00`, `linkmode=0`, `conn=5`, `txen=0` and `tx_rise=0`
+while the host sent 1,789 RC frames. The next probe measures the raw CDC read
+boundary before CRSF parsing:
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: 9b48f01f522783d872b72f36c69c7171bcc851e2fcbfe5f60cb717efcb0331b4
+TX application: 7af9f7ded31fe33f326fed37d4606a9cc5e26ff07c358f59b499143f4a8b5148
+RX application: bc9b30c8a426037c03c546660aca72f0d362ab881bab5d61bcccc601cd68f090
+```
+
+`AK-RF` now includes `usb_avail_max`, `usb_reads` and the actual byte count
+returned by `readBytes` as `usb_bytes`, alongside `usb_frames`, `usb_rc`,
+`last_usb_type`, `linkmode`, `conn`, `txen` and `tx_rise`. No hardware PASS is
+claimed for this candidate. It is read-only instrumentation for the next RF
+bench run.

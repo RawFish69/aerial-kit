@@ -207,18 +207,21 @@ the same mapping before RF setup and hold both FEM enables low on disagreement.
 
 On 2026-11-19, a hardware A/B test showed that the earlier `7210…` factory image
 paired a DIO bootloader with QIO-built applications. The corrected QIO image
-removed the panic and LittleFS failures. The final GRB color artifact is:
+removed the panic and LittleFS failures. The current GRB color diagnostic
+artifact is:
 
 ```text
 size: 8331264 bytes
-sha256: 2edc686e95af5ec933be8786d2605b8232d00697fd2ec52212131ae012a41cd5
+sha256: 9b48f01f522783d872b72f36c69c7171bcc851e2fcbfe5f60cb717efcb0331b4
 ```
 
 The operational wire order is the bench-confirmed G-R-B mapping. Role and
 pattern logic are unchanged. The UID-persistence patch is included. Records
-are in `releases/2edc686e/`; the final
-hardware gate is one blue TX boot pulse at GPIO4 high, two green RX boot pulses
-at GPIO4 low, then blue-only TX and green-only RX state patterns.
+are in `releases/9b48f01f/`; the final hardware gate is one blue TX boot pulse
+at GPIO4 high, two green RX boot pulses at GPIO4 low, then blue-only TX and
+green-only RX state patterns. This is a diagnostic candidate, not final
+acceptance. It adds native-USB byte and frame counters to distinguish an empty
+CDC receive path from a parser or scheduler failure.
 
 ## Licensing
 

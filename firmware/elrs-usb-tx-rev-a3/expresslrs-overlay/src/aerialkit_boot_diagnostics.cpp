@@ -34,6 +34,9 @@ uint32_t rxEnableRises;
 uint32_t usbFrames;
 uint32_t usbRcFrames;
 uint8_t lastUsbFrameType;
+uint32_t usbReadCalls;
+uint32_t usbBytesRead;
+uint16_t usbMaxAvailable;
 
 const char *resetReasonName(esp_reset_reason_t reason)
 {
@@ -239,7 +242,8 @@ void aerialkitRfSample(uint32_t now)
         line,
         sizeof(line),
         "AK-RF role=%s conn=%u rate_idx=%u rate_enum=%u "
-        "linkmode=%u usb_frames=%lu usb_rc=%lu last_usb_type=0x%02x "
+        "linkmode=%u usb_avail_max=%u usb_reads=%lu usb_bytes=%lu "
+        "usb_frames=%lu usb_rc=%lu last_usb_type=0x%02x "
         "txen=%u rxen=%u tx_high=%lu rx_high=%lu tx_rise=%lu rx_rise=%lu "
         "rssi_inst=%d last_rssi=%d last_snr=%d irq=0x%04x\r\n",
         RX_ROLE ? "rx" : "tx",
@@ -247,6 +251,9 @@ void aerialkitRfSample(uint32_t now)
         rate != nullptr ? static_cast<unsigned>(rate->index) : 0xffU,
         rate != nullptr ? static_cast<unsigned>(rate->enum_rate) : 0xffU,
         linkMode,
+        static_cast<unsigned>(usbMaxAvailable),
+        static_cast<unsigned long>(usbReadCalls),
+        static_cast<unsigned long>(usbBytesRead),
         static_cast<unsigned long>(usbFrames),
         static_cast<unsigned long>(usbRcFrames),
         static_cast<unsigned>(lastUsbFrameType),
@@ -275,6 +282,16 @@ void aerialkitRfNoteUsbFrame(uint8_t frame_type)
     usbFrames++;
     usbRcFrames += frame_type == CRSF_FRAMETYPE_RC_CHANNELS_PACKED;
     lastUsbFrameType = frame_type;
+}
+
+void aerialkitRfNoteUsbRead(uint16_t available, uint16_t read)
+{
+    usbReadCalls++;
+    usbBytesRead += read;
+    if (available > usbMaxAvailable)
+    {
+        usbMaxAvailable = available;
+    }
 }
 
 [[noreturn]] void aerialkitHardwareUndefinedFault()

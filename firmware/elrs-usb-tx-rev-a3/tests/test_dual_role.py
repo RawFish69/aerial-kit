@@ -230,6 +230,42 @@ class DualRoleArtifactTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         for field in ("usb_frames=", "usb_rc=", "last_usb_type=", "linkmode="):
             self.assertIn(field, diagnostics)
+        for field in ("usb_avail_max=", "usb_reads=", "usb_bytes="):
+            self.assertIn(field, diagnostics)
+
+    def test_native_usb_read_probe_is_wired(self) -> None:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import apply_usb_rx_probe
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "tx_main.cpp"
+            source.write_text(
+                "void HandleUARTin() {\n"
+                "    TxUSB->readBytes(buf, size);\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            apply_usb_rx_probe.apply(source)
+            text = source.read_text(encoding="utf-8")
+        self.assertIn(apply_usb_rx_probe.MARKER, text)
+        self.assertIn("const auto usbAvailable = TxUSB->available();", text)
+        self.assertIn(
+            "const auto usbRead = TxUSB->readBytes(buf, size);",
+            text,
+        )
+        self.assertIn(
+            "static_cast<uint16_t>(usbRead));",
+            text,
+        )
+        self.assertIn("#else\n    TxUSB->readBytes(buf, size);\n#endif", text)
+        bootstrap = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'python3 "$root/tools/apply_usb_rx_probe.py"',
+            bootstrap,
+        )
+        self.assertIn('"$root/tools"', bootstrap)
+        self.assertIn("grep -zv '/__pycache__/'", bootstrap)
+        self.assertIn("grep -zv '\\.pyc$'", bootstrap)
 
     def test_gpio4_high_is_tx_and_low_is_rx_everywhere(self) -> None:
         selector = (ROOT / "bootloader" / "selector.c").read_text(
