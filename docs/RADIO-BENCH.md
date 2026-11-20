@@ -78,19 +78,19 @@ throttle-low/armed frame followed by an arm-low frame before returning.
 Use antennas or 50-ohm loads and minimum RF power for physical testing. Do not
 change the Rev A3 role switch while powered.
 
-## Current Rev A3 diagnostic artifact
+## Current Rev A3 final color artifact
 
-The current full factory image tests the physical LED channel order. It is
-not a final color mapping or hardware acceptance:
+The bench-confirmed G-R-B operational order is frozen in this final color
+artifact:
 
 ```text
 size: 8331264 bytes
-sha256: 00a675f7cef01b010688f24e1e8e6fe44deef5d08660a1264a5edeadfc0225b6
+sha256: d71f5fc2aca3f0bfe4aa594c9321d7faaf01f23be722add044df656f1bf43a24
 flash offset: 0x0
 bootloader: bootloader_qio_80m.elf / qio_qspi
 ```
 
-The manifest, build evidence and observation matrix are in
-[`evidence/rev-a3-led-permutation-diagnostic-2026-11-19.md`](evidence/rev-a3-led-permutation-diagnostic-2026-11-19.md).
-Do not claim LED acceptance until the operator identifies the wire order that
-makes logical red, green and blue appear as physical red, green and blue.
+The final identity is recorded in
+[`evidence/rev-a3-led-grb-final-2026-11-19.md`](evidence/rev-a3-led-grb-final-2026-11-19.md).
+The remaining hardware gate is visual confirmation of one blue TX boot pulse,
+two green RX boot pulses, blue-only TX states and green-only RX states.

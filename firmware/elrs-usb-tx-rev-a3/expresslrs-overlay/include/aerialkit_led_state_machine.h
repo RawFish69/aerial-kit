@@ -216,14 +216,12 @@ struct AerialKitWs2812ChannelOrder
     uint8_t third;
 };
 
-// The two observations do not identify a single physical order yet:
-// 5576f902 encoded G-R-B and produced blue for the RX role; 19c7b3ce encoded
-// B-R-G and still produced blue. Keep the operational mapping unchanged until
-// the permutation diagnostic establishes the physical order on hardware.
+// Hardware testing of all six wire orders established G-R-B as the physical
+// channel order for LED1 on the assembled Rev A3 boards.
 constexpr AerialKitWs2812ChannelOrder AERIALKIT_WS2812_OPERATIONAL_ORDER = {
-    2, // blue
-    0, // red
     1, // green
+    0, // red
+    2, // blue
 };
 
 // Every possible assignment of logical R/G/B to the three bytes on the wire.

@@ -1,10 +1,9 @@
 # Rev A3 WS2812 output path and native-USB bench probe — 2026-11-19
 
-Current status: candidate `19c7b3ce…` is superseded for LED color work.
-Hardware still displayed blue for the RX role after the B-R-G change. Use the
-six-order diagnostic in
-`rev-a3-led-permutation-diagnostic-2026-11-19.md`; do not infer the final
-physical order from the historical sections below.
+Current status: resolved. Candidate `19c7b3ce…` was superseded after the
+six-order hardware diagnostic confirmed physical G-R-B. The frozen final
+artifact and hashes are in `rev-a3-led-grb-final-2026-11-19.md`; the sections
+below are historical.
 
 ## Superseded candidate: `5e9d6c61…` (hardware FAIL, LED)
 

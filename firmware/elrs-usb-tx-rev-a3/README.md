@@ -201,16 +201,17 @@ the electrical design, not the printed label.
 
 On 2026-11-19, a hardware A/B test showed that the earlier `7210…` factory image
 paired a DIO bootloader with QIO-built applications. The corrected QIO image
-removed the panic and LittleFS failures. The current diagnostic artifact is:
+removed the panic and LittleFS failures. The final GRB color artifact is:
 
 ```text
 size: 8331264 bytes
-sha256: 00a675f7cef01b010688f24e1e8e6fe44deef5d08660a1264a5edeadfc0225b6
+sha256: d71f5fc2aca3f0bfe4aa594c9321d7faaf01f23be722add044df656f1bf43a24
 ```
 
-This diagnostic preserves role and pattern logic while testing all six
-physical WS2812 wire orders. It is not a final color mapping or hardware
-acceptance. Records are in `releases/00a675f7/`.
+The operational wire order is the bench-confirmed G-R-B mapping. Role and
+pattern logic are unchanged. Records are in `releases/d71f5fc2/`; the final
+hardware gate is one blue TX boot pulse, two green RX boot pulses, then
+blue-only TX and green-only RX state patterns.
 
 ## Licensing
 

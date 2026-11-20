@@ -15,18 +15,18 @@ It caused an RX LittleFS format failure and invalid-image panic.
 Use the four-slot factory artifact whose manifest records SHA-256:
 
 ```text
-00a675f7cef01b010688f24e1e8e6fe44deef5d08660a1264a5edeadfc0225b6
+d71f5fc2aca3f0bfe4aa594c9321d7faaf01f23be722add044df656f1bf43a24
 ```
 
 Do not use `7210b9ff…`: it paired a DIO bootloader with QIO-built
 applications and caused invalid flash reads, LittleFS failures and an RX panic.
 
-The `00a675f7…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
+The `d71f5fc2…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
 its manifest must record `bootloader_qio_80m.elf`, SDK memory type
 `qio_qspi`, application header mode `dio` and bootloader mode `dio`.
 
-This artifact is the six-order LED color diagnostic. Record its complete
-observation matrix before treating any operational role color as accepted.
+This artifact uses the bench-confirmed G-R-B physical order. The final visual
+gate is blue-only TX, green-only RX, one TX boot pulse and two RX boot pulses.
 
 ## Stop conditions
 

@@ -1,5 +1,9 @@
 # Rev A3 physical WS2812 order diagnostic — 2026-11-19
 
+Resolved: bench hardware confirmed G-R-B. The final operational artifact is
+recorded in `rev-a3-led-grb-final-2026-11-19.md`; the text below preserves the
+diagnostic method and its original unresolved state.
+
 ## Why another candidate is required
 
 The physical color evidence does not identify one channel order:
@@ -59,8 +63,8 @@ AK-LEDPERM order=RGB logical=gap
 AK-LEDPERM done led=ok
 ```
 
-The operational mapping remains B-R-G while this diagnostic runs only through
-an explicit temporary order supplied by the test command.
+The diagnostic supplies its temporary order explicitly. After the bench
+result, the operational mapping is G-R-B; see the final evidence.
 
 ## Timing
 

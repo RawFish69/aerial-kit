@@ -44,8 +44,8 @@ and an explicit 300 µs latch. A CRSF frame `C8 08 7F <own addr> EA "AKLT"
 The physical channel-order diagnostic uses `"AKLP"` in the same frame. It
 runs logical red, green and blue for one second each under all six possible
 wire orders, with a 500 ms gap between orders, and prints `AK-LEDPERM`
-labels. The operational state remains in its existing B-R-G table while this
-temporary diagnostic runs. See
+labels. The operational state uses the bench-confirmed G-R-B table; the
+diagnostic supplies each temporary order explicitly. See
 `../../docs/evidence/rev-a3-led-permutation-diagnostic-2026-11-19.md`.
 
 | State | TX | RX |
