@@ -25,5 +25,5 @@ constexpr aerialkit_heartbeat_spec_t aerialkit_heartbeat_spec(bool rx_role)
 
 constexpr bool aerialkit_role_matches(bool role_pin_high, bool rx_role)
 {
-    return role_pin_high == rx_role;
+    return role_pin_high != rx_role;
 }

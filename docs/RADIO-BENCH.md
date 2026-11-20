@@ -85,12 +85,14 @@ artifact:
 
 ```text
 size: 8331264 bytes
-sha256: d71f5fc2aca3f0bfe4aa594c9321d7faaf01f23be722add044df656f1bf43a24
+sha256: b3f6d1b0948be120aa920da34957ab0b01cf397e238bb459d427583ccbf7af43
 flash offset: 0x0
 bootloader: bootloader_qio_80m.elf / qio_qspi
 ```
 
 The final identity is recorded in
 [`evidence/rev-a3-led-grb-final-2026-11-19.md`](evidence/rev-a3-led-grb-final-2026-11-19.md).
-The remaining hardware gate is visual confirmation of one blue TX boot pulse,
-two green RX boot pulses, blue-only TX states and green-only RX states.
+The remaining hardware gate is visual confirmation of one blue TX boot pulse at
+GPIO4 high, two green RX boot pulses at GPIO4 low, blue-only TX states and
+green-only RX states. The authoritative role-inversion record is
+[`evidence/rev-a3-role-inverted-final-2026-11-19.md`](evidence/rev-a3-role-inverted-final-2026-11-19.md).

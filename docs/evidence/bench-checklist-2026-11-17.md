@@ -15,13 +15,13 @@ It caused an RX LittleFS format failure and invalid-image panic.
 Use the four-slot factory artifact whose manifest records SHA-256:
 
 ```text
-d71f5fc2aca3f0bfe4aa594c9321d7faaf01f23be722add044df656f1bf43a24
+b3f6d1b0948be120aa920da34957ab0b01cf397e238bb459d427583ccbf7af43
 ```
 
 Do not use `7210b9ff…`: it paired a DIO bootloader with QIO-built
 applications and caused invalid flash reads, LittleFS failures and an RX panic.
 
-The `d71f5fc2…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
+The `b3f6d1b0…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
 its manifest must record `bootloader_qio_80m.elf`, SDK memory type
 `qio_qspi`, application header mode `dio` and bootloader mode `dio`.
 
@@ -44,9 +44,8 @@ gate is blue-only TX, green-only RX, one TX boot pulse and two RX boot pulses.
 1. Power the board down and disconnect USB and the host adapter.
 2. Check continuity from GPIO4 to ground and to 3.3 V in both switch positions.
    Record which position is electrically low and high.
-3. Match low to the TX role and high to the RX role.
-   Do not trust the printed `TX`/`RX` label: the 2026-11-17 diagnostic read low
-   while the prototype label indicated RX.
+3. Match the printed **TX** position to GPIO4 high and the printed **RX**
+   position to GPIO4 low. The printed labels are authoritative for this board.
 4. Label the verified positions before applying power.
 
 Expected result: exactly one application role agrees in each switch position.
@@ -93,7 +92,7 @@ cannot be returned low.
    ./scripts/flash.sh /dev/ttyACM0
    ```
 
-4. The board boots TX when GPIO4 is low and RX when GPIO4 is high.
+4. The board boots TX when GPIO4 is high and RX when GPIO4 is low.
 5. To test the other role, power off, move SW2, and power on again. Do not
    reflash.
 
@@ -283,10 +282,10 @@ roles; a J3 adapter is optional:
 - TX role: **USB serial TX (400000 baud)**;
 - RX role: **USB serial RX (420000 baud)**.
 
-Power off before changing SW2. GPIO4 is sampled at reset: low boots TX and high
+Power off before changing SW2. GPIO4 is sampled at reset: high boots TX and low
 boots RX. The combined image does not need to be reflashed to change roles.
-Verify the electrical position by continuity because the prototype's printed
-label was wrong. CDC ignores the selected baud. The role shown after connection
+The printed `TX`/`RX` labels are authoritative; verify the electrical position
+by continuity as a wiring check. CDC ignores the selected baud. The role shown after connection
 comes from the module's CRSF device information and should agree with GPIO4.
 
 After **Connect radio** and **Allow changes**, open **Binding and Wi-Fi**. These

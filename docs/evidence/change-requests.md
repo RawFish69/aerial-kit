@@ -312,8 +312,8 @@ Owner: `apps/configurator/`
 The ELRS USB TX Rev A3 firmware now produces one full-flash artifact,
 `aerialkit-rev-a3-elrs-dual-role.bin`. It contains a bootloader selector and
 two slots per role: TX at `0x10000`/`0x2b0000` and RX at
-`0x450000`/`0x590000`, with role state at `0x6d0000`. GPIO4 low selects TX,
-GPIO4 high selects RX, and changing SW2 requires a reboot rather than a
+`0x450000`/`0x590000`, with role state at `0x6d0000`. GPIO4 high selects TX,
+GPIO4 low selects RX, and changing SW2 requires a reboot rather than a
 reflash.
 
 The configurator still presents separate TX and RX flashing choices. Please add

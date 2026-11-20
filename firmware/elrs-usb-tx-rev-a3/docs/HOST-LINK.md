@@ -101,8 +101,8 @@ ExpressLRS still builds separate TX and RX applications:
 The normal Rev A3 artifact contains both applications. On every reset, a small
 bootloader selector samples GPIO4 and boots:
 
-- GPIO4 low: the active TX slot (`tx_0` at `0x10000` or `tx_1` at `0x2b0000`);
-- GPIO4 high: the active RX slot (`rx_0` at `0x450000` or `rx_1` at `0x590000`).
+- GPIO4 high: the active TX slot (`tx_0` at `0x10000` or `tx_1` at `0x2b0000`);
+- GPIO4 low: the active RX slot (`rx_0` at `0x450000` or `rx_1` at `0x590000`).
 
 The active slot for each role is stored in two independently erasable
 `role_state` records at `0x6d0000`. If the selected image is invalid, the

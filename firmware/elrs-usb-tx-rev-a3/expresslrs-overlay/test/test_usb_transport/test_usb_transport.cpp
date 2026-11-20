@@ -190,10 +190,10 @@ void test_role_heartbeat_and_mismatch_logic()
     TEST_ASSERT_EQUAL(0, rx.blue);
     TEST_ASSERT_EQUAL(350, tx.on_ms);
     TEST_ASSERT_EQUAL(350, rx.on_ms);
-    TEST_ASSERT_TRUE(aerialkit_role_matches(false, false));
-    TEST_ASSERT_TRUE(aerialkit_role_matches(true, true));
-    TEST_ASSERT_FALSE(aerialkit_role_matches(true, false));
-    TEST_ASSERT_FALSE(aerialkit_role_matches(false, true));
+    TEST_ASSERT_TRUE(aerialkit_role_matches(true, false));
+    TEST_ASSERT_TRUE(aerialkit_role_matches(false, true));
+    TEST_ASSERT_FALSE(aerialkit_role_matches(false, false));
+    TEST_ASSERT_FALSE(aerialkit_role_matches(true, true));
 }
 
 void test_led_state_priority_and_pattern_mapping()

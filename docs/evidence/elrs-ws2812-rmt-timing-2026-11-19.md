@@ -1,9 +1,9 @@
 # Rev A3 WS2812 output path and native-USB bench probe — 2026-11-19
 
 Current status: resolved. Candidate `19c7b3ce…` was superseded after the
-six-order hardware diagnostic confirmed physical G-R-B. The frozen final
-artifact and hashes are in `rev-a3-led-grb-final-2026-11-19.md`; the sections
-below are historical.
+six-order hardware diagnostic confirmed physical G-R-B. The current final
+artifact, including the labeled-role inversion, is in
+`rev-a3-role-inverted-final-2026-11-19.md`; the sections below are historical.
 
 ## Superseded candidate: `5e9d6c61…` (hardware FAIL, LED)
 

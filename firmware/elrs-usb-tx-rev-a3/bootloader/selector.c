@@ -1,8 +1,8 @@
 /*
  * Aerial Kit Rev A3 boot-time ELRS role selector.
  *
- * GPIO4 is sampled only during the second-stage boot. Low selects the TX
- * role; high selects RX. The bootloader chooses the active application slot
+ * GPIO4 is sampled only during the second-stage boot. High selects the TX
+ * role; low selects RX. The bootloader chooses the active application slot
  * for that role from the role_state partition. If the preferred slot is
  * invalid, it falls back only to the other slot for the same role.
  */
@@ -199,7 +199,7 @@ int aerialkit_select_boot_partition(const bootloader_state_t *state)
         (AERIALKIT_GPIO4_FUNCTION << AERIALKIT_MCU_SEL_SHIFT) |
         AERIALKIT_FUN_IE;
 
-    const uint32_t role = (AERIALKIT_GPIO_IN_REG & (1U << 4)) ? ROLE_RX : ROLE_TX;
+    const uint32_t role = (AERIALKIT_GPIO_IN_REG & (1U << 4)) ? ROLE_TX : ROLE_RX;
     const uint32_t state_offset = role_state_offset();
     const role_record_t *record = NULL;
 

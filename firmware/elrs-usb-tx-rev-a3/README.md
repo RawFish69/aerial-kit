@@ -7,7 +7,7 @@ SX1280 and RFX2401C 2.4 GHz transceiver. The paired hardware sources are in
 ## Firmware families
 
 The normal installation is one dual-role image. GPIO4 is sampled on every
-reset: low starts the ExpressLRS TX application and high starts the RX
+reset: high starts the ExpressLRS TX application and low starts the RX
 application. Moving SW2 and rebooting changes roles without reflashing.
 
 | Image | Purpose | RF state |
@@ -118,7 +118,7 @@ After setup each application writes one ASCII line to native USB, for
 example:
 
 ```text
-AK-BOOT role=tx slot=tx_0 gpio4=low reset=poweron(1) elf=1a2b3c4d led=rmt-ok led_failures=0 led_error=0x0 ws2812_t0h=300ns t1h=750ns latch=300us
+AK-BOOT role=tx slot=tx_0 gpio4=high expect_gpio4=high reset=poweron(1) elf=1a2b3c4d led=rmt-ok led_failures=0 led_error=0x0 ws2812_t0h=300ns t1h=750ns latch=300us
 ```
 
 It reports the compiled role, the running partition, GPIO4 at boot, the reset
@@ -194,10 +194,9 @@ The 2026-11-17 diagnostic run passed ESP32-S3 boot, native USB, UART0, SX1280
 SPI, WS2812, FEM control and shutdown tests. The SX1280 returned firmware
 version `0xA9B7`. No remote I2C device was present.
 
-GPIO4 read low while the switch was physically labelled RX. That conflicts
-with the design note (`low=TX`, `high=RX`), so the switch orientation must be
-checked by continuity before relying on its label. The dual-role mapping uses
-the electrical design, not the printed label.
+The printed switch labels are authoritative. The final dual-role selector
+therefore maps high GPIO4 to TX and low GPIO4 to RX. Both applications enforce
+the same mapping before RF setup and hold both FEM enables low on disagreement.
 
 On 2026-11-19, a hardware A/B test showed that the earlier `7210…` factory image
 paired a DIO bootloader with QIO-built applications. The corrected QIO image
@@ -205,13 +204,13 @@ removed the panic and LittleFS failures. The final GRB color artifact is:
 
 ```text
 size: 8331264 bytes
-sha256: d71f5fc2aca3f0bfe4aa594c9321d7faaf01f23be722add044df656f1bf43a24
+sha256: b3f6d1b0948be120aa920da34957ab0b01cf397e238bb459d427583ccbf7af43
 ```
 
 The operational wire order is the bench-confirmed G-R-B mapping. Role and
-pattern logic are unchanged. Records are in `releases/d71f5fc2/`; the final
-hardware gate is one blue TX boot pulse, two green RX boot pulses, then
-blue-only TX and green-only RX state patterns.
+pattern logic are unchanged. Records are in `releases/b3f6d1b0/`; the final
+hardware gate is one blue TX boot pulse at GPIO4 high, two green RX boot pulses
+at GPIO4 low, then blue-only TX and green-only RX state patterns.
 
 ## Licensing
 

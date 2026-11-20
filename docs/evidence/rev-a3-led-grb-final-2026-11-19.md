@@ -1,5 +1,10 @@
 # Rev A3 final GRB LED artifact — 2026-11-19
 
+Superseded: this artifact preserves the confirmed G-R-B mapping but retains
+the old GPIO4 low=TX/high=RX role contract. It must not be used for labeled
+hardware. The role-inverted replacement is recorded in
+`rev-a3-role-inverted-final-2026-11-19.md`.
+
 ## Result
 
 The bench completed the six-order physical WS2812 diagnostic and confirmed

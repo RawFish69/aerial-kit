@@ -148,6 +148,29 @@ class DualRoleArtifactTests(unittest.TestCase):
         for required in ("SlowBreath", "FastBreath", "AmberTriple"):
             self.assertIn(required, led_state)
 
+    def test_gpio4_high_is_tx_and_low_is_rx_everywhere(self) -> None:
+        selector = (ROOT / "bootloader" / "selector.c").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "(AERIALKIT_GPIO_IN_REG & (1U << 4)) ? ROLE_TX : ROLE_RX",
+            selector,
+        )
+        boot_logic = (
+            ROOT
+            / "expresslrs-overlay"
+            / "include"
+            / "aerialkit_boot_logic.h"
+        ).read_text(encoding="utf-8")
+        self.assertIn("return role_pin_high != rx_role;", boot_logic)
+        diagnostics = (
+            ROOT
+            / "expresslrs-overlay"
+            / "src"
+            / "aerialkit_boot_diagnostics.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn('RX_ROLE ? "low" : "high"', diagnostics)
+
     def test_selector_linker_script_is_parameterized(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "selector.ld"
@@ -219,6 +242,10 @@ class DualRoleArtifactTests(unittest.TestCase):
 
         data = bytearray(artifact.read_bytes())
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            manifest["roles"],
+            {"gpio4_low": "rx", "gpio4_high": "tx"},
+        )
         self.assertEqual(
             hashlib.sha256(data).hexdigest(),
             manifest["sha256"],

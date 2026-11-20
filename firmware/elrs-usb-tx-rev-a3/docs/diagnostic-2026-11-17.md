@@ -28,9 +28,9 @@ DIAG i2c j3 SDA=34 SCL=48: no devices
 DIAG ws2812 gpio21=red at 26/255
 ```
 
-The physical switch was labelled RX while GPIO4 read low. The design note
-states low is TX and high is RX; the switch orientation therefore needs a
-power-off continuity check before relying on its label.
+This historical diagnostic predates the final role correction. The printed
+switch labels are now authoritative: high GPIO4 is TX and low GPIO4 is RX.
+Use a power-off continuity check only to verify the switch wiring.
 
 Not tested: RF path, FEM gain or output, antenna VSWR, receive sensitivity,
 binding, link acquisition and range. These require an antenna or terminated

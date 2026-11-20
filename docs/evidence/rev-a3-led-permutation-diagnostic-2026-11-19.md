@@ -1,7 +1,8 @@
 # Rev A3 physical WS2812 order diagnostic — 2026-11-19
 
-Resolved: bench hardware confirmed G-R-B. The final operational artifact is
-recorded in `rev-a3-led-grb-final-2026-11-19.md`; the text below preserves the
+Resolved: bench hardware confirmed G-R-B. The current operational artifact,
+including the labeled-role inversion, is recorded in
+`rev-a3-role-inverted-final-2026-11-19.md`; the text below preserves the
 diagnostic method and its original unresolved state.
 
 ## Why another candidate is required
@@ -92,7 +93,7 @@ python3 firmware/elrs-usb-tx-rev-a3/tools/usb_crsf_bench.py \
   --duration 24 --led-permutation 0xEC --write
 ```
 
-For a GPIO4-low TX:
+For a GPIO4-high TX:
 
 ```bash
 python3 firmware/elrs-usb-tx-rev-a3/tools/usb_crsf_bench.py \

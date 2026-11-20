@@ -142,14 +142,15 @@ void aerialkitBootReport()
     const esp_partition_t *running = esp_ota_get_running_partition();
     char elf[9] = "unknown";
     (void)esp_ota_get_app_elf_sha256(elf, sizeof(elf));
-    char line[160];
+    char line[192];
     const int length = snprintf(
         line,
         sizeof(line),
-        "AK-BOOT role=%s slot=%s gpio4=%s reset=%s(%d) elf=%s led=%s led_failures=%u led_error=0x%x ws2812_t0h=300ns t1h=750ns latch=300us\r\n",
+        "AK-BOOT role=%s slot=%s gpio4=%s expect_gpio4=%s reset=%s(%d) elf=%s led=%s led_failures=%u led_error=0x%x ws2812_t0h=300ns t1h=750ns latch=300us\r\n",
         RX_ROLE ? "rx" : "tx",
         running != nullptr ? running->label : "unknown",
         roleHighAtBoot ? "high" : "low",
+        RX_ROLE ? "low" : "high",
         resetReasonName(esp_reset_reason()),
         static_cast<int>(esp_reset_reason()),
         elf,

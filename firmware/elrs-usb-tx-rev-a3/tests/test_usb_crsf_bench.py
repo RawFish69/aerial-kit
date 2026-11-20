@@ -50,7 +50,7 @@ class ParserTest(unittest.TestCase):
         parser = bench.CrsfStreamParser()
         rc = bench.rc_frame()
         stream = (
-            b"SPIWP:0xee\r\nAK-BOOT role=tx slot=tx_0 gpio4=low\r\n"
+            b"SPIWP:0xee\r\nAK-BOOT role=tx slot=tx_0 gpio4=high\r\n"
             + b"\x00\xff"
             + rc[:10]
         )
@@ -58,7 +58,7 @@ class ParserTest(unittest.TestCase):
         frames += parser.feed(rc[10:] + bench.device_ping() + b"\r\n")
         self.assertEqual([frame.name for frame in frames],
                          ["RC_CHANNELS_PACKED", "DEVICE_PING"])
-        self.assertIn("AK-BOOT role=tx slot=tx_0 gpio4=low", parser.lines)
+        self.assertIn("AK-BOOT role=tx slot=tx_0 gpio4=high", parser.lines)
 
     def test_rejects_bad_crc_and_recovers(self) -> None:
         parser = bench.CrsfStreamParser()
