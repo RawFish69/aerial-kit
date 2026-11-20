@@ -60,19 +60,21 @@ diff --git a/src/src/rxtx_common.cpp b/src/src/rxtx_common.cpp
 index 6b5b10d..075e648 100644
 --- a/src/src/rxtx_common.cpp
 +++ b/src/src/rxtx_common.cpp
-@@ -6,6 +6,41 @@
+@@ -6,6 +6,43 @@
  #include <functional>
  #include <Wire.h>
 
 +#if defined(AERIALKIT_ROLE_SELECT_PIN)
++#include "aerialkit_boot_logic.h"
++
 +static void enforceAerialKitRoleSelect()
 +{
 +    pinMode(AERIALKIT_ROLE_SELECT_PIN, INPUT);
 +    const bool roleHigh = digitalRead(AERIALKIT_ROLE_SELECT_PIN) == HIGH;
 +#if defined(TARGET_TX)
-+    const bool matches = !roleHigh;
++    const bool matches = aerialkit_role_matches(roleHigh, false);
 +#elif defined(TARGET_RX)
-+    const bool matches = roleHigh;
++    const bool matches = aerialkit_role_matches(roleHigh, true);
 +#else
 +    const bool matches = true;
 +#endif
@@ -102,7 +104,7 @@ index 6b5b10d..075e648 100644
  static const int maxDeferredFunctions = 3;
 
  struct deferred_t {
-@@ -64,6 +99,9 @@ static void setupWire()
+@@ -64,6 +101,9 @@ static void setupWire()
 
  void setupTargetCommon()
  {
@@ -112,7 +114,7 @@ index 6b5b10d..075e648 100644
      setupWire();
  }
 
-@@ -115,4 +153,4 @@ void checkRebootTime(unsigned long now)
+@@ -115,4 +155,4 @@ void checkRebootTime(unsigned long now)
      if (rebootTime_Ms != 0 && !config.IsModified() && now > rebootTime_Ms ) {
          ESP.restart();
      }

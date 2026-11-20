@@ -1,5 +1,13 @@
 # Rev A3 labeled-role final artifact — 2026-11-19
 
+Hardware FAIL: the `b3f6d1b0…` image below booted RX at GPIO4 low, showed
+two green boot pulses, then stopped before `aerialkitBootReport()`. A second
+role guard in the upstream `setupTargetCommon()` path still used the old
+low=TX/high=RX comparison. RX therefore entered its permanent role-mismatch
+loop after preflight. This artifact and its hashes are historical and must not
+be flashed again. The corrected artifact is recorded in
+`rev-a3-rx-role-hang-fix-2026-11-19.md`.
+
 ## Result
 
 The Rev A3 printed switch labels are authoritative:

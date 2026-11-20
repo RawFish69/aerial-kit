@@ -1,9 +1,9 @@
 # Rev A3 physical WS2812 order diagnostic — 2026-11-19
 
 Resolved: bench hardware confirmed G-R-B. The current operational artifact,
-including the labeled-role inversion, is recorded in
-`rev-a3-role-inverted-final-2026-11-19.md`; the text below preserves the
-diagnostic method and its original unresolved state.
+including the labeled-role inversion and RX startup fix, is recorded in
+`rev-a3-rx-role-hang-fix-2026-11-19.md`; the text below preserves the diagnostic
+method and its original unresolved state.
 
 ## Why another candidate is required
 

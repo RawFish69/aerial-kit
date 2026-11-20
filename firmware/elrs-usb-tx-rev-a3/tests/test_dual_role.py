@@ -163,6 +163,19 @@ class DualRoleArtifactTests(unittest.TestCase):
             / "aerialkit_boot_logic.h"
         ).read_text(encoding="utf-8")
         self.assertIn("return role_pin_high != rx_role;", boot_logic)
+        upstream_patch = (
+            ROOT / "patches" / "expresslrs-4.1.0-aerialkit.patch"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "aerialkit_role_matches(roleHigh, false)",
+            upstream_patch,
+        )
+        self.assertIn(
+            "aerialkit_role_matches(roleHigh, true)",
+            upstream_patch,
+        )
+        self.assertNotIn("const bool matches = !roleHigh;", upstream_patch)
+        self.assertNotIn("const bool matches = roleHigh;", upstream_patch)
         diagnostics = (
             ROOT
             / "expresslrs-overlay"

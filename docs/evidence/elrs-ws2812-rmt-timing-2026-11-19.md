@@ -2,8 +2,8 @@
 
 Current status: resolved. Candidate `19c7b3ce…` was superseded after the
 six-order hardware diagnostic confirmed physical G-R-B. The current final
-artifact, including the labeled-role inversion, is in
-`rev-a3-role-inverted-final-2026-11-19.md`; the sections below are historical.
+artifact, including the labeled-role inversion and RX startup fix, is in
+`rev-a3-rx-role-hang-fix-2026-11-19.md`; the sections below are historical.
 
 ## Superseded candidate: `5e9d6c61…` (hardware FAIL, LED)
 

@@ -1,0 +1,81 @@
+{
+  "artifact": "aerialkit-rev-a3-elrs-dual-role.bin",
+  "flash_offset": "0x0",
+  "flash_size": 8388608,
+  "image_size": 8331264,
+  "sha256": "7c6714425e4a2981ef787267df89627838e61b155e288536e66cf465faeada63",
+  "roles": {
+    "gpio4_low": "rx",
+    "gpio4_high": "tx"
+  },
+  "partitions": {
+    "nvs": {
+      "offset": "0x9000",
+      "size": 20480
+    },
+    "otadata": {
+      "offset": "0xe000",
+      "size": 8192
+    },
+    "tx_0": {
+      "offset": "0x10000",
+      "size": 1703936
+    },
+    "tx_1": {
+      "offset": "0x2b0000",
+      "size": 1703936
+    },
+    "rx_0": {
+      "offset": "0x450000",
+      "size": 1310720
+    },
+    "rx_1": {
+      "offset": "0x590000",
+      "size": 1310720
+    },
+    "role_state": {
+      "offset": "0x6d0000",
+      "size": 8192
+    },
+    "spiffs": {
+      "offset": "0x6d2000",
+      "size": 1179648
+    },
+    "coredump": {
+      "offset": "0x7f2000",
+      "size": 53248
+    }
+  },
+  "applications": {
+    "tx": {
+      "slot": "tx_0",
+      "size": 1443040,
+      "image_size": 1440336,
+      "sha256": "9c9118fb3ed41d66aabf4b652fdd584a3b9635bf0441214368062f09a529bc08"
+    },
+    "rx": {
+      "slot": "rx_0",
+      "size": 1085952,
+      "image_size": 1083248,
+      "sha256": "34836893ede92096476f8945e78a0193150bb4fb20a7998da021691c0eb0b4ec"
+    }
+  },
+  "bootloader": {
+    "elf": "bootloader_qio_80m.elf",
+    "sdk_memory_type": "qio_qspi",
+    "app_flash_mode": "dio",
+    "flash_mode": "dio",
+    "size": 15616,
+    "sha256": "da2587569cbab56dfde962cb9174db6427d28ec540d62691a43e60f5006733c0"
+  },
+  "littlefs": {
+    "offset": 7151616,
+    "size": 1179648,
+    "sha256": "94dcd5856681be738b972b51c0ee382df7b50fc85cbc94913b3c5aedb2d8d184"
+  },
+  "role_state": {
+    "offset": 7143424,
+    "initial_tx_slot": "tx_0",
+    "initial_rx_slot": "rx_0"
+  }
+}
