@@ -17,34 +17,72 @@ that text first; the decoder discards it until a valid frame begins.
 
 ```bash
 # A real DEVICE_INFO response is required.
-aerial-kit-link radio status --port /dev/ttyACM0 --baud 400000
+ak radio status --port /dev/ttyACM0 --baud 400000
+
+# Read the MSP RXTX UID with a four-second window and one post-reconnect retry.
+ak radio uid --port /dev/ttyACM0 --baud 400000 --role tx
+ak radio uid --port /dev/ttyACM1 --baud 420000 --role rx
+
+# Set one shared phrase on each endpoint. Each command reads the old UID,
+# writes, reconnects, and refuses success without an exact six-byte readback.
+ak radio bind-phrase replace-with-your-phrase \
+  --port /dev/ttyACM1 --baud 420000 --role rx --write
+ak radio bind-phrase replace-with-your-phrase \
+  --port /dev/ttyACM0 --baud 400000 --role tx --write
+
+# A direct six-byte UID is also supported and has the same gates/readback.
+ak radio set-uid AA:BB:CC:DD:EE:FF \
+  --port /dev/ttyACM0 --baud 400000 --role tx --write
 
 # Decode all valid CRSF traffic and preserve counters as JSON evidence.
-aerial-kit-link radio monitor \
+ak radio monitor \
   --port /dev/ttyACM0 --baud 400000 --duration 5 --json monitor.json
 
 # Send 26-byte RC_CHANNELS_PACKED frames at 150 Hz.
-aerial-kit-link radio drive \
+ak radio drive \
   --port /dev/ttyACM0 --baud 400000 \
   --hz 150 --duration 10 --pattern arm-test --write --json drive.json
 
 # Capture FC-facing receiver frames and channels.
-aerial-kit-link radio capture \
+ak radio capture \
   --port /dev/ttyACM1 --baud 420000 --duration 10 --json capture.json
 
 # Inject validated attitude, battery, GPS and barometer telemetry.
-aerial-kit-link radio inject \
+ak radio inject \
   --port /dev/ttyACM1 --baud 420000 \
   --file protocols/vectors/crsf.json --write --json inject.json
 
-# A two-board run; RF PASS still requires observed link statistics.
-aerial-kit-link radio bench \
+# The bench first proves that TX and RX report the same non-zero UID.
+# RF PASS still requires observed RX RC and link statistics.
+ak radio bench \
   --tx /dev/ttyACM0 --rx /dev/ttyACM1 \
   --duration 15 --json bench.json --write
 ```
 
+The guided pair command performs both phrase writes/readbacks and then the
+two-board bench as one bounded run:
+
+```bash
+ak radio pair --tx /dev/ttyACM0 --rx /dev/ttyACM1 \
+  --phrase "replace-with-your-phrase" --duration 15 \
+  --json pair.json --write
+```
+
 Use `--json -` for JSON on standard output. Human output remains a compact
 summary; JSON is stable and sorted.
+
+The complete two-endpoint acceptance helper is:
+
+```bash
+python3 firmware/tools/verify_uid_binding.py \
+  --tx /dev/ttyACM0 --rx /dev/ttyACM1 \
+  --phrase "replace-with-your-phrase" --write --confirm --rf-duration 15 \
+  --json uid-binding.json
+```
+
+Omit `--write --confirm` for a read-only UID comparison. With both flags, the
+helper writes the same phrase to RX and TX sequentially, waits for each reboot,
+requires exact readback from both, and only then starts the two-board drive.
 
 ## Evidence rules
 
@@ -71,7 +109,9 @@ but cannot establish a two-endpoint RF link.
 ## Safety
 
 All commands that transmit RC, arm, inject or run a two-board bench require
-`--write`. Arm patterns wait at low throttle for longer than the firmware's
+`--write`. `radio bench`
+refuses mismatched or all-zero endpoint UIDs before transmitting RC. Arm
+patterns wait at low throttle for longer than the firmware's
 500 ms arm hold. Every drive exit path, including timeout and Ctrl-C, sends a
 throttle-low/armed frame followed by an arm-low frame before returning.
 

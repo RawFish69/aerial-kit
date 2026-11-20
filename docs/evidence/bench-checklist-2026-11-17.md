@@ -291,18 +291,24 @@ are three separate operations:
 
 1. **Binding phrase / UID.** The phrase field shows the MD5-derived six-byte UID
    the module will actually store. Confirm a phrase or direct UID write, then
-   expect the module to reboot. Reconnect and use **Read UID** to verify the
-   readback; the phrase itself cannot be recovered from the module.
+   expect the module to reboot. The configurator reconnects automatically,
+   reads the UID with a four-second window plus one post-reconnect retry, and
+   refuses to call the write verified unless the six-byte readback matches.
+   The phrase itself cannot be recovered from the module.
+   Set RX first, then TX, and retain the Pair evidence row until both role-
+   colored UIDs are present and identical. A zero UID is unbound, not a pass.
    The RX role's advertised **Bind Storage** setting remains separate under
    **Settings**; changing that storage policy is not a phrase/UID write.
 2. **Explicit bind.** **Start binding mode** on a TX or **Enter Bind Mode** on an
    RX asks for confirmation before sending CRSF `COMMAND` subcommand
    `0x10/0x01`, the same request as
-   `aerial-kit-link ... --write radio bind`. That command has no completion
+   `ak radio bind --write`. That command has no completion
    response, so sending it proves only that the request left the host. A
    receiver double-blink (100 ms on/off, then a 1 s pause, orange/red at the
    overlay's 10% brightness) is the RX-side binding evidence. Do not claim a
    successful bind until both endpoints connect and report link statistics.
+   Prefer the matching-phrase path: it has deterministic UID readback from both
+   endpoints and does not depend on overlapping two-button timing.
 3. **Wi-Fi.** **Enable module Wi-Fi** asks the TX to enter Wi-Fi update mode;
    **Enable receiver Wi-Fi** asks a connected TX to relay that request to the
    RX. Confirm the link-loss warning first. The fixed LED state machine does
@@ -315,6 +321,21 @@ are three separate operations:
 If a module's parameter menu does not advertise a bind entry or its role does
 not advertise Wi-Fi, the page says so. The stock direct bind command remains
 available, but do not infer Wi-Fi support from the role image alone.
+
+CLI equivalent before any RF test:
+
+```bash
+ak radio uid --port /dev/ttyACM0 --baud 400000 --role tx
+ak radio uid --port /dev/ttyACM1 --baud 420000 --role rx
+ak radio bind-phrase bench-phrase \
+  --port /dev/ttyACM1 --baud 420000 --role rx --write
+ak radio bind-phrase bench-phrase \
+  --port /dev/ttyACM0 --baud 400000 --role tx --write
+```
+
+Both commands must print the same non-zero `verified ... uid=`. The two-board
+`radio bench` performs that comparison again and refuses to transmit RC when
+the UIDs differ or both are zero.
 
 Stop after the props-off FC and failsafe checks. This checklist does not
 authorize a flight or claim that the link, tuning or airframe is flight-ready.

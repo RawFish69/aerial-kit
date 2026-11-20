@@ -119,6 +119,11 @@ jobs:
           print('wheel OK:', len(result.trajectory), 'samples')
           "
           /tmp/smoke/bin/aerial-kit-sim --help > /dev/null
+          /tmp/smoke/bin/ak --help > /dev/null
+          /tmp/smoke/bin/ak sim --help > /dev/null
+          /tmp/smoke/bin/ak teleop --help > /dev/null
+          /tmp/smoke/bin/aerial-kit-link --help > /dev/null
+          /tmp/smoke/bin/aerial-kit-teleop --help > /dev/null
           echo "console script OK"
 
       - name: Verify firmware and repo files are not shipped

@@ -62,7 +62,7 @@ jobs:
       - name: Shared communications transports
         run: python -m pytest tests/test_comms_transports.py -q
       - name: Communications CLI and radio bench
-        run: python -m pytest tests/test_comms_cli.py tests/test_crsf_bench.py -q
+        run: python -m pytest tests/test_ak_cli.py tests/test_comms_cli.py tests/test_crsf_bench.py -q
       - name: MAVLink framing, transforms and opt-in client
         run: python -m pytest tests/test_mavlink_client.py -q
       - name: CRSF radio and parameters
@@ -145,6 +145,12 @@ jobs:
           assert importlib.util.find_spec("sim_py.tests") is None
           print("base import:", aerial_kit.__name__, sim_py.__name__)
           PY
+          /tmp/aerial-kit-base/bin/ak --help > /dev/null
+          /tmp/aerial-kit-base/bin/aerial-kit-link --help > /dev/null
+          /tmp/aerial-kit-base/bin/aerial-kit-sim --help > /dev/null
+          /tmp/aerial-kit-base/bin/aerial-kit-teleop --help > /dev/null
+          /tmp/aerial-kit-base/bin/ak sim --help > /dev/null
+          /tmp/aerial-kit-base/bin/ak teleop --help > /dev/null
 
       - name: Simulator extra installs only its declared dependencies
         run: |

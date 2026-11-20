@@ -137,16 +137,23 @@ The console can query a radio or flight controller directly:
 
 ```bash
 pip install "aerial-kit[radio,mavlink]"
-aerial-kit-link --port /dev/ttyACM0 radio status
-aerial-kit-link radio monitor --port /dev/ttyACM0 --duration 5 --json monitor.json
-aerial-kit-link radio drive --port /dev/ttyACM0 --hz 150 --duration 10 --write
-aerial-kit-link --port /dev/ttyACM0 fc hello
-aerial-kit-link --port /dev/ttyACM0 fc params
+ak radio status --port /dev/ttyACM0
+ak radio uid --port /dev/ttyACM0 --role tx
+ak radio uid --port /dev/ttyACM1 --role rx
+ak radio monitor --port /dev/ttyACM0 --duration 5 --json monitor.json
+ak radio drive --port /dev/ttyACM0 --hz 150 --duration 10 --write
+ak fc hello --port /dev/ttyACM0
+ak fc params --port /dev/ttyACM0
+ak sim --no-show
 ```
 
 Use `--radio /dev/ttyUSB0` with `fc` to carry Aerial Kit requests over an ELRS
 link. Mutations require `--write`; omitting it refuses the operation before a
-frame is sent. See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for framing,
+frame is sent. Bind and UID writes reconnect after the module reboot and fail
+unless the six-byte UID reads back exactly. `aerial-kit-link`,
+`aerial-kit-sim` and `aerial-kit-teleop` remain compatibility commands; new
+scripts should use `ak`.
+See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for framing,
 transport and safety details. Native-USB radio monitor, drive, capture,
 telemetry injection and two-board evidence are covered in
 [docs/RADIO-BENCH.md](docs/RADIO-BENCH.md).
