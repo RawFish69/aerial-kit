@@ -42,7 +42,7 @@ from aerial_kit.comms.akp.client import AkClient
 from aerial_kit.comms.akp import codec as akp_codec
 from aerial_kit.comms.akp.codec import HELLO
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def reassemble(

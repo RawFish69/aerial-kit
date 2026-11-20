@@ -58,7 +58,7 @@ def test_public_interfaces_and_registry_work_together() -> None:
 
 
 def test_readme_quickstart_runs() -> None:
-    readme = Path(__file__).with_name("aerial_kit").joinpath("README.md")
+    readme = Path(__file__).resolve().parents[1] / "aerial_kit" / "README.md"
     text = readme.read_text(encoding="utf-8")
     section = text.split("## Quick start", 1)[1].split("```python", 1)[1].split("```", 1)[0]
     namespace = {"__name__": "__readme_quickstart__"}

@@ -213,7 +213,7 @@ def test_protocol_error_is_typed() -> None:
 
 def test_configurator_capture_is_consumed_by_the_typed_client() -> None:
     fixture = json.loads(
-        (Path(__file__).parent / "apps/configurator/tests/fixtures/aerialkit.json").read_text()
+        (Path(__file__).resolve().parents[1] / "apps/configurator/tests/fixtures/aerialkit.json").read_text()
     )["frames"]
 
     def payload(name: str) -> bytes:

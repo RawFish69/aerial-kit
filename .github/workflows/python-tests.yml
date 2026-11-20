@@ -54,25 +54,27 @@ jobs:
       - name: ELRS USB TX Rev A3 dual-role firmware host tests
         run: python -m pytest firmware/elrs-usb-tx-rev-a3/tests -q -rs
       - name: Controller benchmark harness
-        run: python -m pytest test_benchmarks.py -q
+        run: python -m pytest tests/test_benchmarks.py -q
       - name: CRSF barometer codec
-        run: python -m pytest test_crsf_barometer.py -q
+        run: python -m pytest tests/test_crsf_barometer.py -q
       - name: Protocol vectors
         run: python protocols/check_vectors.py
       - name: Shared communications transports
-        run: python -m pytest test_comms_transports.py -q
+        run: python -m pytest tests/test_comms_transports.py -q
+      - name: Communications CLI and radio bench
+        run: python -m pytest tests/test_comms_cli.py tests/test_crsf_bench.py -q
       - name: MAVLink framing, transforms and opt-in client
-        run: python -m pytest test_mavlink_client.py -q
+        run: python -m pytest tests/test_mavlink_client.py -q
       - name: CRSF radio and parameters
-        run: python -m pytest test_crsf_radio.py -q
+        run: python -m pytest tests/test_crsf_radio.py -q
       - name: AKP segmentation over CRSF and the firmware receiver route
-        run: python -m pytest test_crsf_akp_tunnel.py -q
+        run: python -m pytest tests/test_crsf_akp_tunnel.py -q
       - name: MSP read-only client and fake board
-        run: python -m pytest test_msp.py -q
+        run: python -m pytest tests/test_msp.py -q
       - name: AKP typed client and host firmware
-        run: python -m pytest test_akp_client.py test_akp_host.py -q
-      - name: AKP client and host protocol engine
-        run: python -m pytest test_akp_client.py test_akp_host.py -q
+        run: python -m pytest tests/test_akp_client.py tests/test_akp_host.py -q
+      - name: Protocol vector compatibility
+        run: python -m pytest tests/test_protocol_vectors.py -q
 
   ros-packages:
     name: ROS 2 package logic (no ROS)
@@ -187,7 +189,7 @@ jobs:
           print("mavlink extra:", pymavlink.__file__)
           PY
       - name: MAVLink against the pymavlink dialect
-        run: /tmp/aerial-kit-mavlink/bin/python -m pytest test_mavlink_client.py -q
+        run: /tmp/aerial-kit-mavlink/bin/python -m pytest tests/test_mavlink_client.py -q
 
       - name: Packaged FC-SIL explains that firmware sources are absent
         run: |
@@ -255,9 +257,9 @@ jobs:
       - name: Type-check the public API
         run: python -m mypy
       - name: Public API and README quickstart
-        run: python -m pytest test_public_api.py -q
+        run: python -m pytest tests/test_public_api.py -q
       - name: Protocol examples
-        run: python -m pytest test_comms_examples.py -q
+        run: python -m pytest tests/test_comms_examples.py -q
 
   ros2-jazzy:
     # The tests above skip anything that needs rclpy. This job runs them for

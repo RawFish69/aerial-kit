@@ -505,7 +505,7 @@ def test_optional_full_dialect_encodes_messages_outside_the_core_set() -> None:
     assert "BATTERY_STATUS" in dialect.message_types
 
 
-FAKE_VEHICLE = Path(__file__).parent / "firmware" / "tools" / "mavlink_fake_vehicle.py"
+FAKE_VEHICLE = Path(__file__).resolve().parents[1] / "firmware" / "tools" / "mavlink_fake_vehicle.py"
 
 
 def load_fake_vehicle() -> ModuleType:
