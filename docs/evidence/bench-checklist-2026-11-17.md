@@ -15,13 +15,13 @@ It caused an RX LittleFS format failure and invalid-image panic.
 Use the four-slot factory artifact whose manifest records SHA-256:
 
 ```text
-96553fa544ed40ac3ce791157429a1072adab6ec632f5a9c2277636358e7837b
+bfff8af53735af248cd82240b8a3ff6fa838f8f1a2fcf7f97fdf0cdfba6665d7
 ```
 
 Do not use `7210b9ff…`: it paired a DIO bootloader with QIO-built
 applications and caused invalid flash reads, LittleFS failures and an RX panic.
 
-The `96553fa5…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
+The `bfff8af5…` image must list `tx_1`, `rx_0`, `rx_1` and `role_state`, and
 its manifest must record `bootloader_qio_80m.elf`, SDK memory type
 `qio_qspi`, application header mode `dio` and bootloader mode `dio`.
 

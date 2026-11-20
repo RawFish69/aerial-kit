@@ -211,12 +211,12 @@ removed the panic and LittleFS failures. The final GRB color artifact is:
 
 ```text
 size: 8331264 bytes
-sha256: 96553fa544ed40ac3ce791157429a1072adab6ec632f5a9c2277636358e7837b
+sha256: bfff8af53735af248cd82240b8a3ff6fa838f8f1a2fcf7f97fdf0cdfba6665d7
 ```
 
 The operational wire order is the bench-confirmed G-R-B mapping. Role and
 pattern logic are unchanged. The UID-persistence patch is included. Records
-are in `releases/96553fa5/`; the final
+are in `releases/bfff8af5/`; the final
 hardware gate is one blue TX boot pulse at GPIO4 high, two green RX boot pulses
 at GPIO4 low, then blue-only TX and green-only RX state patterns.
 

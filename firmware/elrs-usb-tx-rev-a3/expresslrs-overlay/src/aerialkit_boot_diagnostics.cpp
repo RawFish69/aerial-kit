@@ -4,6 +4,9 @@
 
 #include "aerialkit_boot_diagnostics.h"
 #include "aerialkit_boot_logic.h"
+#include "common.h"
+#include "FHSS.h"
+#include "OTA.h"
 
 #include <Arduino.h>
 #include <esp_ota_ops.h>
@@ -142,11 +145,18 @@ void aerialkitBootReport()
     const esp_partition_t *running = esp_ota_get_running_partition();
     char elf[9] = "unknown";
     (void)esp_ota_get_app_elf_sha256(elf, sizeof(elf));
-    char line[192];
+    const auto *rate = ExpressLRS_currAirRate_Modparams;
+    const uint32_t seed = OtaGetUidSeed();
+    char line[384];
     const int length = snprintf(
         line,
         sizeof(line),
-        "AK-BOOT role=%s slot=%s gpio4=%s expect_gpio4=%s reset=%s(%d) elf=%s led=%s led_failures=%u led_error=0x%x ws2812_t0h=300ns t1h=750ns latch=300us\r\n",
+        "AK-BOOT role=%s slot=%s gpio4=%s expect_gpio4=%s reset=%s(%d) elf=%s "
+        "uid=%02x%02x%02x%02x%02x%02x seed=0x%08lx crc=0x%04x "
+        "rate_idx=%u rate_enum=%u interval_us=%u fhss0=%u freq=%lu "
+        "domain=%s conn=%u txen=%u rxen=%u "
+        "led=%s led_failures=%u led_error=0x%x "
+        "ws2812_t0h=300ns t1h=750ns latch=300us\r\n",
         RX_ROLE ? "rx" : "tx",
         running != nullptr ? running->label : "unknown",
         roleHighAtBoot ? "high" : "low",
@@ -154,6 +164,18 @@ void aerialkitBootReport()
         resetReasonName(esp_reset_reason()),
         static_cast<int>(esp_reset_reason()),
         elf,
+        UID[0], UID[1], UID[2], UID[3], UID[4], UID[5],
+        static_cast<unsigned long>(seed),
+        static_cast<unsigned>(OtaCrcInitializer),
+        rate != nullptr ? static_cast<unsigned>(rate->index) : 0xffU,
+        rate != nullptr ? static_cast<unsigned>(rate->enum_rate) : 0xffU,
+        rate != nullptr ? static_cast<unsigned>(rate->interval) : 0U,
+        static_cast<unsigned>(FHSSsequence[0]),
+        static_cast<unsigned long>(FHSSgetInitialFreq()),
+        FHSSconfig != nullptr ? FHSSconfig->domain : "unknown",
+        static_cast<unsigned>(connectionState),
+        static_cast<unsigned>(digitalRead(TX_ENABLE_PIN)),
+        static_cast<unsigned>(digitalRead(RX_ENABLE_PIN)),
         aerialkitWs2812Healthy() ? "rmt-ok" : "rmt-fail",
         static_cast<unsigned>(aerialkitWs2812Failures()),
         static_cast<unsigned>(aerialkitWs2812LastError()));
