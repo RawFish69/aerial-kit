@@ -226,6 +226,13 @@ telemetry forwarding, and solid blue TX / green RX connected LEDs. Board C
 (`90:70:69:27:20:64`) is defective because `RADIO_BUSY` and `RADIO_DIO1` are
 bridged. Power cycles 2-3 and extended range/attenuation remain NOT TESTED.
 
+The factory TX board A was also validated against an external Betaflight
+drone receiver at 2G4 100 mW using UID `10:73:a1:1f:a8:0f`. With propellers
+removed, the receiver acquired the link in approximately 10-15 seconds, showed
+live changing `MSP_RC`, accepted minimum-throttle arm and automatic disarm on
+AUX1/channel 5, and responded to the AUX5/channel 9 beeper command. This is a
+props-off bench result, not flight or range validation.
+
 ## Licensing
 
 The ExpressLRS and target source trees remain under their upstream licences

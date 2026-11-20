@@ -48,5 +48,12 @@ Board C, `90:70:69:27:20:64`, is not part of the accepted pair. Its
 - solid blue TX and solid green RX connected LEDs;
 - power cycle 1 of 3 reacquired the link and passed RC, telemetry and link
   statistics.
+- TX board A linked to an external Betaflight drone receiver configured for
+  2G4 RX at 100 mW and ExpressLRS 4.1.0;
+- the receiver acquired the link in approximately 10-15 seconds, showed a
+  solid link LED and produced live changing `MSP_RC`;
+- minimum-throttle arm and automatic disarm passed on AUX1/CRSF channel 5;
+- the AUX5/CRSF channel 9 beeper test passed with `play_sound 4: ARMING`.
 
-NOT TESTED: power cycles 2-3 and extended range or attenuation.
+All real-drone checks were performed with propellers removed. NOT TESTED:
+power cycles 2-3, flight, range or attenuation.

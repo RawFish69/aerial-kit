@@ -29,6 +29,11 @@ This artifact uses the bench-confirmed G-R-B physical order. The replacement
 A+B pair passed connected LED and RF acquisition checks on 2026-11-20.
 Power cycles 2-3 and extended range/attenuation remain NOT TESTED.
 
+Factory TX board A also passed a props-off check against an external
+Betaflight 2G4 receiver, including live `MSP_RC`, arm/disarm and beeper
+control. See `rev-a3-real-drone-bench-2026-11-20.md`. That result does not
+establish flight readiness or range.
+
 ## Stop conditions
 
 - Remove all propellers. Keep the aircraft restrained until electrical and
