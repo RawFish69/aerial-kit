@@ -59,6 +59,7 @@ else
     git -C "$express" apply "$led_state_patch_file"
     git -C "$express" apply "$rmt_led_patch_file"
     git -C "$express" apply "$rxtx_persistence_patch_file"
+    python3 "$root/tools/apply_rf_defaults.py" "$express/src/src/rx_main.cpp"
     printf '%s\n' "$stamp" > "$stamp_file"
 fi
 

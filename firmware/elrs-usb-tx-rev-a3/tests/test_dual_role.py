@@ -171,6 +171,32 @@ class DualRoleArtifactTests(unittest.TestCase):
             bootstrap,
         )
 
+    def test_rx_search_starts_on_the_tx_default_rate(self) -> None:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import apply_rf_defaults
+
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "rx_main.cpp"
+            source.write_text(
+                "void setupRadio() {\n"
+                "    scanIndex = config.GetRateInitialIdx();\n"
+                "    for (;;) {}\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            apply_rf_defaults.apply(source)
+            text = source.read_text(encoding="utf-8")
+        self.assertIn(
+            "scanIndex = enumRatetoIndexSafe(RATE_LORA_2G4_250HZ);",
+            text,
+        )
+        self.assertIn(apply_rf_defaults.MARKER, text)
+        bootstrap = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'python3 "$root/tools/apply_rf_defaults.py"',
+            bootstrap,
+        )
+
     def test_gpio4_high_is_tx_and_low_is_rx_everywhere(self) -> None:
         selector = (ROOT / "bootloader" / "selector.c").read_text(
             encoding="utf-8"

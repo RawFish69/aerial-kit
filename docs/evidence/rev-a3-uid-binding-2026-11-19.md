@@ -57,9 +57,23 @@ TX application: ec2c2803f95474bb56a88b45b8379eff0906d2e59712d53eac5a968bef81e7b9
 RX application: 76f6dcdbd5e05b5b356b8b11bc5900c4a46d998a2959aacdec06ef5cc6c9e80b
 ```
 
-The companion 0.4.1 client rejects `chunksRemaining=0xff` as an out-of-range
-stale chunk, validates response addressing, and retries missing chunks with a
-short cadence delay. Its `ak radio diag` command captures `AK-BOOT` as JSON.
+The companion 0.4.2 client rejects `chunksRemaining=0xff` as an out-of-range
+stale chunk, validates response addressing, and paces every successive chunk
+before retrying missing chunks. Its `ak radio diag` command captures `AK-BOOT`
+as JSON.
+
+The next candidate aligns RX's initial search mode with TX's default LoRa
+250 Hz mode. `bfff8af5…` exposed TX `rate_idx=6/enum=27/4000us` and RX
+`rate_idx=0/enum=33/1000us`; the RX sweep did not acquire before the 30-second
+run ended. The replacement artifact is:
+
+```text
+path: firmware/elrs-usb-tx-rev-a3/dist/aerialkit-rev-a3-elrs-dual-role.bin
+size: 8331264 bytes
+sha256: 70de34ee438385f40c8b53a51e507ea48012c478e07499b0065e1a5a78fefd9d
+TX application: fa0b1a0dfd8c5f13164fb1de4d830c121c4d50e4f340cc09fa7018238c421763
+RX application: 8fdf39b9ce67628adba804e0b92c88b6c4f6bbc27b7681f5656ce0ea243da5c0
+```
 
 ## Verification
 
@@ -75,7 +89,7 @@ short cadence delay. Its `ak radio diag` command captures `AK-BOOT` as JSON.
 No hardware was flashed or opened during this work. Hardware PASS remains
 blocked until the bench reports:
 
-1. both boards flash `bfff8af5…` and verify the data hash;
+1. both boards flash `70de34ee…` and verify the data hash;
 2. `ak radio diag` shows matching `uid`, `seed`, `crc`, `rate_enum`, `fhss0`
    and `freq`, with the expected FEM pin for each role;
 3. `ak radio uid` reads both endpoints without timeout;
