@@ -461,6 +461,7 @@ def drive_link(
     allow_write: bool = False,
     channel_map: CrsfChannelMap | None = None,
     cancel_event: threading.Event | None = None,
+    sticks: RcSticks | None = None,
 ) -> DriveReport:
     if not allow_write:
         raise PermissionError("radio drive requires explicit write authorization")
@@ -469,7 +470,7 @@ def drive_link(
         raise ValueError(f"hz must be greater than zero and at most {MAX_DRIVE_HZ:g}")
     seconds = _validate_duration(duration)
     hold = float(arm_hold_sec)
-    armed_pattern = pattern in {"arm-test", "channel-test"}
+    armed_pattern = pattern in {"arm-test", "channel-test"} or sticks is not None
     if armed_pattern and hold <= 0.5:
         raise ValueError("arm_hold_sec must be longer than the firmware's 500 ms arm hold")
     if armed_pattern and seconds <= hold:
@@ -495,10 +496,17 @@ def drive_link(
             armed = armed_pattern and elapsed >= hold
             during_hold = armed_pattern and elapsed < hold
             if during_hold or armed:
-                sticks = RcSticks(0.0, 0.0, 0.0, 0.0) if during_hold else _pattern_sticks(pattern, elapsed - hold)
+                command_sticks = RcSticks(0.0, 0.0, 0.0, 0.0) if during_hold else (
+                    sticks
+                    if sticks is not None
+                    else _pattern_sticks(pattern, elapsed - hold)
+                )
             else:
-                sticks = _pattern_sticks("disarmed", elapsed)
-            channels = channel_map.encode(sticks, enabled=during_hold or armed)
+                command_sticks = _pattern_sticks("disarmed", elapsed)
+            channels = channel_map.encode(
+                command_sticks,
+                enabled=during_hold or armed,
+            )
             link.transport.write(make_rc_channels_frame(channels))
             sent += 1
             was_armed = during_hold or armed
@@ -527,7 +535,7 @@ def drive_link(
         requested_hz=send_hz,
         frames_sent=sent,
         actual_hz=round(sent / duration_actual, 3),
-        pattern=pattern,
+        pattern="custom" if sticks is not None else pattern,
         arm_hold_sec=hold,
         arm_hold_completed=armed_pattern and duration_actual > hold,
         received_frames=parser.valid_frames,
@@ -706,6 +714,7 @@ def run_two_board_bench(
     duration: float = 15.0,
     hz: float = 150.0,
     telemetry_frames: Sequence[bytes] | None = None,
+    channel_map: CrsfChannelMap | None = None,
 ) -> BenchReport:
     seconds = _validate_duration(duration)
 
@@ -734,6 +743,7 @@ def run_two_board_bench(
             pattern="arm-test",
             arm_hold_sec=0.75,
             allow_write=True,
+            channel_map=channel_map,
         )
         rx_future = pool.submit(
             capture_link,

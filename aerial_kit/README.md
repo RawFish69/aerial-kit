@@ -69,6 +69,26 @@ know about any host application's own dynamics backends or planners. A host appl
 (like `sim_py` in the parent repo) registers its own backends/planners into the same
 registry alongside this.
 
+## Flight-controller CLI
+
+The `ak` executable auto-detects an Aerial Kit controller (AKP) or a
+Betaflight controller (MSP) on a USB serial port:
+
+```bash
+ak fc status --port /dev/ttyACM0
+ak fc rc --port /dev/ttyACM0
+ak fc params --port /dev/ttyACM0 --name failsafe_throttle
+ak fc get failsafe_throttle --port /dev/ttyACM0
+ak fc set failsafe_throttle 1200 --port /dev/ttyACM0 --write
+ak fc save --port /dev/ttyACM0 --write
+```
+
+Use `--protocol akp` or `--protocol betaflight` to skip auto-detection. Reads
+are safe by default. Configuration writes require `--write`, are refused while
+the board reports itself armed, and are never retried after a refusal. Aerial
+Kit parameters can be enumerated; Betaflight settings are addressed by name
+because MSP has no enumerate-all command.
+
 ## Simulation and visualization
 
 Install the optional simulator and Matplotlib viewer:

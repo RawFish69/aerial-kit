@@ -113,7 +113,7 @@ The ROS-free control package is also on [PyPI](https://pypi.org/project/aerial-k
 | ArduPilot | MAVLink through the same backend | [Guide](ros2_ws/src/mavlink_bridge/README.md) |
 | ESP32 radio links | ESP-NOW, ELRS, LoRa and GPS | [Guide](firmware/legacy/README.md) |
 | **Aerial Kit ELRS USB TX Rev A3** | Custom hardware, RF-off diagnostic, ELRS TX/RX images and native-USB bench tools | [Firmware](firmware/elrs-usb-tx-rev-a3/README.md) · [Bench](docs/RADIO-BENCH.md) |
-| **Python protocol clients** | CRSF, Aerial Kit, MAVLink and read-only MSP | [Protocol guide](docs/PROTOCOLS.md) |
+| **Python protocol clients** | CRSF, Aerial Kit, MAVLink and gated-write MSP | [Protocol guide](docs/PROTOCOLS.md) |
 
 ## Start here
 
@@ -132,7 +132,8 @@ The ROS-free control package is also on [PyPI](https://pypi.org/project/aerial-k
 ## Python protocol client
 
 `aerial_kit.comms` provides one Python boundary for ELRS/CRSF radios, Aerial
-Kit flight controllers, PX4/ArduPilot over MAVLink, and read-only MSP devices.
+Kit and Betaflight flight controllers, PX4/ArduPilot over MAVLink, and MSP
+devices. Reads are safe by default; every mutation has an explicit gate.
 The console can query a radio or flight controller directly:
 
 ```bash
@@ -143,15 +144,26 @@ ak radio uid --port /dev/ttyACM1 --role rx
 ak radio diag --port /dev/ttyACM0 --role tx
 ak radio monitor --port /dev/ttyACM0 --duration 5 --json monitor.json
 ak radio drive --port /dev/ttyACM0 --hz 150 --duration 10 --write
-ak fc hello --port /dev/ttyACM0
-ak fc params --port /dev/ttyACM0
+ak radio drive --port /dev/ttyACM0 --profile betaflight --write
+ak fc status --port /dev/ttyACM0             # auto-detects AKP or MSP
+ak fc status --port /dev/ttyACM0 --protocol betaflight
+ak fc params --port /dev/ttyACM0             # Aerial Kit indexed table
+ak fc params --port /dev/ttyACM0 --name failsafe_throttle
+ak fc get failsafe_throttle --port /dev/ttyACM0
+ak fc set failsafe_throttle 1200 --port /dev/ttyACM0 --write
+ak fc save --port /dev/ttyACM0 --write
 ak sim --no-show
 ```
 
 Use `--radio /dev/ttyUSB0` with `fc` to carry Aerial Kit requests over an ELRS
-link. Mutations require `--write`; omitting it refuses the operation before a
-frame is sent. Bind and UID writes reconnect after the module reboot and fail
-unless the six-byte UID reads back exactly. `aerial-kit-link`,
+link. `fc` auto-detects Aerial Kit AKP and Betaflight MSP; `--protocol akp` or
+`--protocol betaflight` removes the probe wait. MSP has no command that lists
+all setting names, so Betaflight settings are read by name. Mutations require
+`--write`; omitting it refuses before a frame is sent, and the CLI also refuses
+configuration writes while the board reports itself armed. A successful
+Betaflight setting reply is the read-back, while save remains a separate
+`MSP_EEPROM_WRITE` operation. Bind and UID writes reconnect after the module
+reboot and fail unless the six-byte UID reads back exactly. `aerial-kit-link`,
 `aerial-kit-sim` and `aerial-kit-teleop` remain compatibility commands; new
 scripts should use `ak`.
 See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for framing,

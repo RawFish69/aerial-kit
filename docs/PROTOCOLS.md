@@ -84,10 +84,22 @@ applied.
 
 ### MSP
 
-`aerial_kit.comms.msp` is a read-only client for Betaflight/INAV-style MSP
-devices. Its API deliberately exposes queries and captured metadata rather
-than parameter mutation. The firmware tool wrapper remains compatible for
-existing scripts; new code should import the library client.
+`aerial_kit.comms.msp` speaks Betaflight/INAV-style MSP over USB serial. `Msp`
+remains the query-only compatibility client. `MspClient` adds typed
+`set_setting`, `save` and `set_raw_rc` methods, each requiring
+`allow_write=True` at the call site.
+
+The `ak fc` command auto-detects AKP or Betaflight MSP on the same serial port
+and lowers both to one status/config surface. Aerial Kit parameters have
+indices and can be enumerated. MSP has no command that lists Betaflight
+settings, so Betaflight values are addressed by exact name and a write's reply
+is its read-back. `MSP_EEPROM_WRITE` is a separate save operation.
+
+`MSP_SET_RAW_RC` is exposed as a low-level, opt-in operation because Betaflight
+uses it only when MSP is the receiver input or when MSP override is enabled.
+The protocol client cannot infer that configuration from a successful write,
+so it makes no claim that raw RC controls an arbitrary Betaflight receiver
+setup. The normal live-control path remains CRSF through `ak radio`.
 
 ## What runs over what
 
@@ -97,6 +109,7 @@ existing scripts; new code should import the library client.
 | ELRS transmitter to receiver | RF, opaque to this layer | CRSF-compatible control/telemetry |
 | receiver to flight controller | UART | CRSF |
 | host to Aerial Kit flight controller | USB serial | AKP |
+| host to Betaflight/INAV flight controller | USB serial | MSP |
 | host to simulator or bridge | TCP or UDP | AKP, MAVLink |
 | host to PX4/ArduPilot companion link | serial, TCP or UDP | MAVLink |
 | host to Aerial Kit FC through ELRS | RF via CRSF envelopes | AKP tunnel plus RC |
@@ -144,6 +157,9 @@ the fallback only if a future receiver configuration stops forwarding MSP.
   methods and covered by refusal tests.
 - An armed-state refusal from AKP is returned as a typed error and is never
   retried.
+- Betaflight setting and save operations are refused before transmission while
+  the reported armed bit is set, are never retried, and require both the
+  library's `allow_write=True` and the CLI's `--write`.
 - MAVLink write methods require `allow_write=True`; acknowledgements are
   correlated by command and sequence.
 - A timeout is not permission to repeat a mutation. Only read operations retry.
