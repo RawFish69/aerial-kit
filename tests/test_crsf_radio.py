@@ -311,6 +311,74 @@ def test_parameter_chunk_loss_is_reported_with_its_index() -> None:
         client.read_parameter(10)
 
 
+def test_parameter_reader_ignores_out_of_range_chunk_remainder() -> None:
+    record = _entry(11, 0, 10, "version", b"valid-after-a-stale-ff-chunk\0")
+    chunks = _chunk_entry(11, record, 64)
+    transport = MemoryTransport()
+    parser = CrsfParser()
+    first = True
+    original_write = transport.write
+
+    def answer_requests(data: bytes) -> int:
+        nonlocal first
+        result = original_write(data)
+        for request in parser.feed(transport.drain_tx()):
+            if request.frame_type != 0x2C or request.payload[2] != 11:
+                continue
+            if first:
+                first = False
+                transport.feed(
+                    make_frame(0x2B, bytes((0xEA, 0xEE, 11, 0xFF)))
+                )
+            else:
+                transport.feed(
+                    make_frame(0x2B, bytes((0xEA, 0xEE)) + chunks[0])
+                )
+        return result
+
+    transport.write = answer_requests  # type: ignore[method-assign]
+    client = CrsfParameterClient(
+        CrsfLink(transport),
+        destination=0xEE,
+        origin=0xEA,
+        timeout=0.05,
+        chunk_interval=0,
+    )
+    parameter = client.read_parameter(11)
+    assert parameter.value == "valid-after-a-stale-ff-chunk"
+
+
+def test_parameter_reader_rejects_chunks_addressed_to_another_endpoint() -> None:
+    record = _entry(12, 0, 10, "version", b"correct-endpoint\0")
+    chunks = _chunk_entry(12, record, 64)
+    transport = MemoryTransport()
+    parser = CrsfParser()
+    sent_wrong = False
+    original_write = transport.write
+
+    def answer_requests(data: bytes) -> int:
+        nonlocal sent_wrong
+        result = original_write(data)
+        for request in parser.feed(transport.drain_tx()):
+            if request.frame_type != 0x2C or request.payload[2] != 12:
+                continue
+            addresses = (0xEA, 0xEE) if sent_wrong else (0xE9, 0xEE)
+            sent_wrong = True
+            transport.feed(make_frame(0x2B, bytes(addresses) + chunks[0]))
+        return result
+
+    transport.write = answer_requests  # type: ignore[method-assign]
+    client = CrsfParameterClient(
+        CrsfLink(transport),
+        destination=0xEE,
+        origin=0xEA,
+        timeout=0.02,
+        chunk_interval=0,
+    )
+    parameter = client.read_parameter(12)
+    assert parameter.value == "correct-endpoint"
+
+
 def test_parameter_tree_walks_folder_children() -> None:
     records = {
         0: _entry(0, 0, 11, "Radio", b"\x01\x02\xFF"),

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -241,6 +242,57 @@ def _radio_uid(args: argparse.Namespace) -> int:
         )
     finally:
         link.close()
+    return 0
+
+
+def _radio_diag(args: argparse.Namespace) -> int:
+    if not args.port:
+        raise ValueError("radio diag requires --port")
+    baud = args.baud
+    if baud is None:
+        baud = CRSF_RX_FC_BAUD if args.role == "rx" else CRSF_BAUD
+    transport = SerialTransport(
+        args.port,
+        baudrate=baud,
+        timeout=0.1,
+        dtr=False,
+        rts=False,
+    )
+    deadline = time.monotonic() + max(0.5, args.duration)
+    raw = bytearray()
+    try:
+        while (remaining := deadline - time.monotonic()) > 0:
+            raw.extend(transport.read(4096, min(0.2, remaining)))
+            text = raw.decode("ascii", "ignore")
+            if "AK-BOOT " in text:
+                break
+    finally:
+        transport.close()
+
+    text = raw.decode("ascii", "ignore")
+    boot_line = next(
+        (line for line in text.splitlines() if line.startswith("AK-BOOT ")),
+        None,
+    )
+    if boot_line is None:
+        raise TimeoutError(
+            f"no AK-BOOT diagnostic line arrived from {args.port} "
+            f"within {max(0.5, args.duration):g}s"
+        )
+    fields = {
+        key: value
+        for key, value in re.findall(r"([A-Za-z0-9_]+)=([^\s]+)", boot_line)
+    }
+    result = {
+        "path": args.port,
+        "logical_baud": baud,
+        "line": boot_line,
+        "fields": fields,
+    }
+    if args.json:
+        _write_json(args.json, result)
+    if args.json != "-":
+        print(boot_line)
     return 0
 
 
@@ -501,6 +553,8 @@ def _radio(args: argparse.Namespace) -> int:
         return _radio_status(args)
     if args.radio_action == "uid":
         return _radio_uid(args)
+    if args.radio_action == "diag":
+        return _radio_diag(args)
     if args.radio_action == "set-uid":
         value = args.uid if getattr(args, "uid", None) is not None else args.field
         return _radio_identity_write(args, phrase=None, uid_text=value)
@@ -683,6 +737,7 @@ def build_parser(prog: str = "aerial-kit-link") -> argparse.ArgumentParser:
         choices=(
             "status",
             "uid",
+            "diag",
             "params",
             "get",
             "set",
