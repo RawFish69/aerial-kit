@@ -114,6 +114,13 @@ open" briefly presents exactly that reset state. Clear RTS first, then DTR;
 `tools/usb_crsf_bench.py` does this. Resynchronize on a CRSF sync byte after
 any reset or boot text.
 
+UID read/write and bind-phrase configuration use ExpressLRS MSP RXTX function
+`0x2D`. The `0x7A` request's inner checksum is DVB-S2, while the `0x7B`
+response and `0x7C` write use the ExpressLRS XOR checksum. Both roles commit
+the change before the scheduled reboot; the host then reconnects and must read
+back the exact six-byte UID before reporting a successful write. See
+`docs/HOST-LINK.md` and `tools/verify_uid_binding.py`.
+
 After setup each application writes one ASCII line to native USB, for
 example:
 
@@ -204,11 +211,12 @@ removed the panic and LittleFS failures. The final GRB color artifact is:
 
 ```text
 size: 8331264 bytes
-sha256: 7c6714425e4a2981ef787267df89627838e61b155e288536e66cf465faeada63
+sha256: 96553fa544ed40ac3ce791157429a1072adab6ec632f5a9c2277636358e7837b
 ```
 
 The operational wire order is the bench-confirmed G-R-B mapping. Role and
-pattern logic are unchanged. Records are in `releases/7c671442/`; the final
+pattern logic are unchanged. The UID-persistence patch is included. Records
+are in `releases/96553fa5/`; the final
 hardware gate is one blue TX boot pulse at GPIO4 high, two green RX boot pulses
 at GPIO4 low, then blue-only TX and green-only RX state patterns.
 

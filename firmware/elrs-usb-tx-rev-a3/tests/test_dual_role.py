@@ -148,6 +148,29 @@ class DualRoleArtifactTests(unittest.TestCase):
         for required in ("SlowBreath", "FastBreath", "AmberTriple"):
             self.assertIn(required, led_state)
 
+    def test_rxtx_identity_writes_commit_before_reboot(self) -> None:
+        patch = (
+            ROOT / "patches" / "expresslrs-4.1.0-rxtx-persistence.patch"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(patch.count("+                config.Commit();"), 1)
+        self.assertEqual(patch.count("+            config.Commit();"), 1)
+        self.assertLess(
+            patch.index("config.SetUID(mspPayload);"),
+            patch.index("config.Commit();", patch.index("config.SetUID(mspPayload);")),
+        )
+        self.assertLess(
+            patch.index("config.SetBindPhrase(mspPayload, payloadLen);"),
+            patch.index(
+                "config.Commit();",
+                patch.index("config.SetBindPhrase(mspPayload, payloadLen);"),
+            ),
+        )
+        bootstrap = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'git -C "$express" apply "$rxtx_persistence_patch_file"',
+            bootstrap,
+        )
+
     def test_gpio4_high_is_tx_and_low_is_rx_everywhere(self) -> None:
         selector = (ROOT / "bootloader" / "selector.c").read_text(
             encoding="utf-8"

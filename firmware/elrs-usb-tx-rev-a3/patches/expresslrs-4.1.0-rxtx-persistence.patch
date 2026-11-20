@@ -1,0 +1,30 @@
+diff --git a/src/lib/CrsfProtocol/RxTxEndpoint.cpp b/src/lib/CrsfProtocol/RxTxEndpoint.cpp
+index 1ef1f0a..ba65bbb 100644
+--- a/src/lib/CrsfProtocol/RxTxEndpoint.cpp
++++ b/src/lib/CrsfProtocol/RxTxEndpoint.cpp
+@@ -67,6 +67,10 @@ void RxTxEndpoint::handleMspSetRxTxConfig(crsf_ext_header_t *extMessage)
+             {
+                 //DBGLN("Set UID");
+                 config.SetUID(mspPayload);
++                // Rebooting with a dirty config is not a persistence guarantee.
++                // Commit before the scheduled restart so a USB-only endpoint
++                // retains the UID even when no RF connection exists.
++                config.Commit();
+                 scheduleRebootTime(200);
+             }
+             break;
+@@ -78,6 +82,7 @@ void RxTxEndpoint::handleMspSetRxTxConfig(crsf_ext_header_t *extMessage)
+             DBGLN("Set bindphrase '%s'", (char *)mspPayload);
+             #endif
+             config.SetBindPhrase(mspPayload, payloadLen);
++            config.Commit();
+             scheduleRebootTime(200);
+             break;
+ 
+@@ -96,4 +101,4 @@ void RxTxEndpoint::handleMspSetRxTxConfig(crsf_ext_header_t *extMessage)
+     }
+ }
+ 
+-#endif /* !UNIT_TEST */
+\ No newline at end of file
++#endif /* !UNIT_TEST */

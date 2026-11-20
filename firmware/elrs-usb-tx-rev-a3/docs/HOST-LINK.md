@@ -22,6 +22,62 @@ for both roles and does not require a USB-UART adapter or Wi-Fi:
 
 Two boards enumerate as two distinct `/dev/ttyACM*` devices.
 
+## UID and binding
+
+ExpressLRS's MSP RXTX configuration function is `0x2D`. UID read is
+subcommand `0x00`; binding phrase is subcommand `0x01`. The envelopes are not
+one checksum scheme:
+
+- CRSF `0x7A` MSP-v2 requests use the DVB-S2 inner checksum;
+- MSP-v1 `0x7B` responses and `0x7C` writes use the ExpressLRS XOR checksum.
+
+Tools that apply the outer CRSF DVB-S2 checksum to both inner directions will
+appear to send a valid write while the firmware discards it, and will discard
+the valid RX UID response. Both the Python library and configurator now use
+the correct asymmetric format.
+
+The RX and TX applications commit a UID/phrase change before the scheduled
+reboot. This matters for a native-USB-only module with no RF connection and no
+flight-controller serial peer: a dirty configuration is not guaranteed to be
+durable until an unrelated background commit happens.
+
+```sh
+ak radio uid --port /dev/ttyACM0 --baud 400000 --role tx
+ak radio uid --port /dev/ttyACM1 --baud 420000 --role rx
+
+ak radio bind-phrase replace-with-your-phrase \
+  --port /dev/ttyACM1 --baud 420000 --role rx --write
+ak radio bind-phrase replace-with-your-phrase \
+  --port /dev/ttyACM0 --baud 400000 --role tx --write
+```
+
+UID reads allow four seconds and retry once after reopening the USB endpoint.
+Writes require `--write`; the CLI waits for reboot, reconnects and refuses
+success unless the exact six-byte UID reads back.
+
+The single-command pair workflow is:
+
+```sh
+ak radio pair --tx /dev/ttyACM0 --rx /dev/ttyACM1 \
+  --phrase "replace-with-your-phrase" --duration 15 \
+  --json pair.json --write
+```
+
+The complete two-endpoint check is:
+
+```sh
+python3 tools/verify_uid_binding.py \
+  --tx /dev/ttyACM0 --rx /dev/ttyACM1 \
+  --phrase "replace-with-your-phrase" --write --confirm \
+  --rf-duration 15 --json uid-binding.json
+```
+
+It reads both UIDs, writes and verifies the same phrase, refuses an all-zero
+or mismatched pair, and only then starts the two-board RC/link-statistics
+bench. A zero UID means unbound. Explicit bind mode is separate: both
+endpoints must be in overlapping bind windows, RX must show its bind breathing
+pattern, and link statistics must be observed before claiming RF success.
+
 The ESP32-S3 USB Serial/JTAG resets the chip while RTS is asserted and DTR
 is not. Linux asserts both lines on `open()`; pyserial then clears DTR before
 RTS, which presents the reset state for a moment, so setting `dtr=False,
