@@ -41,6 +41,13 @@ and an explicit 300 µs latch. A CRSF frame `C8 08 7F <own addr> EA "AKLT"
 <crc>` runs a red/green/blue self-test, one second each, and prints
 `AK-LEDTEST` lines.
 
+The physical channel-order diagnostic uses `"AKLP"` in the same frame. It
+runs logical red, green and blue for one second each under all six possible
+wire orders, with a 500 ms gap between orders, and prints `AK-LEDPERM`
+labels. The operational state remains in its existing B-R-G table while this
+temporary diagnostic runs. See
+`../../docs/evidence/rev-a3-led-permutation-diagnostic-2026-11-19.md`.
+
 | State | TX | RX |
 | --- | --- | --- |
 | Boot identity | One 350 ms pulse | Two 350 ms pulses |

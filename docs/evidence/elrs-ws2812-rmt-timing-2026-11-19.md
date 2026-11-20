@@ -1,5 +1,11 @@
 # Rev A3 WS2812 output path and native-USB bench probe — 2026-11-19
 
+Current status: candidate `19c7b3ce…` is superseded for LED color work.
+Hardware still displayed blue for the RX role after the B-R-G change. Use the
+six-order diagnostic in
+`rev-a3-led-permutation-diagnostic-2026-11-19.md`; do not infer the final
+physical order from the historical sections below.
+
 ## Superseded candidate: `5e9d6c61…` (hardware FAIL, LED)
 
 ```text
@@ -110,12 +116,11 @@ Status: superseded by `19c7b3ce…` (see below).
 - Opening the port with RTS cleared before DTR did not reboot the board,
   which confirms the reset-on-open mechanism below.
 
-## Channel order fix: candidate `19c7b3ce…`
+## Attempted channel order fix: candidate `19c7b3ce…`
 
-LED1 on the assembled boards clocks bytes in blue, red, green order, not the
-datasheet G-R-B order. The firmware sent G-R-B, so the first byte (green) was
-displayed as blue and the third (blue) as green. The order is now a single
-table in `aerialkit_led_state_machine.h`
+The hypothesis was that LED1 clocks bytes in blue, red, green order rather
+than the datasheet G-R-B order. The operational table was changed to B-R-G in
+`aerialkit_led_state_machine.h`
 (`AERIALKIT_WS2812_WIRE_FIRST/SECOND/THIRD` = blue, red, green). Role logic,
 patterns, timing and the waveform are unchanged.
 
@@ -137,8 +142,10 @@ cover the wire order: blue is byte 1, red byte 2 and green byte 3; TX blue is
 14/14 firmware host tests pass, including the ELF check against this build.
 The native suite passes 9/9.
 
-Acceptance on hardware: the self-test must show red, then green, then blue,
-in that order and pure; RX must be green-only and TX blue-only.
+This hypothesis did not survive hardware testing. RX still displayed blue, so
+the candidate cannot be used for final state colors. The current diagnostic
+keeps that operational table unchanged while testing all six orders through an
+explicit temporary path.
 
 ## Native-USB findings
 
@@ -189,7 +196,7 @@ ELF symbol check against this build's ELFs. The native ExpressLRS suite
 core's `digitalWrite()`/`pinMode()` handling of the virtual pin `RGB_BUILTIN`
 (97). No dual-role code uses that pin, and the source checks forbid direct use.
 
-## Bench steps (current candidate `19c7b3ce…`)
+## Historical bench steps (`19c7b3ce…`)
 
 1. (Use `19c7b3ce…`, not `5576f902…`.) Verify the file hash, then flash at `0x0` (USB/ROM) and confirm
    `Hash of data verified`.
@@ -201,5 +208,5 @@ core's `digitalWrite()`/`pinMode()` handling of the virtual pin `RGB_BUILTIN`
 4. Only then check the role patterns: RX green-only, TX blue-only, bind vs
    searching breathing speed, steady when connected.
 
-Hardware must still confirm pure colors. Code review and host tests cannot
-show that the WS2812B-2020 decodes the new waveform correctly.
+These steps are retained as history. Use the all-six-order diagnostic and
+record its complete result matrix before changing the operational mapping.

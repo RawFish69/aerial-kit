@@ -76,8 +76,14 @@ on TX, `0xEC` on RX) shows pure red, green and blue for one second each
 through the operational driver:
 
 ```sh
-python3 tools/usb_crsf_bench.py /dev/ttyACM0 --rate 0 --duration 4 --led-selftest 0xEC
+python3 tools/usb_crsf_bench.py /dev/ttyACM0 --baud 420000 \
+  --rate 0 --duration 4 --led-selftest 0xEC --write
 ```
+
+The six-order physical channel diagnostic uses `41 4B 4C 50` (`AKLP`) in the
+same frame. It sends each known logical color for one second under every
+possible wire order and prints `AK-LEDPERM` labels. See
+`docs/evidence/rev-a3-led-permutation-diagnostic-2026-11-19.md`.
 
 | State | TX | RX |
 | --- | --- | --- |
@@ -194,19 +200,17 @@ checked by continuity before relying on its label. The dual-role mapping uses
 the electrical design, not the printed label.
 
 On 2026-11-19, a hardware A/B test showed that the earlier `7210…` factory image
-paired a DIO bootloader with QIO-built applications. The resulting invalid
-flash reads prevented target configuration and LittleFS from loading, causing
-the dark TX and RX panic loop. Replacing only the bootloader with the matching
-QIO image made the LED initialize and removed the panic. The release image now
-builds that pairing permanently. The corrected release is:
+paired a DIO bootloader with QIO-built applications. The corrected QIO image
+removed the panic and LittleFS failures. The current diagnostic artifact is:
 
 ```text
 size: 8331264 bytes
-sha256: c1668c40f87a94452bafbaca281b11799a6e2a187a6553e04866b3eba80524d4
+sha256: 00a675f7cef01b010688f24e1e8e6fe44deef5d08660a1264a5edeadfc0225b6
 ```
 
-TX CRSF behavior with the corrected bootloader, exact LED pulse counts, device
-ping responses and RF link statistics still require bench verification.
+This diagnostic preserves role and pattern logic while testing all six
+physical WS2812 wire orders. It is not a final color mapping or hardware
+acceptance. Records are in `releases/00a675f7/`.
 
 ## Licensing
 
