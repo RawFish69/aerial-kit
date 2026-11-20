@@ -162,6 +162,11 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Two main pushes can both see a new version before PyPI's JSON API
+          # reflects the first upload. Treat the duplicate as a successful
+          # no-op so the later commit cannot show a false release failure.
+          skip_existing: true
 
       # Tagging and GitHub Releases are left to the maintainer on purpose: the
       # workflow's job is to get the package onto PyPI, and release notes are
