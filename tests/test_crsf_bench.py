@@ -243,7 +243,7 @@ def test_inject_validates_and_sends_telemetry_only(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="telemetry frames only"):
         load_crsf_frames_file(rc_fixture)
 
-    shared = Path(__file__).with_name("protocols") / "vectors" / "crsf.json"
+    shared = Path(__file__).resolve().parents[1] / "protocols" / "vectors" / "crsf.json"
     vector_frames = load_crsf_frames_file(shared)
     assert [CrsfParser().feed(frame)[0].frame_type for frame in vector_frames] == [
         0x1E,

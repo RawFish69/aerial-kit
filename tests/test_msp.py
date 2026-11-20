@@ -17,7 +17,7 @@ from aerial_kit.comms import (
 )
 from aerial_kit.comms import msp
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 FAKE = ROOT / "firmware/tools/msp_fake_board.py"
 
 

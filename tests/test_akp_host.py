@@ -12,7 +12,7 @@ import pytest
 from aerial_kit.comms.akp import AkClient, AkWriteRefused
 from aerial_kit.comms.transport import TransportClosed, TransportError
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "firmware" / "tools" / "host" / "build_akproto_host.py"
 
 

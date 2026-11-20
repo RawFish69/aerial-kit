@@ -5,7 +5,7 @@ import pytest
 
 from protocols import check_vectors
 
-VECTORS = Path(__file__).parent / "protocols" / "vectors"
+VECTORS = Path(__file__).resolve().parents[1] / "protocols" / "vectors"
 
 
 def test_shared_protocol_vectors() -> None:
