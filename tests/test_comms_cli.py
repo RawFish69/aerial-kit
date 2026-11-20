@@ -41,9 +41,31 @@ def test_radio_parameter_mutation_parses_without_side_effects() -> None:
     args = parser.parse_args(
         ["--port", "/dev/null", "--write", "radio", "set", "7", "12"]
     )
-    assert args.field == 7
-    assert args.value == 12
+    assert args.field == "7"
+    assert args.value == "12"
     assert args.write is True
+
+
+def test_radio_uid_and_identity_commands_parse() -> None:
+    parser = build_parser()
+    uid = parser.parse_args(["--port", "/dev/null", "radio", "uid", "--role", "rx"])
+    set_uid = parser.parse_args([
+        "--port", "/dev/null", "radio", "set-uid", "aa:bb:cc:dd:ee:ff",
+        "--write",
+    ])
+    phrase = parser.parse_args([
+        "--port", "/dev/null", "radio", "bind-phrase", "test", "--write",
+    ])
+    get = parser.parse_args(["--port", "/dev/null", "radio", "get", "7"])
+    pair = parser.parse_args([
+        "radio", "pair", "--tx", "/dev/a", "--rx", "/dev/b",
+        "--phrase", "test", "--write",
+    ])
+    assert uid.radio_action == "uid"
+    assert set_uid.field == "aa:bb:cc:dd:ee:ff"
+    assert phrase.field == "test"
+    assert get.field == "7"
+    assert pair.radio_action == "pair"
 
 
 def test_transport_flags_are_mutually_exclusive() -> None:
@@ -165,6 +187,122 @@ def test_radio_mutation_is_refused_before_opening_a_port(monkeypatch) -> None:
     assert main(
         ["radio", "bench", "--tx", "/dev/a", "--rx", "/dev/b"]
     ) == 1
+    assert main(
+        [
+            "radio", "set-uid", "aa:bb:cc:dd:ee:ff",
+            "--port", "/dev/fake",
+        ]
+    ) == 1
+    assert main(
+        [
+            "radio", "bind-phrase", "test",
+            "--port", "/dev/fake",
+        ]
+    ) == 1
+
+
+def test_radio_identity_write_requires_readback_after_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FakeLink:
+        def close(self) -> None:
+            pass
+
+    written: list[bytes] = []
+
+    class FakeClient:
+        destination = 0xEE
+
+        def write_uid(self, value: bytes, *, allow_write: bool) -> bytes:
+            assert allow_write
+            written.append(value)
+            return value
+
+    read_client = SimpleNamespace(destination=0xF2)
+    expected = bytes.fromhex("aabbccddeeff")
+    responses = iter([
+        (read_client, bytes(6)),
+        (read_client, expected),
+    ])
+    monkeypatch.setattr("aerial_kit.comms.cli._radio_link", lambda _args: FakeLink())
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._read_uid_for_link",
+        lambda *_args, **_kwargs: next(responses),
+    )
+    args = Namespace(
+        port="/dev/fake",
+        host=None,
+        radio=None,
+        baud=None,
+        timeout=0.1,
+        role="tx",
+        write=True,
+        confirm=True,
+        uid="aa:bb:cc:dd:ee:ff",
+        phrase=None,
+        reboot_wait=0.0,
+    )
+
+    class Client(FakeClient):
+        pass
+
+    responses = iter([(Client(), bytes(6)), (SimpleNamespace(destination=0xEE), expected)])
+    assert main([
+        "radio", "set-uid", "aa:bb:cc:dd:ee:ff",
+        "--port", "/dev/fake", "--write", "--reboot-wait", "0",
+    ]) == 0
+    assert written == [expected]
+    output = capsys.readouterr().out
+    assert "write_sent=true" in output
+    assert f"verified role=tx uid={expected.hex(':')}" in output
+
+
+def test_radio_pair_verifies_both_readbacks_before_the_bench(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    expected = bytes.fromhex("4f04fd822155")
+    writes: list[tuple[str, str]] = []
+    bench_started: list[bool] = []
+
+    def fake_write(path, *, role, phrase, timeout, reboot_wait):
+        writes.append((path, role))
+        return bytes(6), expected
+
+    class FakeTransport:
+        def close(self) -> None:
+            pass
+
+    def fake_bench(*_args, **_kwargs):
+        bench_started.append(True)
+        return SimpleNamespace(
+            overall="PASS",
+            requirements={
+                "rx_rc_capture": "PASS",
+                "link_statistics": "PASS",
+            },
+            to_dict=lambda: {
+                "overall": "PASS",
+                "requirements": {
+                    "rx_rc_capture": "PASS",
+                    "link_statistics": "PASS",
+                },
+            },
+        )
+
+    monkeypatch.setattr("aerial_kit.comms.cli._pair_write_phrase", fake_write)
+    monkeypatch.setattr("aerial_kit.comms.cli.SerialTransport", lambda *_a, **_k: FakeTransport())
+    monkeypatch.setattr("aerial_kit.comms.cli.run_two_board_bench", fake_bench)
+    assert main([
+        "radio", "pair", "--tx", "/dev/tx", "--rx", "/dev/rx",
+        "--phrase", "test", "--duration", "1", "--write",
+    ]) == 0
+    assert writes == [("/dev/tx", "tx"), ("/dev/rx", "rx")]
+    assert bench_started == [True]
+    captured = capsys.readouterr().out
+    assert "uid_binding=verified uid=4f:04:fd:82:21:55" in captured
+    assert "overall=PASS" in captured
 
 
 def test_radio_status_reports_device_info_and_no_answer_fails(

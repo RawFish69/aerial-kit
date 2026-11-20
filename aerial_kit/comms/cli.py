@@ -8,14 +8,20 @@ effects.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import sys
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from .akp import AkClient, AkError
 from .crsf import (
     CRSF_BAUD,
+    CRSF_ADDRESS_BROADCAST,
+    CRSF_ADDRESS_CRSF_TRANSMITTER,
+    CRSF_ADDRESS_ELRS_LUA,
+    CRSF_ADDRESS_RECEIVER,
     CRSF_RX_FC_BAUD,
     CrsfAkpTunnel,
     CaptureReport,
@@ -24,6 +30,7 @@ from .crsf import (
     CrsfParameter,
     CrsfParameterClient,
     CrsfError,
+    CrsfProtocolError,
     MonitorReport,
     SerialTransport,
     capture_link,
@@ -33,6 +40,9 @@ from .crsf import (
     monitor_link,
     radio_status,
     run_two_board_bench,
+    binding_uid,
+    format_uid,
+    parse_uid,
     unpack_channels,
 )
 from .mavlink import MavlinkError, MavlinkVehicle
@@ -72,7 +82,14 @@ def _radio_link(args: argparse.Namespace) -> CrsfLink:
     if args.port and args.baud is None:
         args.baud = (
             CRSF_RX_FC_BAUD
-            if getattr(args, "radio_action", None) in {"capture", "inject"}
+            if (
+                getattr(args, "radio_action", None) in {"capture", "inject"}
+                or (
+                    getattr(args, "radio_action", None)
+                    in {"uid", "set-uid", "bind-phrase"}
+                    and getattr(args, "role", "auto") == "rx"
+                )
+            )
             else CRSF_BAUD
         )
     if not args.port and not args.host:
@@ -163,6 +180,240 @@ def _radio_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _uid_client(
+    link: CrsfLink,
+    *,
+    role: str,
+    timeout: float,
+) -> CrsfParameterClient:
+    if role == "auto":
+        probe = CrsfParameterClient(
+            link,
+            destination=CRSF_ADDRESS_BROADCAST,
+            origin=CRSF_ADDRESS_ELRS_LUA,
+            timeout=timeout,
+        )
+        info = probe.ping(timeout=max(3.0, timeout))
+        destination = (
+            CRSF_ADDRESS_RECEIVER
+            if info.origin == CRSF_ADDRESS_RECEIVER
+            else CRSF_ADDRESS_CRSF_TRANSMITTER
+        )
+    else:
+        destination = (
+            CRSF_ADDRESS_RECEIVER
+            if role == "rx"
+            else CRSF_ADDRESS_CRSF_TRANSMITTER
+        )
+    return CrsfParameterClient(
+        link,
+        destination=destination,
+        origin=CRSF_ADDRESS_ELRS_LUA,
+        timeout=timeout,
+    )
+
+
+def _role_for_uid(client: CrsfParameterClient) -> str:
+    return "rx" if client.destination == CRSF_ADDRESS_RECEIVER else "tx"
+
+
+def _read_uid_for_link(
+    link: CrsfLink,
+    *,
+    role: str,
+    timeout: float,
+) -> tuple[CrsfParameterClient, bytes]:
+    client = _uid_client(link, role=role, timeout=timeout)
+    return client, client.read_uid(attempts=2, timeout=max(4.0, timeout))
+
+
+def _radio_uid(args: argparse.Namespace) -> int:
+    link = _radio_link(args)
+    try:
+        client, uid = _read_uid_for_link(
+            link,
+            role=args.role,
+            timeout=args.timeout,
+        )
+        print(
+            f"role={_role_for_uid(client)} uid={format_uid(uid)} "
+            f"unbound={str(uid == bytes(6)).lower()}"
+        )
+    finally:
+        link.close()
+    return 0
+
+
+def _radio_identity_write(
+    args: argparse.Namespace,
+    *,
+    phrase: str | None,
+    uid_text: str | None,
+) -> int:
+    _require_write(args)
+    if phrase is None and uid_text is None:
+        raise ValueError("radio set-uid requires a UID")
+    expected = binding_uid(phrase) if phrase is not None else parse_uid(uid_text or "")
+    first = _radio_link(args)
+    try:
+        client, before = _read_uid_for_link(
+            first,
+            role=args.role,
+            timeout=args.timeout,
+        )
+        role = _role_for_uid(client)
+        print(
+            f"before role={role} uid={format_uid(before)} "
+            f"unbound={str(before == bytes(6)).lower()}"
+        )
+        if phrase is None:
+            client.write_uid(expected, allow_write=True)
+            operation = "set-uid"
+        else:
+            client.write_binding_phrase(phrase, allow_write=True)
+            operation = "bind-phrase"
+        print(f"operation={operation} write_sent=true expected_uid={format_uid(expected)}")
+    finally:
+        first.close()
+
+    time.sleep(max(0.0, args.reboot_wait))
+    second = _radio_link(args)
+    try:
+        client, after = _read_uid_for_link(
+            second,
+            role=role,
+            timeout=args.timeout,
+        )
+        if after != expected:
+            raise CrsfProtocolError(
+                f"UID readback mismatch after {operation}: "
+                f"expected {format_uid(expected)}, got {format_uid(after)}"
+            )
+        print(f"verified role={_role_for_uid(client)} uid={format_uid(after)}")
+    finally:
+        second.close()
+    return 0
+
+
+def _pair_uid(
+    path: str,
+    *,
+    role: str,
+    timeout: float,
+) -> bytes:
+    transport = SerialTransport(
+        path,
+        baudrate=CRSF_BAUD if role == "tx" else CRSF_RX_FC_BAUD,
+        timeout=timeout,
+    )
+    link = CrsfLink(transport)
+    try:
+        _, uid = _read_uid_for_link(link, role=role, timeout=timeout)
+        return uid
+    finally:
+        link.close()
+
+
+def _pair_write_phrase(
+    path: str,
+    *,
+    role: str,
+    phrase: str,
+    timeout: float,
+    reboot_wait: float,
+) -> tuple[bytes, bytes]:
+    transport = SerialTransport(
+        path,
+        baudrate=CRSF_BAUD if role == "tx" else CRSF_RX_FC_BAUD,
+        timeout=timeout,
+    )
+    link = CrsfLink(transport)
+    try:
+        client, before = _read_uid_for_link(link, role=role, timeout=timeout)
+        client.write_binding_phrase(phrase, allow_write=True)
+    finally:
+        link.close()
+    time.sleep(max(0.0, reboot_wait))
+    after = _pair_uid(path, role=role, timeout=timeout)
+    return before, after
+
+
+def _radio_pair(args: argparse.Namespace) -> int:
+    _require_write(args)
+    if not args.tx or not args.rx:
+        raise ValueError("radio pair requires --tx and --rx")
+    if args.tx == args.rx:
+        raise ValueError("--tx and --rx must be distinct USB endpoints")
+    phrase = getattr(args, "phrase", None)
+    if phrase is None and getattr(args, "field", None) is not None:
+        phrase = str(args.field)
+    if phrase is None:
+        raise ValueError("radio pair requires a binding phrase")
+
+    started_at = datetime.now(timezone.utc).isoformat()
+    expected = binding_uid(phrase)
+    tx_before, tx_after = _pair_write_phrase(
+        args.tx,
+        role="tx",
+        phrase=phrase,
+        timeout=args.timeout,
+        reboot_wait=args.reboot_wait,
+    )
+    rx_before, rx_after = _pair_write_phrase(
+        args.rx,
+        role="rx",
+        phrase=phrase,
+        timeout=args.timeout,
+        reboot_wait=args.reboot_wait,
+    )
+    if tx_after != expected or rx_after != expected or tx_after != rx_after:
+        raise CrsfProtocolError(
+            "pair readback mismatch: "
+            f"expected {format_uid(expected)}, TX {format_uid(tx_after)}, "
+            f"RX {format_uid(rx_after)}"
+        )
+    if tx_after == bytes(6):
+        raise CrsfProtocolError("pair readback is all zero; the endpoints are unbound")
+
+    tx_transport = SerialTransport(args.tx, baudrate=CRSF_BAUD, timeout=0.05)
+    rx_transport = SerialTransport(args.rx, baudrate=CRSF_RX_FC_BAUD, timeout=0.05)
+    try:
+        bench = run_two_board_bench(
+            tx_transport,
+            rx_transport,
+            tx_path=args.tx,
+            rx_path=args.rx,
+            duration=args.duration,
+            hz=args.hz,
+        )
+    finally:
+        tx_transport.close()
+        rx_transport.close()
+
+    result = {
+        "started_at": started_at,
+        "ended_at": datetime.now(timezone.utc).isoformat(),
+        "tx_path": args.tx,
+        "rx_path": args.rx,
+        "expected_uid": format_uid(expected),
+        "tx_before_uid": format_uid(tx_before),
+        "rx_before_uid": format_uid(rx_before),
+        "tx_uid": format_uid(tx_after),
+        "rx_uid": format_uid(rx_after),
+        "uids_match": True,
+        "bench": bench.to_dict(),
+        "overall": bench.overall,
+    }
+    if args.json:
+        _write_json(args.json, result)
+    if args.json != "-":
+        print(f"uid_binding=verified uid={format_uid(tx_after)}")
+        for name, status in bench.requirements.items():
+            print(f"{name}={status}")
+        print(f"overall={bench.overall}")
+    return 0 if bench.overall == "PASS" else 1
+
+
 def _radio_bench(args: argparse.Namespace) -> int:
     _require_write(args)
     if not args.tx or not args.rx:
@@ -170,6 +421,28 @@ def _radio_bench(args: argparse.Namespace) -> int:
     tx_transport = SerialTransport(args.tx, baudrate=CRSF_BAUD, timeout=0.05)
     rx_transport = SerialTransport(args.rx, baudrate=CRSF_RX_FC_BAUD, timeout=0.05)
     try:
+        tx_link = CrsfLink(tx_transport)
+        rx_link = CrsfLink(rx_transport)
+        _, tx_uid = _read_uid_for_link(
+            tx_link,
+            role="tx",
+            timeout=args.timeout,
+        )
+        _, rx_uid = _read_uid_for_link(
+            rx_link,
+            role="rx",
+            timeout=args.timeout,
+        )
+        if tx_uid != rx_uid:
+            raise CrsfProtocolError(
+                "refusing the two-board RF test: TX UID "
+                f"{format_uid(tx_uid)} does not match RX UID {format_uid(rx_uid)}"
+            )
+        if tx_uid == bytes(6):
+            raise CrsfProtocolError(
+                "refusing the two-board RF test: both endpoints are unbound"
+            )
+        print(f"binding=verified uid={format_uid(tx_uid)}")
         report = run_two_board_bench(
             tx_transport,
             rx_transport,
@@ -204,16 +477,38 @@ def _print_parameter(parameter: CrsfParameter) -> None:
 
 
 def _radio(args: argparse.Namespace) -> int:
-    if args.radio_action == "set" and (
-        args.field is None or args.value is None
-    ):
-        raise ValueError("radio set requires FIELD and VALUE")
+    if args.radio_action in {"get", "set"}:
+        if args.field is None:
+            raise ValueError(f"radio {args.radio_action} requires FIELD")
+        try:
+            args.field = int(args.field)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("radio field must be an integer") from exc
+    if args.radio_action == "set":
+        if args.value is None:
+            raise ValueError("radio set requires FIELD and VALUE")
+        try:
+            args.value = int(args.value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("radio value must be an integer") from exc
     if args.radio_action in {"set", "bind", "drive", "inject", "bench"}:
         _require_write(args)
     if args.radio_action == "bench":
         return _radio_bench(args)
+    if args.radio_action == "pair":
+        return _radio_pair(args)
     if args.radio_action == "status":
         return _radio_status(args)
+    if args.radio_action == "uid":
+        return _radio_uid(args)
+    if args.radio_action == "set-uid":
+        value = args.uid if getattr(args, "uid", None) is not None else args.field
+        return _radio_identity_write(args, phrase=None, uid_text=value)
+    if args.radio_action == "bind-phrase":
+        value = args.phrase if getattr(args, "phrase", None) is not None else args.field
+        if value is None:
+            raise ValueError("radio bind-phrase requires a phrase")
+        return _radio_identity_write(args, phrase=str(value), uid_text=None)
     link = _radio_link(args)
     transport = link.transport
     try:
@@ -221,6 +516,8 @@ def _radio(args: argparse.Namespace) -> int:
         if args.radio_action == "params":
             for parameter in client.read_parameter_tree().values():
                 _print_parameter(parameter)
+        elif args.radio_action == "get":
+            _print_parameter(client.read_parameter(args.field))
         elif args.radio_action == "set":
             result = client.write_parameter(args.field, args.value, allow_write=True)
             if result is None:
@@ -365,8 +662,8 @@ def _mavlink(args: argparse.Namespace) -> None:
         vehicle.close()
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="aerial-kit-link")
+def build_parser(prog: str = "aerial-kit-link") -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=prog)
     transport = parser.add_mutually_exclusive_group()
     transport.add_argument("--port", help="serial port")
     transport.add_argument("--host", help="tcp://host:port or udp://host:port")
@@ -385,8 +682,12 @@ def build_parser() -> argparse.ArgumentParser:
         "radio_action",
         choices=(
             "status",
+            "uid",
             "params",
+            "get",
             "set",
+            "set-uid",
+            "bind-phrase",
             "bind",
             "channels",
             "monitor",
@@ -394,10 +695,11 @@ def build_parser() -> argparse.ArgumentParser:
             "capture",
             "inject",
             "bench",
+            "pair",
         ),
     )
-    radio.add_argument("field", nargs="?", type=int)
-    radio.add_argument("value", nargs="?", type=int)
+    radio.add_argument("field", nargs="?")
+    radio.add_argument("value", nargs="?")
     radio.add_argument(
         "--write", action="store_true", default=argparse.SUPPRESS,
         help="allow a device mutation",
@@ -414,6 +716,14 @@ def build_parser() -> argparse.ArgumentParser:
     radio.add_argument("--arm-hold", type=float, default=0.75)
     radio.add_argument("--role", choices=("auto", "tx", "rx"), default="auto")
     radio.add_argument("--file")
+    radio.add_argument("--uid")
+    radio.add_argument("--phrase")
+    radio.add_argument(
+        "--reboot-wait",
+        type=float,
+        default=1.0,
+        help="seconds to wait before reconnecting after an identity write",
+    )
     radio.add_argument("--tx", metavar="PORT")
     radio.add_argument("--rx", metavar="PORT")
     radio.add_argument("--json")
@@ -439,8 +749,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
+def main(argv: list[str] | None = None, *, prog: str = "aerial-kit-link") -> int:
+    parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
     try:
         result = args.handler(args)

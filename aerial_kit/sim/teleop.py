@@ -8,6 +8,7 @@ Pass ``--airframe fixed-wing`` for the twin-wing scenario instead.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import replace
 from importlib.resources import as_file, files
 
@@ -33,7 +34,7 @@ def teleop_config(airframe: str = "quad") -> SimulationConfig:
     return replace(config, sim_time=0.0)
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     """Launch a bundled scenario in the interactive viewer."""
     import argparse
 
@@ -44,7 +45,7 @@ def main() -> None:
         default="quad",
         help="Bundled scenario to fly (default: quad).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 

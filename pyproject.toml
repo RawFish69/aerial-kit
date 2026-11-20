@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aerial-kit"
-version = "0.3.0"
+version = "0.4.0"
 description = "Aerial-robot control stack with optional simulation and visualization."
 readme = "aerial_kit/README.md"
 license = "MIT"
@@ -45,6 +45,7 @@ all = [
 ]
 
 [project.scripts]
+ak = "aerial_kit.cli:main"
 aerial-kit-sim = "aerial_kit.sim.cli:main"
 aerial-kit-teleop = "aerial_kit.sim.teleop:main"
 aerial-kit-link = "aerial_kit.comms.cli:main"
@@ -60,11 +61,13 @@ sim_py = ["sim_config.yaml"]
 [tool.mypy]
 python_version = "3.10"
 files = [
+    "aerial_kit/cli.py",
     "aerial_kit/comms/__init__.py",
     "aerial_kit/comms/cli.py",
     "aerial_kit/comms/crsf/__init__.py",
     "aerial_kit/comms/crsf/codec.py",
     "aerial_kit/comms/crsf/parameters.py",
+    "aerial_kit/comms/crsf/uid.py",
     "aerial_kit/comms/crsf/radio.py",
     "aerial_kit/comms/crsf/msp_tunnel.py",
     "aerial_kit/comms/crsf/tunnel.py",
