@@ -17,10 +17,19 @@ from .codec import (
     CRSF_FRAMETYPE_PARAMETER_READ,
     CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY,
     CRSF_FRAMETYPE_PARAMETER_WRITE,
+    CRSF_FRAMETYPE_MSP_RESPONSE,
     CrsfFrame,
     CrsfLink,
     make_device_ping,
     make_frame,
+)
+from .uid import (
+    UID_LENGTH,
+    decode_uid_response,
+    encode_binding_phrase_write,
+    encode_uid_request,
+    encode_uid_write,
+    parse_uid,
 )
 
 CRSF_UINT8 = 0
@@ -78,6 +87,19 @@ class CrsfProtocolError(CrsfError):
 
 class CrsfWriteRefused(CrsfError):
     """A mutation was not permitted or was not confirmed."""
+
+
+class CrsfChunkLoss(CrsfProtocolError):
+    """A multi-frame CRSF parameter record did not deliver every chunk."""
+
+    def __init__(self, field_id: int, chunk_index: int, total: int | None) -> None:
+        self.field_id = field_id
+        self.chunk_index = chunk_index
+        self.total = total
+        suffix = "" if total is None else f" of {total}"
+        super().__init__(
+            f"CRSF parameter {field_id} missing chunk {chunk_index}{suffix}"
+        )
 
 
 @dataclass(frozen=True)
@@ -261,32 +283,60 @@ class CrsfParameterClient:
 
     def read_parameter(self, field_id: int, *, timeout: float | None = None) -> CrsfParameter:
         chunks: dict[int, bytes] = {}
-        chunk_index = 0
-        while True:
+        total: int | None = None
+        attempts: dict[int, int] = {}
+        per_chunk_timeout = self.timeout if timeout is None else timeout
+        while total is None or len(chunks) < total:
+            missing = [
+                index for index in range(total or 1) if index not in chunks
+            ]
+            target = missing[0] if missing else 0
+            attempts[target] = attempts.get(target, 0) + 1
+            if attempts[target] > 3:
+                raise CrsfChunkLoss(field_id, target, total)
             request = _extended(
                 CRSF_FRAMETYPE_PARAMETER_READ,
                 self.destination,
                 self.origin,
-                bytes((field_id, chunk_index)),
+                bytes((field_id, target)),
             )
             self.link.transport.write(request)
-            frame = self._wait_for(
-                CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY,
-                timeout=self.timeout if timeout is None else timeout,
-                field_id=field_id,
-            )
+            try:
+                frame = self._wait_for(
+                    CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY,
+                    timeout=per_chunk_timeout,
+                    field_id=field_id,
+                )
+            except CrsfTimeout:
+                continue
             payload = frame.payload
-            if len(payload) < 6:
+            if len(payload) < 5:
                 raise CrsfProtocolError("short CRSF parameter chunk")
             response_field = payload[2]
             remaining = payload[3]
             if response_field != field_id:
                 continue
-            chunks[chunk_index] = payload[4:]
-            if remaining == 0:
-                break
-            chunk_index += 1
-        complete = b"".join(chunks[index] for index in range(len(chunks)))
+            if total is None:
+                total = remaining + 1
+            elif remaining >= total:
+                raise CrsfProtocolError(
+                    f"parameter {field_id} reported chunk remainder {remaining} "
+                    f"for a {total}-chunk record"
+                )
+            response_index = total - remaining - 1
+            data = payload[4:]
+            previous = chunks.get(response_index)
+            if previous is not None and previous != data:
+                raise CrsfProtocolError(
+                    f"parameter {field_id} chunk {response_index} changed between replies"
+                )
+            chunks[response_index] = data
+        # CRSF sends (field, chunks-remaining) in every frame header but does
+        # not repeat them in the data bytes. parse_parameter_record() consumes
+        # one header, so synthesize only the first one.
+        complete = bytes((field_id, 0)) + b"".join(
+            chunks[index] for index in range(total)
+        )
         return parse_parameter_record(complete)
 
     def read_parameter_tree(
@@ -359,12 +409,81 @@ class CrsfParameterClient:
         )
         self.link.transport.write(command)
 
+    def read_uid(
+        self,
+        *,
+        attempts: int = 2,
+        timeout: float = 4.0,
+    ) -> bytes:
+        """Read and validate the module's six-byte ExpressLRS UID."""
+        last: CrsfTimeout | None = None
+        for _ in range(max(1, attempts)):
+            request = encode_uid_request(
+                self.destination,
+                origin=self.origin,
+            )
+            self.link.send_frame(request)
+            try:
+                response = self._wait_for(
+                    CRSF_FRAMETYPE_MSP_RESPONSE,
+                    timeout=timeout,
+                    addresses=True,
+                )
+            except CrsfTimeout as exc:
+                last = exc
+                continue
+            uid = decode_uid_response(response)
+            if len(uid) != UID_LENGTH:
+                raise CrsfProtocolError("module returned a malformed UID")
+            return uid
+        raise CrsfTimeout(
+            f"no ExpressLRS MSP UID response from address "
+            f"0x{self.destination:02x} after {max(1, attempts)} attempts"
+        ) from last
+
+    def write_uid(
+        self,
+        uid: str | bytes | bytearray | memoryview,
+        *,
+        allow_write: bool = False,
+    ) -> bytes:
+        """Write a direct UID. Callers must reconnect and read it back."""
+        if not allow_write:
+            raise CrsfWriteRefused("UID writes require allow_write=True")
+        value = parse_uid(uid)
+        self.link.send_frame(
+            encode_uid_write(
+                self.destination,
+                value,
+                origin=self.origin,
+            )
+        )
+        return value
+
+    def write_binding_phrase(
+        self,
+        phrase: str,
+        *,
+        allow_write: bool = False,
+    ) -> None:
+        """Write a phrase. The module stores only its derived six-byte UID."""
+        if not allow_write:
+            raise CrsfWriteRefused("binding-phrase writes require allow_write=True")
+        self.link.send_frame(
+            encode_binding_phrase_write(
+                self.destination,
+                phrase,
+                origin=self.origin,
+            )
+        )
+
     def _wait_for(
         self,
         frame_type: int,
         *,
         timeout: float,
         field_id: int | None = None,
+        addresses: bool = False,
     ) -> CrsfFrame:
         deadline = time.monotonic() + timeout
         while (remaining := deadline - time.monotonic()) >= 0:
@@ -373,6 +492,14 @@ class CrsfParameterClient:
                 if frame.frame_type != frame_type:
                     continue
                 if frame_type == CRSF_FRAMETYPE_DEVICE_INFO:
+                    if len(frame.payload) < 2:
+                        continue
+                    destination, origin = frame.payload[0], frame.payload[1]
+                    if destination not in (self.origin, CRSF_ADDRESS_BROADCAST):
+                        continue
+                    if self.destination != CRSF_ADDRESS_BROADCAST and origin != self.destination:
+                        continue
+                if addresses:
                     if len(frame.payload) < 2:
                         continue
                     destination, origin = frame.payload[0], frame.payload[1]

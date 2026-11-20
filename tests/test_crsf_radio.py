@@ -10,6 +10,7 @@ from aerial_kit.comms import (
     BackendArmSequencer,
     CrsfChannelMap,
     CrsfDeviceInfo,
+    CrsfChunkLoss,
     CrsfFrame,
     CrsfLink,
     CrsfParameterClient,
@@ -20,6 +21,14 @@ from aerial_kit.comms import (
     MemoryTransport,
     RcSticks,
     make_frame,
+    binding_uid,
+    format_uid,
+    parse_uid,
+    decode_uid_response,
+    encode_binding_phrase_write,
+    encode_uid_request,
+    encode_uid_write,
+    uid_from_frame_bytes,
     loopback_pair,
     parse_device_info,
     parse_parameter_record,
@@ -171,7 +180,11 @@ def test_parameter_record_parsers_cover_numeric_selection_folder_and_command() -
 
 
 def _chunk_entry(field_id: int, record: bytes, chunk_size: int) -> list[bytes]:
-    chunks = [record[index:index + chunk_size] for index in range(0, len(record), chunk_size)]
+    body = record[2:]
+    chunks = [
+        body[index:index + chunk_size]
+        for index in range(0, len(body), chunk_size)
+    ]
     output = []
     for index, chunk in enumerate(chunks):
         remaining = len(chunks) - index - 1
@@ -229,6 +242,75 @@ def test_parameter_chunks_reassemble_without_radio_framework() -> None:
         right.close()
 
 
+def test_parameter_chunks_reassemble_when_responses_arrive_out_of_order() -> None:
+    record = _entry(
+        9,
+        0,
+        10,
+        "version",
+        b"out-of-order-chunk-data-that-spans-three-frames\0",
+    )
+    chunks = _chunk_entry(9, record, (len(record) + 2) // 3)
+    assert len(chunks) == 3
+    transport = MemoryTransport()
+    parser = CrsfParser()
+    responses = iter((chunks[0], chunks[2], chunks[1]))
+    original_write = transport.write
+
+    def answer_requests(data: bytes) -> int:
+        result = original_write(data)
+        for request in parser.feed(transport.drain_tx()):
+            if request.frame_type == 0x2C and request.payload[2] == 9:
+                transport.feed(
+                    make_frame(0x2B, bytes((0xEA, 0xEE)) + next(responses))
+                )
+        return result
+
+    transport.write = answer_requests  # type: ignore[method-assign]
+    client = CrsfParameterClient(
+        CrsfLink(transport), destination=0xEE, origin=0xEA, timeout=0.05
+    )
+    parameter = client.read_parameter(9)
+    assert parameter.value == "out-of-order-chunk-data-that-spans-three-frames"
+
+
+def test_parameter_chunk_loss_is_reported_with_its_index() -> None:
+    record = _entry(
+        10,
+        0,
+        10,
+        "version",
+        b"this-record-has-a-lost-middle-chunk\0",
+    )
+    chunks = _chunk_entry(10, record, (len(record) + 3) // 4)
+    assert len(chunks) >= 3
+    transport = MemoryTransport()
+    parser = CrsfParser()
+    original_write = transport.write
+
+    def answer_without_middle_chunk(data: bytes) -> int:
+        result = original_write(data)
+        for request in parser.feed(transport.drain_tx()):
+            if request.frame_type != 0x2C or request.payload[2] != 10:
+                continue
+            requested = request.payload[3]
+            if requested == 1:
+                continue
+            transport.feed(
+                make_frame(0x2B, bytes((0xEA, 0xEE)) + chunks[requested])
+            )
+        return result
+
+    transport.write = answer_without_middle_chunk  # type: ignore[method-assign]
+    client = CrsfParameterClient(
+        CrsfLink(transport), destination=0xEE, origin=0xEA, timeout=0.01
+    )
+    with pytest.raises(
+        CrsfChunkLoss, match=rf"missing chunk 1 of {len(chunks)}"
+    ):
+        client.read_parameter(10)
+
+
 def test_parameter_tree_walks_folder_children() -> None:
     records = {
         0: _entry(0, 0, 11, "Radio", b"\x01\x02\xFF"),
@@ -273,7 +355,55 @@ def test_parameter_writes_and_bind_are_refused_without_opt_in() -> None:
         client.write_parameter(1, 1)
     with pytest.raises(CrsfWriteRefused):
         client.bind()
+    with pytest.raises(CrsfWriteRefused):
+        client.write_uid(b"\x01\x02\x03\x04\x05\x06")
+    with pytest.raises(CrsfWriteRefused):
+        client.write_binding_phrase("test")
     assert transport.drain_tx() == b""
+
+
+def test_uid_request_matches_the_hardware_rx_frame() -> None:
+    frame = encode_uid_request(0xEC)
+    assert frame.encode().hex() == "c80c7aecEF50002D000100001a85".lower()
+
+
+def test_uid_response_decodes_the_hardware_rx_payload() -> None:
+    raw = bytes.fromhex("c80f7befec30072d000000000000002ad1")
+    assert uid_from_frame_bytes(raw) == bytes(6)
+    assert format_uid(uid_from_frame_bytes(raw)) == "00:00:00:00:00:00"
+    frame = CrsfParser().feed(raw)[0]
+    assert decode_uid_response(frame) == bytes(6)
+
+
+def test_uid_and_phrase_writes_have_the_expresslrs_msp_layout() -> None:
+    uid_frame = encode_uid_write(0xEE, parse_uid("AA:BB:CC:DD:EE:FF"))
+    assert uid_frame.frame_type == 0x7C
+    assert uid_frame.encode().hex() == "c80f7ceeef30072d00aabbccddeeff3b65"
+
+    phrase_frame = encode_binding_phrase_write(0xEE, "test")
+    assert phrase_frame.frame_type == 0x7C
+    assert phrase_frame.encode().hex() == "c80d7ceeef30052d01746573743fcc"
+    assert binding_uid("test").hex() == "4f04fd822155"
+
+
+def test_uid_read_uses_origin_lua_and_accepts_hardware_response() -> None:
+    transport = MemoryTransport()
+    client = CrsfParameterClient(
+        CrsfLink(transport), destination=0xEC, origin=0xEF, timeout=0.05
+    )
+    original_write = transport.write
+
+    def answer_uid(data: bytes) -> int:
+        result = original_write(data)
+        for request in CrsfParser().feed(transport.drain_tx()):
+            assert request.frame_type == 0x7A
+            transport.feed(
+                bytes.fromhex("c80f7befec30072d000000000000002ad1")
+            )
+        return result
+
+    transport.write = answer_uid  # type: ignore[method-assign]
+    assert client.read_uid(attempts=1, timeout=0.05) == bytes(6)
 
 
 def test_bind_with_opt_in_writes_the_expresslrs_command_frame() -> None:
