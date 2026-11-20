@@ -265,7 +265,7 @@ class CrsfParameterClient:
         destination: int = CRSF_ADDRESS_CRSF_TRANSMITTER,
         origin: int = CRSF_ADDRESS_RADIO_TRANSMITTER,
         timeout: float = 0.5,
-        chunk_interval: float = 0.02,
+        chunk_interval: float = 0.05,
     ) -> None:
         self.link = link
         self.destination = destination
@@ -296,7 +296,10 @@ class CrsfParameterClient:
             attempts[target] = attempts.get(target, 0) + 1
             if attempts[target] > 5:
                 raise CrsfChunkLoss(field_id, target, total)
-            if attempts[target] > 1 and self.chunk_interval:
+            # Give the endpoint's USB/CRSF output FIFO time to drain between
+            # chunks. The first request for a new chunk used to be sent with no
+            # spacing, which loses later chunks on the Rev A3 native-USB path.
+            if self.chunk_interval and (total is not None or attempts[target] > 1):
                 time.sleep(self.chunk_interval)
             request = _extended(
                 CRSF_FRAMETYPE_PARAMETER_READ,
