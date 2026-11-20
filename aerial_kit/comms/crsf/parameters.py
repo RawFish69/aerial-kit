@@ -5,6 +5,7 @@ from __future__ import annotations
 import struct
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .codec import (
@@ -267,12 +268,14 @@ class CrsfParameterClient:
         origin: int = CRSF_ADDRESS_RADIO_TRANSMITTER,
         timeout: float = 0.5,
         chunk_interval: float = 0.05,
+        max_chunk_attempts: int = 8,
     ) -> None:
         self.link = link
         self.destination = destination
         self.origin = origin
         self.timeout = timeout
         self.chunk_interval = max(0.0, float(chunk_interval))
+        self.max_chunk_attempts = max(1, int(max_chunk_attempts))
         self._pending_frames: deque[CrsfFrame] = deque()
 
     def ping(self, *, destination: int | None = None, timeout: float | None = None) -> CrsfDeviceInfo:
@@ -296,7 +299,7 @@ class CrsfParameterClient:
             ]
             target = missing[0] if missing else 0
             attempts[target] = attempts.get(target, 0) + 1
-            if attempts[target] > 5:
+            if attempts[target] > self.max_chunk_attempts:
                 raise CrsfChunkLoss(field_id, target, total)
             # Give the endpoint's USB/CRSF output FIFO time to drain between
             # chunks. The first request for a new chunk used to be sent with no
@@ -361,6 +364,7 @@ class CrsfParameterClient:
         *,
         root: int = 0,
         timeout: float | None = None,
+        on_parameter: Callable[[CrsfParameter], None] | None = None,
     ) -> dict[int, CrsfParameter]:
         pending = [root]
         result: dict[int, CrsfParameter] = {}
@@ -368,8 +372,15 @@ class CrsfParameterClient:
             field_id = pending.pop()
             if field_id in result:
                 continue
-            parameter = self.read_parameter(field_id, timeout=timeout)
+            try:
+                parameter = self.read_parameter(field_id, timeout=timeout)
+            except CrsfError as exc:
+                raise CrsfProtocolError(
+                    f"parameter tree stopped at field {field_id}: {exc}"
+                ) from exc
             result[field_id] = parameter
+            if on_parameter is not None:
+                on_parameter(parameter)
             pending.extend(reversed(parameter.children))
         return result
 

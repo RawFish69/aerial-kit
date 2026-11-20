@@ -621,7 +621,17 @@ def _radio(args: argparse.Namespace) -> int:
             else CrsfParameterClient(link, timeout=args.timeout)
         )
         if args.radio_action == "params":
-            for parameter in client.read_parameter_tree().values():
+            def parameter_progress(parameter: CrsfParameter) -> None:
+                print(
+                    f"field={parameter.id} parent={parameter.parent} "
+                    f"type={parameter.type} name={parameter.name}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+            for parameter in client.read_parameter_tree(
+                on_parameter=parameter_progress
+            ).values():
                 _print_parameter(parameter)
         elif args.radio_action == "get":
             _print_parameter(client.read_parameter(args.field))
