@@ -5,11 +5,11 @@ import { RadioSession, RadioWriteRefused } from '../src/session/radio';
 import { DEMO_RADIO_NAME, DemoRadioTransport } from '../src/transport/demo-radio';
 
 const open: DemoRadioTransport[] = [];
-async function connect(options = {}) {
+async function connect(options = {}, uidTimeoutMs = 300) {
   const t = new DemoRadioTransport({ linkStatsMs: 20, ...options });
   await t.open();
   open.push(t);
-  return { t, s: new RadioSession(t, 300) };
+  return { t, s: new RadioSession(t, 300, () => Date.now(), uidTimeoutMs) };
 }
 afterEach(async () => {
   for (const t of open.splice(0)) await t.close();
@@ -106,7 +106,27 @@ describe('radio session against the demo ExpressLRS module', () => {
     expect(await s.readUid()).toEqual(bindingUid('test'));
     await s.setUid(parseUid('aa:bb:cc:dd:ee:ff'));
     expect(t.radio.uid).toEqual(parseUid('aa:bb:cc:dd:ee:ff'));
-    expect(s.snapshot().uid).toBeNull();
+    expect(s.snapshot().uid).toEqual(parseUid('aa:bb:cc:dd:ee:ff'));
+  });
+
+  it('retries one UID read after reopening the endpoint', async () => {
+    const { t, s } = await connect({ uidFailures: 1, linkStatsMs: 100_000 }, 25);
+    const uid = await s.readUid();
+    expect(uid).toEqual(t.radio.uid);
+    expect(t.reconnects).toBe(1);
+    expect(s.snapshot().uidError).toBeNull();
+  });
+
+  it('reports whether a UID timeout happened before any USB bytes arrived', async () => {
+    const { s } = await connect({ uidFailures: 2, linkStatsMs: 100_000 }, 15);
+    await expect(s.readUid()).rejects.toThrow(/no USB bytes arrived/);
+    expect(s.snapshot().uidError).toMatch(/timed out.*no USB bytes arrived/);
+  });
+
+  it('distinguishes unrelated USB traffic from a valid UID response', async () => {
+    const { s } = await connect({ uidFailures: 2, linkStatsMs: 5 }, 30);
+    await expect(s.readUid()).rejects.toThrow(/USB bytes arrived.*0x7B UID response/);
+    expect(s.snapshot().uidError).toMatch(/30 ms on attempt 2: [1-9][0-9]* USB bytes arrived/);
   });
 
   it('shows link statistics as they arrive, and an age when they stop', async () => {

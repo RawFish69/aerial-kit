@@ -10,7 +10,6 @@ import {
   encodeFrame,
   encodeRcChannels,
   unpackChannels,
-  crc8DvbS2,
   type CrsfFrame,
 } from '../protocol/crsf';
 import { bindingUid } from '../protocol/elrs-binding';
@@ -80,6 +79,8 @@ export interface DemoRadioOptions {
   /** Largest chunk of entry data per frame; small enough to make the menu arrive in pieces. */
   readonly chunkMax?: number;
   readonly linkStatsMs?: number;
+  /** Drop this many UID reads before answering, to exercise reconnect/retry. */
+  readonly uidFailures?: number;
 }
 
 export class DemoRadio {
@@ -93,12 +94,14 @@ export class DemoRadio {
   receiverWifiRequested = false;
   private readonly decoder = new CrsfDecoder();
   private readonly chunkMax: number;
+  private uidFailuresRemaining: number;
   lastRcChannels: number[] | null = null;
 
   constructor(options: DemoRadioOptions = {}) {
     this.role = options.role ?? 'tx';
     this.menu = demoMenu(this.role);
     this.chunkMax = options.chunkMax ?? 20;
+    this.uidFailuresRemaining = options.uidFailures ?? 0;
   }
 
   feed(bytes: Uint8Array): Uint8Array[] {
@@ -153,6 +156,10 @@ export class DemoRadio {
       case FrameType.MSP_REQ:
         if (p[4] === MSP_ELRS_RXTX_CONFIG && p[5] === 0 && p[6] === 1 &&
           p[8] === RxtxConfigSubcommand.UID) {
+          if (this.uidFailuresRemaining > 0) {
+            this.uidFailuresRemaining--;
+            return [];
+          }
           return [this.mspResponse(from, Uint8Array.from([RxtxConfigSubcommand.UID, ...this.uid]))];
         }
         return [];
@@ -177,7 +184,9 @@ export class DemoRadio {
     body[1] = payload.length;
     body[2] = MSP_ELRS_RXTX_CONFIG;
     body.set(payload, 3);
-    body[body.length - 1] = crc8DvbS2(body.subarray(1, body.length - 1));
+    let innerCrc = 0;
+    for (const byte of body.subarray(1, body.length - 1)) innerCrc ^= byte;
+    body[body.length - 1] = innerCrc;
     return this.ext(FrameType.MSP_RESP, to, [...body]);
   }
 
@@ -262,6 +271,7 @@ export class DemoRadioTransport implements Transport {
   private readonly closeHandlers = new Set<(reason: string) => void>();
   private readonly errorHandlers = new Set<(message: string) => void>();
   private open_ = false;
+  reconnects = 0;
   private readonly linkStatsMs: number;
 
   constructor(options: DemoRadioOptions = {}) {
@@ -298,6 +308,11 @@ export class DemoRadioTransport implements Transport {
     // Answered on a later tick, as a cable would, so timeouts and correlation are exercised.
     await Promise.resolve();
     for (const reply of this.radio.feed(bytes)) this.emit(reply);
+  }
+
+  async reconnect(): Promise<void> {
+    this.reconnects++;
+    if (!this.open_) await this.open();
   }
 
   async close(): Promise<void> {

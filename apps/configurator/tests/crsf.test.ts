@@ -194,7 +194,7 @@ describe('CRSF against the shared vectors', () => {
       Address.CRSF_TRANSMITTER, Address.ELRS_LUA,
       0x30, 5, MSP_ELRS_RXTX_CONFIG, RxtxConfigSubcommand.BIND_PHRASE,
     ]);
-    expect(hex(writeBytes)).toBe('c80d7ceeef30052d0174657374f93f');
+    expect(hex(writeBytes)).toBe('c80d7ceeef30052d01746573743fcc');
   });
 
   it('encodes the direct CRSF bind command for TX and RX destinations', () => {
@@ -213,10 +213,16 @@ describe('CRSF against the shared vectors', () => {
 
   it('decodes the ExpressLRS MSP response envelope', () => {
     const uid = Uint8Array.of(1, 2, 3, 4, 5, 6);
-    const response = one(fromHex('c80f7befec30072d000102030405060a00'));
+    const response = one(fromHex('c80f7befec30072d000102030405062df0'));
     expect(decodeMspResponse(response)).toEqual({
       functionCode: MSP_ELRS_RXTX_CONFIG,
       payload: Uint8Array.from([RxtxConfigSubcommand.UID, ...uid]),
+    });
+
+    const hardwareUnbound = one(fromHex('c80f7befec30072d000000000000002ad1'));
+    expect(decodeMspResponse(hardwareUnbound)).toEqual({
+      functionCode: MSP_ELRS_RXTX_CONFIG,
+      payload: Uint8Array.from([RxtxConfigSubcommand.UID, 0, 0, 0, 0, 0, 0]),
     });
   });
 });

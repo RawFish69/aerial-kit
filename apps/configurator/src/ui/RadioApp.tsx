@@ -13,6 +13,11 @@ export const RADIO_BAUD = 400000;
 export const RADIO_RX_BAUD = 420000;
 
 type RadioKind = 'serial-tx' | 'serial-rx' | 'demo' | 'demo-rx';
+interface PhraseEvidence {
+  readonly phrase: string;
+  readonly tx: string | null;
+  readonly rx: string | null;
+}
 
 const RF_MODES: Record<number, string> = { 0: '4 Hz', 1: '50 Hz', 2: '150 Hz', 3: '250 Hz', 4: '500 Hz' };
 const MANAGED_RADIO_COMMANDS = new Set(['Bind', 'Enter Bind Mode', 'Enable WiFi', 'Enable Rx WiFi']);
@@ -41,6 +46,7 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
   const [uidInput, setUidInput] = useState('');
   const [confirmAction, setConfirmAction] = useState<'bind' | 'phrase' | 'uid' | 'wifi' | 'rx-wifi' | null>(null);
   const [bindingMessage, setBindingMessage] = useState<string | null>(null);
+  const [phraseEvidence, setPhraseEvidence] = useState<PhraseEvidence | null>(null);
   const [benchPattern, setBenchPattern] = useState<'disarmed' | 'arm-test' | 'channel-test'>('disarmed');
   const [benchHz, setBenchHz] = useState(150);
   const [benchDriveSec, setBenchDriveSec] = useState(10);
@@ -129,14 +135,29 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
     try {
       if (action === 'bind') {
         await session.bind();
-        setBindingMessage('CRSF bind request sent. This command has no completion reply; confirm peer acquisition from both endpoints and their link statistics.');
+        setBindingMessage(
+          'CRSF bind request sent to this endpoint only. Keep the other endpoint in bind mode during the same window; a sent command is not proof of binding.',
+        );
       } else if (action === 'phrase') {
-        await session.setBindingPhrase(phrase);
-        setBindingMessage('Phrase write sent. The module should reboot; reconnect and read its UID to verify the derived identity.');
+        const actual = await session.setBindingPhrase(phrase);
+        const actualText = uidText(actual);
+        const role = session.snapshot().role;
+        setPhraseEvidence((previous) => {
+          const base = previous?.phrase === phrase ? previous : { phrase, tx: null, rx: null };
+          return {
+            ...base,
+            ...(role === 'tx' ? { tx: actualText } : {}),
+            ...(role === 'rx' ? { rx: actualText } : {}),
+          };
+        });
+        setBindingMessage(
+          `Verified ${role === 'unknown' ? 'module' : role.toUpperCase()} phrase readback: ${actualText}. ` +
+          'Connect the other endpoint and set the same phrase before a two-board RF test.',
+        );
         setPhrase('');
       } else if (action === 'uid') {
-        await session.setUid(parseUid(uidInput));
-        setBindingMessage('UID write sent. The module should reboot; reconnect and read its UID to verify it.');
+        const actual = await session.setUid(parseUid(uidInput));
+        setBindingMessage(`Verified direct UID readback: ${uidText(actual)}.`);
         setUidInput('');
       } else if (action === 'wifi') {
         const result = await session.enableModuleWifi();
@@ -204,6 +225,10 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
     : isUnboundUid(s.uid) ? 'unbound (all zero UID)' : uidText(s.uid);
   const phrasePreview = phrase === '' ? 'unbound (all zero UID)' : uidText(bindingUid(phrase));
   const roleName = s?.role === 'rx' ? 'RX receiver' : s?.role === 'tx' ? 'TX transmitter' : 'radio module';
+  const phrasePairReady =
+    phraseEvidence?.tx !== null &&
+    phraseEvidence?.rx !== null &&
+    phraseEvidence?.tx === phraseEvidence?.rx;
 
   const row = (p: Parameter) => {
     switch (p.kind) {
@@ -292,8 +317,16 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
           <span>Current module UID</span>
           <span><code>{currentUid}</code></span>
         </div>
+        {s?.uidError !== null && s?.uidError !== undefined && (
+          <Callout intent="warning">
+            {s.uidError} Check the endpoint, cable and decoded frame counters before retrying.
+          </Callout>
+        )}
         <div className="radio-row binding-row">
-          <Button small icon="refresh" disabled={busy} onClick={() => void act(() => session.readUid())}>
+          <Button small icon="refresh" disabled={busy} onClick={() => void act(async () => {
+            const uid = await session.readUid();
+            setBindingMessage(`Read ${uidText(uid)} from the connected endpoint.`);
+          })}>
             Read UID
           </Button>
           <span className="bp5-text-muted">The phrase is not stored; the module stores the six-byte UID derived from it.</span>
@@ -314,6 +347,24 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
           </Button>
           <span className="bp5-text-muted">Writes the MD5-derived UID and reboots the module. Readback is required.</span>
         </div>
+        <p className="small muted">
+          Set the phrase on RX first, then TX (or the reverse), reconnecting each endpoint independently.
+          Matching phrase configuration is safer than an unbounded bind window. RF testing stays gated until
+          both readbacks below are present and identical.
+        </p>
+        <div className="radio-row binding-row">
+          <span>Pair evidence</span>
+          <span>
+            TX <code>{phraseEvidence?.tx ?? 'not verified'}</code>
+            {' · '}RX <code>{phraseEvidence?.rx ?? 'not verified'}</code>
+          </span>
+        </div>
+        {phrasePairReady && (
+          <Callout intent="success">
+            TX and RX phrase-derived UIDs match. Reconnect both boards, confirm both UIDs again, then run the
+            two-board RF test.
+          </Callout>
+        )}
         <div className="radio-row binding-row">
           <label htmlFor="binding-uid">Direct UID</label>
           <InputGroup id="binding-uid" value={uidInput} disabled={!allow || busy}
@@ -335,7 +386,8 @@ export function RadioApp({ serialAvailable }: { serialAvailable: boolean }) {
             Sends CRSF COMMAND 0x10/0x01. {bindCommand === undefined
               ? 'This parameter menu does not advertise a bind entry, but the stock command remains available.'
               : `The menu advertises ${bindCommand.name}.`}
-            {' '}This is separate from setting a phrase or UID.
+            {' '}This is separate from setting a phrase or UID. RX must show binding-mode breathing; start TX
+            while RX is still in that state, then require LINK_STATISTICS from both endpoints.
           </span>
         </div>
         {confirmAction !== null && (
