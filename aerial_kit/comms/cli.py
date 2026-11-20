@@ -240,7 +240,11 @@ def _parameter_client(
     return CrsfParameterClient(
         link,
         destination=destination,
-        origin=CRSF_ADDRESS_RADIO_TRANSMITTER,
+        # The RX OTA connector already claims the normal handset address
+        # (0xEA), which would steer parameter replies onto RF instead of USB.
+        # ELRS Lua is the host-management origin and resolves to the USB
+        # connector on both roles.
+        origin=CRSF_ADDRESS_ELRS_LUA,
         timeout=timeout,
     )
 
