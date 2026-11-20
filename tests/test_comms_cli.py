@@ -68,7 +68,8 @@ def test_radio_uid_and_identity_commands_parse() -> None:
         "--phrase", "test", "--write",
     ])
     diag = parser.parse_args([
-        "radio", "diag", "--port", "/dev/null", "--role", "rx", "--json", "-",
+        "radio", "diag", "--port", "/dev/null", "--role", "rx",
+        "--json", "-", "--watch-rf",
     ])
     assert uid.radio_action == "uid"
     assert set_uid.field == "aa:bb:cc:dd:ee:ff"
@@ -76,6 +77,7 @@ def test_radio_uid_and_identity_commands_parse() -> None:
     assert get.field == "7"
     assert pair.radio_action == "pair"
     assert diag.radio_action == "diag"
+    assert diag.watch_rf is True
 
 
 def test_transport_flags_are_mutually_exclusive() -> None:

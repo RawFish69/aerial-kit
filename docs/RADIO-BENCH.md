@@ -28,6 +28,11 @@ ak radio uid --port /dev/ttyACM1 --baud 420000 --role rx
 ak radio diag --port /dev/ttyACM0 --baud 400000 --role tx --json tx-boot.json
 ak radio diag --port /dev/ttyACM1 --baud 420000 --role rx --json rx-boot.json
 
+# During a drive/receive run, sample GPIO6/7 transitions, SX1280 IRQ state,
+# instantaneous RSSI and the last packet statistics once per second.
+ak radio diag --port /dev/ttyACM1 --role rx --duration 12 \
+  --watch-rf --json rx-rf.json
+
 # Set one shared phrase on each endpoint. Each command reads the old UID,
 # writes, reconnects, and refuses success without an exact six-byte readback.
 ak radio bind-phrase replace-with-your-phrase \

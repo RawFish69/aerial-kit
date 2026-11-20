@@ -299,7 +299,7 @@ def _radio_diag(args: argparse.Namespace) -> int:
         while (remaining := deadline - time.monotonic()) > 0:
             raw.extend(transport.read(4096, min(0.2, remaining)))
             text = raw.decode("ascii", "ignore")
-            if "AK-BOOT " in text:
+            if "AK-BOOT " in text and not getattr(args, "watch_rf", False):
                 break
     finally:
         transport.close()
@@ -318,11 +318,25 @@ def _radio_diag(args: argparse.Namespace) -> int:
         key: value
         for key, value in re.findall(r"([A-Za-z0-9_]+)=([^\s]+)", boot_line)
     }
+    rf_lines = [
+        line for line in text.splitlines() if line.startswith("AK-RF ")
+    ]
     result = {
         "path": args.port,
         "logical_baud": baud,
         "line": boot_line,
         "fields": fields,
+        "rf_lines": rf_lines,
+        "last_rf_fields": (
+            {
+                key: value
+                for key, value in re.findall(
+                    r"([A-Za-z0-9_]+)=([^\s]+)", rf_lines[-1]
+                )
+            }
+            if rf_lines
+            else None
+        ),
     }
     if args.json:
         _write_json(args.json, result)
@@ -821,6 +835,12 @@ def build_parser(prog: str = "aerial-kit-link") -> argparse.ArgumentParser:
     radio.add_argument("--tx", metavar="PORT")
     radio.add_argument("--rx", metavar="PORT")
     radio.add_argument("--json")
+    radio.add_argument(
+        "--watch-rf",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="keep reading after AK-BOOT and collect periodic AK-RF diagnostics",
+    )
     radio.set_defaults(handler=_radio)
 
     fc = commands.add_parser("fc", help="query an Aerial Kit flight controller")
