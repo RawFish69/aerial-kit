@@ -61,11 +61,15 @@ def test_radio_uid_and_identity_commands_parse() -> None:
         "radio", "pair", "--tx", "/dev/a", "--rx", "/dev/b",
         "--phrase", "test", "--write",
     ])
+    diag = parser.parse_args([
+        "radio", "diag", "--port", "/dev/null", "--role", "rx", "--json", "-",
+    ])
     assert uid.radio_action == "uid"
     assert set_uid.field == "aa:bb:cc:dd:ee:ff"
     assert phrase.field == "test"
     assert get.field == "7"
     assert pair.radio_action == "pair"
+    assert diag.radio_action == "diag"
 
 
 def test_transport_flags_are_mutually_exclusive() -> None:
@@ -347,6 +351,36 @@ def test_radio_status_reports_device_info_and_no_answer_fails(
         lambda *args, **kwargs: (_ for _ in ()).throw(CrsfTimeout("silent")),
     )
     assert main(["radio", "status", "--port", "/dev/radio"]) == 1
+
+
+def test_radio_diag_extracts_boot_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FakeSerial:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.sent = False
+
+        def read(self, _size: int, _timeout: float) -> bytes:
+            if self.sent:
+                return b""
+            self.sent = True
+            return (
+                b"ROM text\r\nAK-BOOT role=tx uid=e97741507c5f "
+                b"seed=0x41507c5d crc=0x7c5f rate_enum=27 "
+                b"fhss0=42 freq=2400000000 domain=ISM_2400 conn=3 "
+                b"txen=0 rxen=0\r\n"
+            )
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("aerial_kit.comms.cli.SerialTransport", FakeSerial)
+    assert main([
+        "radio", "diag", "--port", "/dev/radio", "--role", "tx", "--duration", "1",
+    ]) == 0
+    output = capsys.readouterr().out
+    assert "AK-BOOT role=tx uid=e97741507c5f" in output
 
 
 def test_bench_actions_write_stable_json(

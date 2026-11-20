@@ -265,11 +265,13 @@ class CrsfParameterClient:
         destination: int = CRSF_ADDRESS_CRSF_TRANSMITTER,
         origin: int = CRSF_ADDRESS_RADIO_TRANSMITTER,
         timeout: float = 0.5,
+        chunk_interval: float = 0.02,
     ) -> None:
         self.link = link
         self.destination = destination
         self.origin = origin
         self.timeout = timeout
+        self.chunk_interval = max(0.0, float(chunk_interval))
 
     def ping(self, *, destination: int | None = None, timeout: float | None = None) -> CrsfDeviceInfo:
         target = self.destination if destination is None else destination
@@ -292,8 +294,10 @@ class CrsfParameterClient:
             ]
             target = missing[0] if missing else 0
             attempts[target] = attempts.get(target, 0) + 1
-            if attempts[target] > 3:
+            if attempts[target] > 5:
                 raise CrsfChunkLoss(field_id, target, total)
+            if attempts[target] > 1 and self.chunk_interval:
+                time.sleep(self.chunk_interval)
             request = _extended(
                 CRSF_FRAMETYPE_PARAMETER_READ,
                 self.destination,
@@ -306,16 +310,24 @@ class CrsfParameterClient:
                     CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY,
                     timeout=per_chunk_timeout,
                     field_id=field_id,
+                    addresses=True,
                 )
             except CrsfTimeout:
                 continue
             payload = frame.payload
-            if len(payload) < 5:
+            if len(payload) < 4:
                 raise CrsfProtocolError("short CRSF parameter chunk")
             response_field = payload[2]
             remaining = payload[3]
             if response_field != field_id:
                 continue
+            if remaining > 63:
+                # ExpressLRS uses 0xff for an out-of-range chunk request.
+                # Treat it as stale/corrupt rather than turning it into a
+                # 256-entry record and poisoning the rest of the tree.
+                continue
+            if len(payload) == 4:
+                raise CrsfProtocolError("CRSF parameter chunk has no data")
             if total is None:
                 total = remaining + 1
             elif remaining >= total:

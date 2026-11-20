@@ -23,6 +23,11 @@ ak radio status --port /dev/ttyACM0 --baud 400000
 ak radio uid --port /dev/ttyACM0 --baud 400000 --role tx
 ak radio uid --port /dev/ttyACM1 --baud 420000 --role rx
 
+# Force a reset/open and capture the role's RF boot identity: UID seed,
+# packet-rate enum, FHSS first channel, initial frequency and FEM pin state.
+ak radio diag --port /dev/ttyACM0 --baud 400000 --role tx --json tx-boot.json
+ak radio diag --port /dev/ttyACM1 --baud 420000 --role rx --json rx-boot.json
+
 # Set one shared phrase on each endpoint. Each command reads the old UID,
 # writes, reconnects, and refuses success without an exact six-byte readback.
 ak radio bind-phrase replace-with-your-phrase \
@@ -97,6 +102,13 @@ as `NOT TESTED`.
 - resynchronization/framing traffic without valid RC;
 - CRC errors;
 - valid RC frames and their cadence.
+
+When RF does not acquire, compare `radio diag` from both roles before changing
+power or antennas. `uid`, `seed`, `crc`, `rate_enum`, `fhss0` and `freq` must
+describe the same 2.4 GHz configuration. RX is expected to cycle
+`rate_enum` while searching; TX reports the configured rate it is actually
+transmitting. `txen`/`rxen` describe the FEM pins at boot, and `conn` is the
+ExpressLRS connection-state enum.
 
 `radio inject` rejects malformed, partial, non-telemetry and mutation frames.
 Injection proves the sequence was sent, not that RF forwarded it.

@@ -140,6 +140,7 @@ pip install "aerial-kit[radio,mavlink]"
 ak radio status --port /dev/ttyACM0
 ak radio uid --port /dev/ttyACM0 --role tx
 ak radio uid --port /dev/ttyACM1 --role rx
+ak radio diag --port /dev/ttyACM0 --role tx
 ak radio monitor --port /dev/ttyACM0 --duration 5 --json monitor.json
 ak radio drive --port /dev/ttyACM0 --hz 150 --duration 10 --write
 ak fc hello --port /dev/ttyACM0
