@@ -13,7 +13,9 @@ from aerial_kit.comms import (
     CrsfChunkLoss,
     CrsfFrame,
     CrsfLink,
+    CrsfParameter,
     CrsfParameterClient,
+    CrsfProtocolError,
     CrsfParser,
     CrsfRadio,
     CrsfWriteRefused,
@@ -446,9 +448,14 @@ def test_parameter_tree_walks_folder_children() -> None:
     client = CrsfParameterClient(
         CrsfLink(left), destination=0xEE, origin=0xEA, timeout=0.2
     )
+    seen: list[int] = []
     try:
-        tree = client.read_parameter_tree(root=0)
+        tree = client.read_parameter_tree(
+            root=0,
+            on_parameter=lambda parameter: seen.append(parameter.id),
+        )
         assert set(tree) == {0, 1, 2}
+        assert seen == [0, 1, 2]
         assert tree[0].children == (1, 2)
         assert tree[1].value == 3
         assert tree[2].options[1] == "150Hz"
@@ -457,6 +464,34 @@ def test_parameter_tree_walks_folder_children() -> None:
         thread.join(1.0)
         left.close()
         right.close()
+
+
+def test_parameter_tree_reports_the_field_that_stopped_it() -> None:
+    client = CrsfParameterClient(
+        CrsfLink(MemoryTransport()),
+        destination=0xEE,
+        origin=0xEA,
+        timeout=0.01,
+    )
+
+    def read_parameter(field_id: int, *, timeout: float | None = None):
+        if field_id == 0:
+            return CrsfParameter(
+                id=0,
+                parent=0,
+                type="folder",
+                hidden=False,
+                name="root",
+                children=(1,),
+            )
+        raise CrsfChunkLoss(field_id, 3, 4)
+
+    client.read_parameter = read_parameter  # type: ignore[method-assign]
+    with pytest.raises(
+        CrsfProtocolError,
+        match="parameter tree stopped at field 1: CRSF parameter 1 missing chunk 3 of 4",
+    ):
+        client.read_parameter_tree(root=0)
 
 
 def test_parameter_writes_and_bind_are_refused_without_opt_in() -> None:
