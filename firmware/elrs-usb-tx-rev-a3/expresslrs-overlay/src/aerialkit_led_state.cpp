@@ -39,8 +39,12 @@ uint32_t lastWord;
 volatile uint32_t lastSerialInputMs;
 volatile bool serialInputSeen;
 volatile bool selfTestRequested;
+volatile bool permutationTestRequested;
 bool selfTestActive;
 uint32_t selfTestStartMs;
+bool permutationTestActive;
+uint32_t permutationTestStartMs;
+int8_t lastPermutationSample = -1;
 bool previousBindActive;
 uint32_t bindHoldUntilMs;
 
@@ -53,6 +57,36 @@ void ledShow(const AerialKitLedRgb &color)
     }
     lastWordValid = aerialkitWs2812Show(color);
     lastWord = word;
+}
+
+void ledShowOrdered(
+    const AerialKitLedRgb &color,
+    const AerialKitWs2812ChannelOrder &order)
+{
+    const uint32_t word =
+        aerialkit_ws2812_wire_word_with_order(color, 255, order);
+    if (lastWordValid && word == lastWord)
+    {
+        return;
+    }
+    lastWordValid = aerialkitWs2812ShowOrdered(color, order);
+    lastWord = word;
+}
+
+const char *permutationName(uint8_t permutation)
+{
+    static constexpr const char *NAMES[] = {
+        "RGB", "RBG", "GRB", "GBR", "BRG", "BGR",
+    };
+    return permutation < AERIALKIT_WS2812_PERMUTATION_COUNT
+               ? NAMES[permutation]
+               : "invalid";
+}
+
+const char *channelName(uint8_t channel)
+{
+    static constexpr const char *NAMES[] = {"red", "green", "blue"};
+    return channel < 3 ? NAMES[channel] : "gap";
 }
 
 bool serialInputFresh(uint32_t now)
@@ -80,6 +114,55 @@ bool initialize()
 int start()
 {
     return DURATION_IMMEDIATELY;
+}
+
+bool runPermutationTest(uint32_t now)
+{
+    if (permutationTestRequested)
+    {
+        permutationTestRequested = false;
+        permutationTestActive = true;
+        permutationTestStartMs = now;
+        lastPermutationSample = -1;
+        USBSerial.print(
+            "AK-LEDPERM begin sequence=RGB,RBG,GRB,GBR,BRG,BGR "
+            "step=1000ms gap=500ms\r\n");
+    }
+    if (!permutationTestActive)
+    {
+        return false;
+    }
+
+    AerialKitLedPermutationSample sample {};
+    if (!aerialkit_led_permutation_sample(now - permutationTestStartMs, sample))
+    {
+        permutationTestActive = false;
+        lastPermutationSample = -1;
+        USBSerial.print(aerialkitWs2812Healthy()
+                            ? "AK-LEDPERM done led=ok\r\n"
+                            : "AK-LEDPERM done led=error\r\n");
+        return false;
+    }
+
+    const int8_t sampleIndex =
+        static_cast<int8_t>(sample.permutation * 4 + sample.channel);
+    if (sampleIndex != lastPermutationSample)
+    {
+        lastPermutationSample = sampleIndex;
+        USBSerial.print("AK-LEDPERM order=");
+        USBSerial.print(permutationName(sample.permutation));
+        USBSerial.print(" logical=");
+        USBSerial.print(channelName(sample.channel));
+        USBSerial.print("\r\n");
+    }
+
+    // Force each phase onto the wire even if another permutation happened to
+    // produce the same 24-bit word.
+    lastWordValid = false;
+    ledShowOrdered(
+        sample.color,
+        AERIALKIT_WS2812_PERMUTATIONS[sample.permutation]);
+    return true;
 }
 
 bool runSelfTest(uint32_t now)
@@ -116,7 +199,12 @@ void aerialkitLedMarkSerialInput()
 
 void aerialkitLedObserveFrame(const void *frame)
 {
-    if (aerialkit_led_selftest_frame(static_cast<const uint8_t *>(frame), OWN_CRSF_ADDRESS))
+    const auto *bytes = static_cast<const uint8_t *>(frame);
+    if (aerialkit_led_permutation_frame(bytes, OWN_CRSF_ADDRESS))
+    {
+        permutationTestRequested = true;
+    }
+    else if (aerialkit_led_selftest_frame(bytes, OWN_CRSF_ADDRESS))
     {
         selfTestRequested = true;
     }
@@ -125,6 +213,10 @@ void aerialkitLedObserveFrame(const void *frame)
 int aerialkitLedTimeout()
 {
     const uint32_t now = millis();
+    if (runPermutationTest(now))
+    {
+        return LED_UPDATE_MS;
+    }
     if (runSelfTest(now))
     {
         return LED_UPDATE_MS;

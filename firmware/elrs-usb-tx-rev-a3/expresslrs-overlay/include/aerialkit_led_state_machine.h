@@ -209,29 +209,61 @@ constexpr uint8_t aerialkit_led_scale(uint8_t value, uint8_t brightness)
         (static_cast<uint16_t>(value) * brightness) / 255U);
 }
 
-// The 24-bit word sent to the LED, MSB first, after the global brightness
-// cap. LED1 on the assembled Rev A3 boards clocks bytes in B-R-G order: with
-// the datasheet G-R-B order, red was correct but green and blue were swapped
-// on hardware (2026-11-19, candidate 5576f902). Keep the order in this one
-// table so hardware revisions with a different LED change only this.
-constexpr uint8_t AERIALKIT_WS2812_WIRE_FIRST = 2;  // blue
-constexpr uint8_t AERIALKIT_WS2812_WIRE_SECOND = 0; // red
-constexpr uint8_t AERIALKIT_WS2812_WIRE_THIRD = 1;  // green
+struct AerialKitWs2812ChannelOrder
+{
+    uint8_t first;
+    uint8_t second;
+    uint8_t third;
+};
+
+// The two observations do not identify a single physical order yet:
+// 5576f902 encoded G-R-B and produced blue for the RX role; 19c7b3ce encoded
+// B-R-G and still produced blue. Keep the operational mapping unchanged until
+// the permutation diagnostic establishes the physical order on hardware.
+constexpr AerialKitWs2812ChannelOrder AERIALKIT_WS2812_OPERATIONAL_ORDER = {
+    2, // blue
+    0, // red
+    1, // green
+};
+
+// Every possible assignment of logical R/G/B to the three bytes on the wire.
+// Names identify the first, second and third logical channel sent.
+constexpr AerialKitWs2812ChannelOrder AERIALKIT_WS2812_PERMUTATIONS[] = {
+    {0, 1, 2}, // RGB
+    {0, 2, 1}, // RBG
+    {1, 0, 2}, // GRB
+    {1, 2, 0}, // GBR
+    {2, 0, 1}, // BRG
+    {2, 1, 0}, // BGR
+};
+constexpr uint8_t AERIALKIT_WS2812_PERMUTATION_COUNT =
+    sizeof(AERIALKIT_WS2812_PERMUTATIONS) /
+    sizeof(AERIALKIT_WS2812_PERMUTATIONS[0]);
 
 constexpr uint8_t aerialkit_led_channel(const AerialKitLedRgb &color, uint8_t channel)
 {
     return channel == 0 ? color.red : channel == 1 ? color.green : color.blue;
 }
 
+constexpr uint32_t aerialkit_ws2812_wire_word_with_order(
+    const AerialKitLedRgb &color,
+    uint8_t brightness,
+    const AerialKitWs2812ChannelOrder &order)
+{
+    return (static_cast<uint32_t>(aerialkit_led_scale(
+                aerialkit_led_channel(color, order.first), brightness)) << 16) |
+           (static_cast<uint32_t>(aerialkit_led_scale(
+                aerialkit_led_channel(color, order.second), brightness)) << 8) |
+           aerialkit_led_scale(aerialkit_led_channel(color, order.third), brightness);
+}
+
+// The 24-bit word sent to the LED, MSB first, after the global brightness cap.
 constexpr uint32_t aerialkit_ws2812_wire_word(
     const AerialKitLedRgb &color,
     uint8_t brightness)
 {
-    return (static_cast<uint32_t>(aerialkit_led_scale(
-                aerialkit_led_channel(color, AERIALKIT_WS2812_WIRE_FIRST), brightness)) << 16) |
-           (static_cast<uint32_t>(aerialkit_led_scale(
-                aerialkit_led_channel(color, AERIALKIT_WS2812_WIRE_SECOND), brightness)) << 8) |
-           aerialkit_led_scale(aerialkit_led_channel(color, AERIALKIT_WS2812_WIRE_THIRD), brightness);
+    return aerialkit_ws2812_wire_word_with_order(
+        color, brightness, AERIALKIT_WS2812_OPERATIONAL_ORDER);
 }
 
 // WS2812B-2020 (V6) waveform. Its limits are tighter than the classic
@@ -275,6 +307,10 @@ constexpr AerialKitRmtItem aerialkit_ws2812_item(uint32_t wire_word, uint8_t ind
 // same brightness cap, through the operational driver.
 constexpr uint32_t AERIALKIT_LED_SELFTEST_STEP_MS = 1000;
 constexpr uint8_t AERIALKIT_LED_SELFTEST_TYPE = 0x7F;
+constexpr uint32_t AERIALKIT_LED_PERMUTATION_GAP_MS = 500;
+constexpr uint32_t AERIALKIT_LED_PERMUTATION_PERIOD_MS =
+    3 * AERIALKIT_LED_SELFTEST_STEP_MS + AERIALKIT_LED_PERMUTATION_GAP_MS;
+constexpr uint8_t AERIALKIT_LED_PERMUTATION_MARKER = 'P';
 
 inline bool aerialkit_led_selftest_frame(
     const uint8_t *frame, uint8_t own_address)
@@ -286,15 +322,70 @@ inline bool aerialkit_led_selftest_frame(
            frame[7] == 'L' && frame[8] == 'T';
 }
 
+inline bool aerialkit_led_permutation_frame(
+    const uint8_t *frame, uint8_t own_address)
+{
+    return frame[1] == 8 && frame[2] == AERIALKIT_LED_SELFTEST_TYPE &&
+           frame[3] == own_address && frame[5] == 'A' && frame[6] == 'K' &&
+           frame[7] == 'L' && frame[8] == AERIALKIT_LED_PERMUTATION_MARKER;
+}
+
+constexpr AerialKitLedRgb aerialkit_led_selftest_primary(uint8_t channel)
+{
+    return channel == 0 ? AerialKitLedRgb{AERIALKIT_LED_RAW_MAX, 0, 0}
+           : channel == 1 ? AerialKitLedRgb{0, AERIALKIT_LED_RAW_MAX, 0}
+                          : AerialKitLedRgb{0, 0, AERIALKIT_LED_RAW_MAX};
+}
+
 inline bool aerialkit_led_selftest_color(uint32_t elapsed_ms, AerialKitLedRgb &color)
 {
     switch (elapsed_ms / AERIALKIT_LED_SELFTEST_STEP_MS)
     {
-    case 0: color = {AERIALKIT_LED_RAW_MAX, 0, 0}; return true;
-    case 1: color = {0, AERIALKIT_LED_RAW_MAX, 0}; return true;
-    case 2: color = {0, 0, AERIALKIT_LED_RAW_MAX}; return true;
+    case 0:
+    case 1:
+    case 2:
+        color = aerialkit_led_selftest_primary(
+            elapsed_ms / AERIALKIT_LED_SELFTEST_STEP_MS);
+        return true;
     default: return false;
     }
+}
+
+struct AerialKitLedPermutationSample
+{
+    uint8_t permutation;
+    uint8_t channel;
+    bool gap;
+    AerialKitLedRgb color;
+};
+
+// One second of logical red, green and blue under each of the six wire
+// permutations, followed by a half-second off period.
+inline bool aerialkit_led_permutation_sample(
+    uint32_t elapsed_ms,
+    AerialKitLedPermutationSample &sample)
+{
+    const uint32_t total =
+        AERIALKIT_WS2812_PERMUTATION_COUNT * AERIALKIT_LED_PERMUTATION_PERIOD_MS;
+    if (elapsed_ms >= total)
+    {
+        return false;
+    }
+    sample.permutation =
+        static_cast<uint8_t>(elapsed_ms / AERIALKIT_LED_PERMUTATION_PERIOD_MS);
+    const uint32_t phase = elapsed_ms % AERIALKIT_LED_PERMUTATION_PERIOD_MS;
+    if (phase >= 3 * AERIALKIT_LED_SELFTEST_STEP_MS)
+    {
+        sample.channel = 3;
+        sample.gap = true;
+        sample.color = {0, 0, 0};
+        return true;
+    }
+    sample.channel =
+        static_cast<uint8_t>(phase / AERIALKIT_LED_SELFTEST_STEP_MS);
+    sample.gap = false;
+    sample.color = aerialkit_led_selftest_primary(sample.channel);
+    return true;
 }
 
 void aerialkitLedMarkSerialInput();
@@ -307,6 +398,9 @@ bool aerialkitWs2812Begin();
 // that are already final (boot identity and fault loops).
 bool aerialkitWs2812Show(const AerialKitLedRgb &color);
 bool aerialkitWs2812ShowCapped(const AerialKitLedRgb &color);
+bool aerialkitWs2812ShowOrdered(
+    const AerialKitLedRgb &color,
+    const AerialKitWs2812ChannelOrder &order);
 bool aerialkitWs2812Healthy();
 uint32_t aerialkitWs2812Failures();
 int aerialkitWs2812LastError();

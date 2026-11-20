@@ -24,6 +24,11 @@ class FrameTest(unittest.TestCase):
         self.assertEqual(frame[:9], bytes([0xC8, 8, 0x7F, 0xEC, 0xEA]) + b"AKLT")
         self.assertEqual(bench.crc8_dvb_s2(frame[2:-1]), frame[-1])
 
+    def test_led_permutation_frame(self) -> None:
+        frame = bench.led_permutation_frame(0xEE)
+        self.assertEqual(frame[:9], bytes([0xC8, 8, 0x7F, 0xEE, 0xEA]) + b"AKLP")
+        self.assertEqual(bench.crc8_dvb_s2(frame[2:-1]), frame[-1])
+
     def test_rc_frame_is_26_valid_bytes(self) -> None:
         frame = bench.rc_frame()
         self.assertEqual(len(frame), 26)
@@ -134,6 +139,10 @@ class PortOpenTest(unittest.TestCase):
                 mock.patch.object(bench.time, "sleep"):
             bench.open_port("/dev/null", reset=True)
         self.assertEqual(log.count(("reset", True)), 1)
+
+    def test_mutation_requires_write(self) -> None:
+        with self.assertRaises(SystemExit):
+            bench.main(["/dev/null", "--led-permutation", "0xEC"])
 
 
 if __name__ == "__main__":

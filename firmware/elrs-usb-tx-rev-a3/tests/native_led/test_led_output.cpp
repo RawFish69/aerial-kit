@@ -55,6 +55,33 @@ void test_wire_order()
     check(aerialkit_ws2812_wire_word({1, 2, 3}, 255) == 0x030102, "mixed order");
 }
 
+void test_all_wire_permutations()
+{
+    const AerialKitLedRgb primaries[] = {
+        {255, 0, 0},
+        {0, 255, 0},
+        {0, 0, 255},
+    };
+    for (uint8_t permutation = 0;
+         permutation < AERIALKIT_WS2812_PERMUTATION_COUNT;
+         ++permutation)
+    {
+        const AerialKitWs2812ChannelOrder order =
+            AERIALKIT_WS2812_PERMUTATIONS[permutation];
+        for (uint8_t channel = 0; channel < 3; ++channel)
+        {
+            const uint32_t expected =
+                channel == order.first ? 0xFF0000u
+                : channel == order.second ? 0x00FF00u
+                                            : 0x0000FFu;
+            check(aerialkit_ws2812_wire_word_with_order(
+                      primaries[channel], 255, order) == expected,
+                  "permutation primary wire byte",
+                  permutation, channel);
+        }
+    }
+}
+
 void test_bit_timing()
 {
     // WS2812B-2020 V6 limits, in nanoseconds.
@@ -114,8 +141,59 @@ void test_selftest()
     const uint8_t tx[] = {0xC8, 8, 0x7F, 0xEE, 0xEA, 'A', 'K', 'L', 'T', 0};
     check(aerialkit_led_selftest_frame(tx, 0xEE), "TX selftest frame accepted");
     check(!aerialkit_led_selftest_frame(tx, 0xEC), "TX frame ignored by RX");
+    const uint8_t permutation[] = {
+        0xC8, 8, 0x7F, 0xEE, 0xEA, 'A', 'K', 'L', 'P', 0};
+    check(aerialkit_led_permutation_frame(permutation, 0xEE),
+          "permutation frame accepted");
+    check(!aerialkit_led_permutation_frame(permutation, 0xEC),
+          "permutation frame ignored by the other role");
+    check(!aerialkit_led_selftest_frame(permutation, 0xEE),
+          "permutation frame is not the normal self-test");
     const uint8_t wrong[] = {0xC8, 8, 0x7F, 0xEE, 0xEA, 'A', 'K', 'L', 'X', 0};
     check(!aerialkit_led_selftest_frame(wrong, 0xEE), "wrong magic ignored");
+}
+
+void test_permutation_schedule()
+{
+    for (uint8_t permutation = 0;
+         permutation < AERIALKIT_WS2812_PERMUTATION_COUNT;
+         ++permutation)
+    {
+        const uint32_t base =
+            permutation * AERIALKIT_LED_PERMUTATION_PERIOD_MS;
+        for (uint8_t channel = 0; channel < 3; ++channel)
+        {
+            AerialKitLedPermutationSample sample {};
+            check(aerialkit_led_permutation_sample(
+                      base + channel * AERIALKIT_LED_SELFTEST_STEP_MS,
+                      sample),
+                  "permutation sample present", permutation, channel);
+            check(sample.permutation == permutation && sample.channel == channel &&
+                      !sample.gap,
+                  "permutation phase", permutation, channel);
+            const AerialKitLedRgb expected =
+                aerialkit_led_selftest_primary(channel);
+            check(sample.color.red == expected.red &&
+                      sample.color.green == expected.green &&
+                      sample.color.blue == expected.blue,
+                  "permutation primary color", permutation, channel);
+        }
+
+        AerialKitLedPermutationSample gap {};
+        check(aerialkit_led_permutation_sample(
+                  base + 3 * AERIALKIT_LED_SELFTEST_STEP_MS + 1, gap) &&
+                  gap.permutation == permutation && gap.gap &&
+                  gap.color.red == 0 && gap.color.green == 0 &&
+                  gap.color.blue == 0,
+              "permutation gap", permutation);
+    }
+
+    AerialKitLedPermutationSample finished {};
+    check(!aerialkit_led_permutation_sample(
+              AERIALKIT_WS2812_PERMUTATION_COUNT *
+                  AERIALKIT_LED_PERMUTATION_PERIOD_MS,
+              finished),
+          "permutation diagnostic ends");
 }
 
 void test_no_unrelated_hue()
@@ -199,8 +277,10 @@ int main()
 {
     test_role_words();
     test_wire_order();
+    test_all_wire_permutations();
     test_bit_timing();
     test_selftest();
+    test_permutation_schedule();
     test_no_unrelated_hue();
     test_boot_pulse_counts();
     test_breathing_periods();
