@@ -13,18 +13,10 @@ index 1ef1f0a..ba65bbb 100644
                  scheduleRebootTime(200);
              }
              break;
-@@ -78,6 +82,7 @@ void RxTxEndpoint::handleMspSetRxTxConfig(crsf_ext_header_t *extMessage)
+@@ -78,5 +82,6 @@ void RxTxEndpoint::handleMspSetRxTxConfig(crsf_ext_header_t *extMessage)
              DBGLN("Set bindphrase '%s'", (char *)mspPayload);
              #endif
              config.SetBindPhrase(mspPayload, payloadLen);
 +            config.Commit();
              scheduleRebootTime(200);
              break;
- 
-@@ -96,4 +101,4 @@ void RxTxEndpoint::handleMspSetRxTxConfig(crsf_ext_header_t *extMessage)
-     }
- }
- 
--#endif /* !UNIT_TEST */
-\ No newline at end of file
-+#endif /* !UNIT_TEST */
