@@ -116,6 +116,11 @@ export class WebSerialTransport implements Transport {
       );
     }
 
+    this.attachPort(port);
+    void this.readLoop();
+  }
+
+  private attachPort(port: SerialLike): void {
     this.port = port;
     this.writer = port.writable?.getWriter() ?? null;
     if (port.readable === null) {
@@ -124,6 +129,40 @@ export class WebSerialTransport implements Transport {
     this.reader = port.readable.getReader();
     this.openedAt = Date.now();
     this.earlyLoss = null;
+  }
+
+  /** Reopen the already-granted port after an ExpressLRS module reboots. */
+  async reconnect(): Promise<void> {
+    const port = this.port;
+    if (port === null) {
+      await this.open();
+      return;
+    }
+    this.reading = false;
+    try {
+      await this.reader?.cancel();
+    } catch {
+      /* the reader may already have ended during reboot */
+    }
+    try {
+      this.reader?.releaseLock();
+    } catch {
+      /* already released */
+    }
+    this.reader = null;
+    try {
+      this.writer?.releaseLock();
+    } catch {
+      /* already released */
+    }
+    this.writer = null;
+    try {
+      await port.close();
+    } catch {
+      /* the reboot already closed the device */
+    }
+    await port.open({ baudRate: this.baudRate });
+    this.attachPort(port);
     void this.readLoop();
   }
 

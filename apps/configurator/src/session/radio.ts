@@ -1,4 +1,5 @@
 import type { ByteLink } from '../protocol/client';
+import { bindingUid } from '../protocol/elrs-binding';
 import {
   Address,
   CommandStep,
@@ -53,6 +54,7 @@ export interface RadioSnapshot {
   readonly telemetry: Readonly<Partial<Record<Telemetry['kind'], Telemetry>>>;
   readonly role: 'tx' | 'rx' | 'unknown';
   readonly uid: Uint8Array | null;
+  readonly uidError: string | null;
   readonly bench: RadioBenchSnapshot;
   readonly error: string | null;
 }
@@ -188,6 +190,7 @@ export class RadioSession {
   private targetAddress: number = Address.RADIO_TRANSMITTER;
   private role: 'tx' | 'rx' | 'unknown' = 'unknown';
   private uid: Uint8Array | null = null;
+  private uidError: string | null = null;
   private error: string | null = null;
   private benchState: MutableBench = idleBench();
   private benchBaseline: BenchCounters = { frames: 0, bytes: 0, crcErrors: 0, resyncs: 0, framingErrors: 0 };
@@ -200,8 +203,12 @@ export class RadioSession {
   private benchLastPublish = 0;
   private benchWriting = false;
 
-  constructor(private readonly linkPort: ByteLink, private readonly timeoutMs = 600,
-    private readonly now: () => number = () => Date.now()) {
+  constructor(
+    private readonly linkPort: ByteLink,
+    private readonly timeoutMs = 600,
+    private readonly now: () => number = () => Date.now(),
+    private readonly uidTimeoutMs = 4000,
+  ) {
     this.unsubscribe.push(linkPort.onData((chunk) => this.onData(chunk)));
     this.unsubscribe.push(linkPort.onError((message) => this.fail(message)));
     this.unsubscribe.push(linkPort.onClose((reason) => {
@@ -225,6 +232,7 @@ export class RadioSession {
       telemetry: { ...this.telemetry },
       role: this.role,
       uid: this.uid === null ? null : Uint8Array.from(this.uid),
+      uidError: this.uidError,
       bench: {
         ...this.benchState,
         frameCounts: { ...this.benchState.frameCounts },
@@ -488,13 +496,18 @@ export class RadioSession {
     };
   }
 
-  private request(bytes: Uint8Array, match: (f: CrsfFrame) => boolean, what: string): Promise<CrsfFrame> {
+  private request(
+    bytes: Uint8Array,
+    match: (f: CrsfFrame) => boolean,
+    what: string,
+    timeoutMs = this.timeoutMs,
+  ): Promise<CrsfFrame> {
     return new Promise((resolve, reject) => {
       const waiter: Waiter = { match, resolve: (f) => { clearTimeout(timer); resolve(f); } };
       const timer = setTimeout(() => {
         this.waiters.delete(waiter);
-        reject(new Error(`the radio did not answer ${what} within ${this.timeoutMs} ms`));
-      }, this.timeoutMs);
+        reject(new Error(`the radio did not answer ${what} within ${timeoutMs} ms`));
+      }, timeoutMs);
       this.waiters.add(waiter);
       void Promise.resolve(this.linkPort.write(bytes)).catch((e: unknown) => {
         clearTimeout(timer);
@@ -648,22 +661,49 @@ export class RadioSession {
 
   /** Read the UID through ExpressLRS's MSP RXTX configuration channel. */
   async readUid(): Promise<Uint8Array> {
-    const frame = await this.request(
-      encodeMspV2Request(this.targetAddress, Uint8Array.of(RxtxConfigSubcommand.UID)),
-      (f) => {
-        const response = decodeMspResponse(f);
-        return response?.functionCode === MSP_ELRS_RXTX_CONFIG &&
-          response.payload[0] === RxtxConfigSubcommand.UID;
-      },
-      'the module UID',
-    );
-    const response = decodeMspResponse(frame);
-    if (response === null || response.payload.length !== 7) {
-      throw new Error('the module returned a malformed UID');
-    }
-    this.uid = response.payload.slice(1);
+    this.uidError = null;
     this.changed();
-    return Uint8Array.from(this.uid);
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const bytesBefore = this.decoder.bytesReceived;
+      try {
+        const frame = await this.request(
+          encodeMspV2Request(this.targetAddress, Uint8Array.of(RxtxConfigSubcommand.UID)),
+          (f) => {
+            const response = decodeMspResponse(f);
+            return response?.functionCode === MSP_ELRS_RXTX_CONFIG &&
+              response.payload[0] === RxtxConfigSubcommand.UID;
+          },
+          'the module UID',
+          this.uidTimeoutMs,
+        );
+        const response = decodeMspResponse(frame);
+        if (response === null || response.payload.length !== 7) {
+          throw new Error('the module returned a malformed UID');
+        }
+        this.uid = response.payload.slice(1);
+        this.uidError = null;
+        this.changed();
+        return Uint8Array.from(this.uid);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const received = this.decoder.bytesReceived - bytesBefore;
+        const context = received > 0
+          ? `${received} USB bytes arrived, but no valid 0x7B UID response was decoded`
+          : 'no USB bytes arrived';
+        this.uidError =
+          `UID read timed out after ${this.uidTimeoutMs} ms on attempt ${attempt + 1}: ${context}. ` +
+          lastError.message;
+        this.changed();
+        if (attempt === 0 && this.linkPort.reconnect !== undefined) {
+          await this.linkPort.reconnect();
+          this.decoder.resetBuffer();
+          continue;
+        }
+        break;
+      }
+    }
+    throw new Error(this.uidError ?? lastError?.message ?? 'UID read failed');
   }
 
   /**
@@ -671,27 +711,51 @@ export class RadioSession {
    * phrase, and sends no completion reply; reconnect and read the UID to
    * verify it.
    */
-  async setBindingPhrase(phrase: string): Promise<void> {
+  private async reconnectAfterIdentityWrite(): Promise<void> {
+    this.decoder.resetBuffer();
+    if (this.linkPort.reconnect !== undefined) {
+      await this.linkPort.reconnect();
+      this.decoder.resetBuffer();
+      return;
+    }
+    // A memory/demo endpoint has no USB reboot to wait for.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  private async verifyWrittenUid(expected: Uint8Array, operation: string): Promise<Uint8Array> {
+    this.uid = null;
+    this.changed();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await this.reconnectAfterIdentityWrite();
+    const actual = await this.readUid();
+    if (actual.length !== expected.length || actual.some((byte, index) => byte !== expected[index])) {
+      throw new Error(
+        `${operation} readback mismatch: expected ${Array.from(expected, (b) => b.toString(16).padStart(2, '0')).join(':')}, ` +
+        `read ${Array.from(actual, (b) => b.toString(16).padStart(2, '0')).join(':')}`,
+      );
+    }
+    return actual;
+  }
+
+  async setBindingPhrase(phrase: string): Promise<Uint8Array> {
     if (!this.allowWrites) throw new RadioWriteRefused();
     const bytes = new TextEncoder().encode(phrase);
     await this.linkPort.write(encodeMspWrite(
       this.targetAddress,
       Uint8Array.from([RxtxConfigSubcommand.BIND_PHRASE, ...bytes]),
     ));
-    this.uid = null;
-    this.changed();
+    return this.verifyWrittenUid(bindingUid(phrase), 'binding-phrase');
   }
 
   /** Set a complete six-byte UID directly. */
-  async setUid(uid: Uint8Array): Promise<void> {
+  async setUid(uid: Uint8Array): Promise<Uint8Array> {
     if (!this.allowWrites) throw new RadioWriteRefused();
     if (uid.length !== 6) throw new RangeError('an ExpressLRS UID must be six bytes');
     await this.linkPort.write(encodeMspWrite(
       this.targetAddress,
       Uint8Array.from([RxtxConfigSubcommand.UID, ...uid]),
     ));
-    this.uid = null;
-    this.changed();
+    return this.verifyWrittenUid(uid, 'UID');
   }
 
   private command(names: readonly string[]): Parameter {

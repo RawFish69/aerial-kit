@@ -144,6 +144,11 @@ export class CrsfDecoder {
     }
     return out;
   }
+
+  resetBuffer(): void {
+    this.buf = [];
+    this.discarding = false;
+  }
 }
 
 // ----------------------------------------------------------------- channels
@@ -452,8 +457,15 @@ export function encodeMspWrite(destination: number, payload: Uint8Array,
   ]);
   const framed = new Uint8Array(body.length + 1);
   framed.set(body);
-  framed[body.length] = crc8DvbS2(body.subarray(1));
+  framed[body.length] = crcMsp(body.subarray(1));
   return encodeExtended(FrameType.MSP_WRITE, destination, origin, framed);
+}
+
+/** ExpressLRS 4.1.0's MSP-v1 checksum is XOR, not the outer DVB-S2 CRSF CRC. */
+export function crcMsp(bytes: Uint8Array): number {
+  let crc = 0;
+  for (const byte of bytes) crc ^= byte;
+  return crc;
 }
 
 export interface MspResponse {
@@ -468,7 +480,7 @@ export function decodeMspResponse(frame: CrsfFrame): MspResponse | null {
   if (msp[0] !== 0x30) return null;
   const length = u8(msp, 1);
   if (msp.length !== length + 4) return null;
-  if (crc8DvbS2(msp.subarray(1, msp.length - 1)) !== u8(msp, msp.length - 1)) return null;
+  if (crcMsp(msp.subarray(1, msp.length - 1)) !== u8(msp, msp.length - 1)) return null;
   return { functionCode: u8(msp, 2), payload: msp.slice(3, msp.length - 1) };
 }
 

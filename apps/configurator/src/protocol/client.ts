@@ -72,6 +72,8 @@ export interface ParamDescriptor {
 /** A byte pipe. Serial, a socket, a demo loop — the client cannot tell. */
 export interface ByteLink {
   write(bytes: Uint8Array): void | Promise<void>;
+  /** Reopen the same USB endpoint after a module reboot, without asking for a new port. */
+  reconnect?(): Promise<void>;
   /** Returns an unsubscribe function. */
   onData(handler: (chunk: Uint8Array) => void): () => void;
   onClose(handler: (reason: string) => void): () => void;

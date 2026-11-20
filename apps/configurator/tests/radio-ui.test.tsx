@@ -34,7 +34,7 @@ describe('the radio module page', () => {
     await user.click(screen.getByRole('button', { name: 'Set phrase' }));
     expect(screen.getByText(/Confirm radio identity change/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Confirm' }));
-    await screen.findByText(/Phrase write sent/);
+    await screen.findByText(/Verified TX phrase readback/);
     await user.click(screen.getByRole('button', { name: 'Enable module Wi-Fi' }));
     expect(screen.getByText(/Enable Wi-Fi now/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -44,7 +44,19 @@ describe('the radio module page', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await user.click(screen.getByRole('button', { name: 'Disconnect' }));
     await screen.findByRole('button', { name: /Connect radio/ });
-  });
+
+    // Phrase verification is per endpoint. Keep the TX evidence, reconnect the
+    // RX demo with the same phrase, and only then report the pair as eligible.
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Radio connection' }), 'demo-rx');
+    await user.click(screen.getByRole('button', { name: /Connect radio/ }));
+    await screen.findByText(DEMO_RADIO_RX_NAME, {}, { timeout: 4000 });
+    await user.click(screen.getByRole('checkbox', { name: 'Allow changes' }));
+    await user.type(screen.getByLabelText('Binding phrase'), 'test');
+    await user.click(screen.getByRole('button', { name: 'Set phrase' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+    await screen.findByText(/Verified RX phrase readback/);
+    expect(screen.getByText(/TX and RX phrase-derived UIDs match/)).toBeInTheDocument();
+  }, 10_000);
 
   it('drives the TX from the Bench page with explicit arm confirmation and safe stop', async () => {
     const user = userEvent.setup();

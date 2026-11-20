@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from dataclasses import replace
 from importlib.resources import as_file, files
 from pathlib import Path
@@ -39,8 +40,8 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = _parser().parse_args()
+def main(argv: Sequence[str] | None = None) -> None:
+    args = _parser().parse_args(argv)
     example_file = "fixed_wing.yaml" if args.example == "fixed-wing" else "quadrotor.yaml"
     default_resource = files("aerial_kit.sim.defaults").joinpath(example_file)
     with as_file(default_resource) as default_path:
