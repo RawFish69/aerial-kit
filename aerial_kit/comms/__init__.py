@@ -145,6 +145,13 @@ from .msp import (
     parse_v2 as parse_msp_v2,
     state as msp_state,
 )
+from .teleop import (
+    KeyboardInput,
+    KeyboardPilotState,
+    KeyboardTeleopReport,
+    TerminalKeyboard,
+    run_keyboard_teleop,
+)
 from .transport import (
     Link,
     LoopbackTransport,
@@ -217,6 +224,11 @@ __all__ = [
     "MspWriteRefused",
     "Port",
     "arming_disable_names",
+    "KeyboardInput",
+    "KeyboardPilotState",
+    "KeyboardTeleopReport",
+    "TerminalKeyboard",
+    "run_keyboard_teleop",
     "build_msp",
     "build_msp_v2",
     "describe_msp",

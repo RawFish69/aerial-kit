@@ -75,6 +75,7 @@ files = [
     "aerial_kit/comms/mavlink/client.py",
     "aerial_kit/comms/mavlink/dialect.py",
     "aerial_kit/comms/msp.py",
+    "aerial_kit/comms/teleop.py",
     "aerial_kit/comms/transport.py",
     "aerial_kit/__init__.py",
     "aerial_kit/interfaces.py",

@@ -97,6 +97,18 @@ Betaflight prints `link=unknown`; take a fresh `ak fc rc` observation and decode
 the arming-disable flags with `ak fc preflight`. Failsafe or receiver-failsafe
 flags make the preflight command exit nonzero.
 
+For bounded live keyboard control through the CRSF transmitter:
+
+```bash
+ak radio teleop --port /dev/ttyACM0 --profile betaflight \
+  --duration 30 --write --confirm-arm
+```
+
+The stream starts disarmed. Press Enter to arm after the low-throttle hold;
+A/D, W/S and Q/E step roll, pitch and yaw, R/F change throttle, C centres the
+sticks, and X panic-disarms and exits. Every exit path attempts a disarmed
+frame. The no-argument `ak teleop` command remains the simulator viewer.
+
 ## Simulation and visualization
 
 Install the optional simulator and Matplotlib viewer:

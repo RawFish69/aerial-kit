@@ -65,6 +65,12 @@ ak radio drive \
   --port /dev/ttyACM0 --profile betaflight --duration 2 \
   --sticks 0.2,0,0,0.35 --confirm-arm --write --json stick-test.json
 
+# Bounded live keyboard control through the transmitter. The stream starts
+# disarmed; press Enter to arm after the low-throttle hold.
+ak radio teleop \
+  --port /dev/ttyACM0 --profile betaflight --duration 30 \
+  --write --confirm-arm --json teleop.json
+
 # Capture FC-facing receiver frames and channels.
 ak radio capture \
   --port /dev/ttyACM1 --baud 420000 --duration 10 --json capture.json
@@ -154,6 +160,13 @@ vehicle's Betaflight modes tab. `--arm-channel`, `--mode-channel` and
 requires `--confirm-arm`, waits for a throttle-low arm hold, then holds the
 requested normalised values for the bounded duration. Do not use the bounded
 bench command as an in-flight stick controller; its exit path disarms.
+
+`radio teleop` is the live keyboard path. A/D, W/S and Q/E step roll, pitch and
+yaw, R/F change throttle, C centres all sticks, and X panic-disarms and exits.
+Ctrl-C, timeout, panic and transport failure all attempt a final disarmed
+frame. It requires an interactive terminal plus `--write --confirm-arm`; the
+command starts disarmed and Enter is still required before the arm hold. A
+sent arm request is not evidence that the flight controller armed.
 
 Use antennas or 50-ohm loads and minimum RF power for physical testing. Do not
 change the Rev A3 role switch while powered.
