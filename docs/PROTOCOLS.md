@@ -171,6 +171,10 @@ the fallback only if a future receiver configuration stops forwarding MSP.
 - A timeout is not permission to repeat a mutation. Only read operations retry.
 - CRSF RC generation must fail safe by stopping frames, not by manufacturing
   neutral sticks indefinitely.
+- `ak radio teleop` starts with an armed-channel-low frame, requires both
+  `--write` and `--confirm-arm`, waits for Enter and a low-throttle arm hold,
+  and attempts a final disarmed frame on timeout, Ctrl-C, panic or transport
+  failure. A sent arm request is not evidence that the flight controller armed.
 
 ## Verification boundary
 

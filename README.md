@@ -145,6 +145,7 @@ ak radio diag --port /dev/ttyACM0 --role tx
 ak radio monitor --port /dev/ttyACM0 --duration 5 --json monitor.json
 ak radio drive --port /dev/ttyACM0 --hz 150 --duration 10 --write
 ak radio drive --port /dev/ttyACM0 --profile betaflight --write
+ak radio teleop --port /dev/ttyACM0 --profile betaflight --duration 30 --write --confirm-arm
 ak fc status --port /dev/ttyACM0             # auto-detects AKP or MSP
 ak fc status --port /dev/ttyACM0 --protocol betaflight
 ak fc params --port /dev/ttyACM0             # Aerial Kit indexed table
@@ -174,6 +175,14 @@ status` therefore prints `link=unknown` for Betaflight instead of inferring a
 healthy link from a successful USB response. Use `ak fc rc` for a fresh channel
 observation and `ak fc preflight` to decode Betaflight arming-disable flags;
 failsafe and receiver-failsafe bits make preflight exit nonzero.
+
+`ak radio teleop` is the live keyboard path through a CRSF transmitter. It
+starts disarmed; press Enter to arm after the low-throttle hold. A/D, W/S and
+Q/E step roll, pitch and yaw, R/F change throttle, C neutralises the sticks,
+and X immediately disarms and exits. Timeout, Ctrl-C, panic and transport
+errors all attempt a final disarmed frame. The command is bounded by
+`--duration` and requires both `--write` and `--confirm-arm`. The existing
+`ak teleop` command remains simulator-only.
 
 See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for framing,
 transport and safety details. Native-USB radio monitor, drive, capture,

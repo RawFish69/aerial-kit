@@ -61,6 +61,7 @@ from .msp import (
     describe as describe_msp,
     state as msp_state,
 )
+from .teleop import KEY_HELP, KeyboardTeleopReport, run_keyboard_teleop
 from .transport import TcpTransport, UdpTransport
 from .transport import Transport
 
@@ -152,6 +153,19 @@ def _print_drive(report: DriveReport) -> None:
     print(
         f"pattern={report.pattern} sent={report.frames_sent} "
         f"rate={report.actual_hz:.3f}Hz requested={report.requested_hz:.3f}Hz "
+        f"arm_hold_completed={str(report.arm_hold_completed).lower()} "
+        f"disarmed_at_end={str(report.disarmed_at_end).lower()} "
+        f"link_statistics={report.link_statistics_frames} "
+        f"telemetry={','.join(sorted(report.telemetry)) or 'none'}"
+    )
+    if report.error:
+        print(f"error={report.error}")
+
+
+def _print_keyboard_teleop(report: KeyboardTeleopReport) -> None:
+    print(
+        f"sent={report.frames_sent} rate={report.actual_hz:.3f}Hz "
+        f"stop={report.stop_reason} "
         f"arm_hold_completed={str(report.arm_hold_completed).lower()} "
         f"disarmed_at_end={str(report.disarmed_at_end).lower()} "
         f"link_statistics={report.link_statistics_frames} "
@@ -640,13 +654,15 @@ def _radio(args: argparse.Namespace) -> int:
             args.value = int(args.value)
         except (TypeError, ValueError) as exc:
             raise ValueError("radio value must be an integer") from exc
-    if args.radio_action in {"set", "bind", "drive", "inject", "bench"}:
+    if args.radio_action in {"set", "bind", "drive", "teleop", "inject", "bench"}:
         _require_write(args)
     requested_sticks = _radio_sticks(getattr(args, "sticks", None))
     if requested_sticks is not None and not getattr(args, "confirm_arm", False):
         raise PermissionError(
             "a custom stick command can arm; pass --confirm-arm explicitly"
         )
+    if args.radio_action == "teleop" and not getattr(args, "confirm_arm", False):
+        raise PermissionError("radio teleop requires --confirm-arm explicitly")
     if args.radio_action == "bench":
         return _radio_bench(args)
     if args.radio_action == "pair":
@@ -665,6 +681,38 @@ def _radio(args: argparse.Namespace) -> int:
         if value is None:
             raise ValueError("radio bind-phrase requires a phrase")
         return _radio_identity_write(args, phrase=str(value), uid_text=None)
+    if args.radio_action == "teleop":
+        link = _radio_link(args)
+        instructions = (
+            f"{KEY_HELP}. Press Enter to arm. Bound duration: "
+            f"{args.duration:.1f}s."
+        )
+        print(
+            instructions,
+            file=sys.stderr if args.json == "-" else sys.stdout,
+        )
+        try:
+            report = run_keyboard_teleop(
+                link.transport,
+                hz=args.hz,
+                duration=args.duration,
+                arm_hold_sec=args.arm_hold,
+                allow_write=True,
+                confirm_arm=True,
+                channel_map=_radio_channel_map(args),
+                stick_step=args.stick_step,
+                status=lambda message: print(
+                    message,
+                    file=sys.stderr if args.json == "-" else sys.stdout,
+                ),
+            )
+        finally:
+            link.transport.close()
+        if args.json:
+            _write_json(args.json, report.to_dict())
+        if args.json != "-":
+            _print_keyboard_teleop(report)
+        return 0 if report.passed else 1
     link = _radio_link(args)
     transport = link.transport
     try:
@@ -1319,6 +1367,7 @@ def build_parser(prog: str = "aerial-kit-link") -> argparse.ArgumentParser:
             "channels",
             "monitor",
             "drive",
+            "teleop",
             "capture",
             "inject",
             "bench",
@@ -1342,6 +1391,12 @@ def build_parser(prog: str = "aerial-kit-link") -> argparse.ArgumentParser:
     )
     radio.add_argument("--arm-hold", type=float, default=0.75)
     radio.add_argument(
+        "--stick-step",
+        type=float,
+        default=0.1,
+        help="normalised stick change per teleop keypress",
+    )
+    radio.add_argument(
         "--sticks",
         metavar="ROLL,PITCH,YAW,THROTTLE",
         help="hold one normalised stick command after the arm sequence",
@@ -1350,7 +1405,7 @@ def build_parser(prog: str = "aerial-kit-link") -> argparse.ArgumentParser:
         "--confirm-arm",
         action="store_true",
         default=argparse.SUPPRESS,
-        help="required together with --write for --sticks",
+        help="required with --write for --sticks and radio teleop",
     )
     radio.add_argument(
         "--profile",

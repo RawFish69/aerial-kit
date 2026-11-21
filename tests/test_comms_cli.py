@@ -16,7 +16,7 @@ from aerial_kit.comms.cli import (
     main,
 )
 from aerial_kit.comms.akp import AkError
-from aerial_kit.comms import msp
+from aerial_kit.comms import KeyboardTeleopReport, msp
 from aerial_kit.comms.crsf import CRSF_BAUD
 from aerial_kit.comms.crsf import CrsfTimeout
 from aerial_kit.comms.transport import MemoryTransport
@@ -212,6 +212,123 @@ def test_radio_bench_parser_supports_documented_forms() -> None:
         ]
     )
     assert (bench.tx, bench.rx) == ("/dev/ttyACM0", "/dev/ttyACM1")
+
+
+def test_radio_teleop_parser_and_safety_flags() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "radio", "teleop", "--port", "/dev/ttyACM0",
+            "--profile", "betaflight", "--duration", "20",
+            "--stick-step", "0.05", "--write", "--confirm-arm",
+        ]
+    )
+    assert args.radio_action == "teleop"
+    assert args.duration == 20
+    assert args.stick_step == 0.05
+    assert args.write is True
+    assert args.confirm_arm is True
+
+
+def test_radio_teleop_requires_write_and_arm_confirmation_before_opening(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(_args):
+        pytest.fail("transport was opened before teleop authorization")
+
+    monkeypatch.setattr("aerial_kit.comms.cli._radio_link", fail)
+    assert main(
+        ["radio", "teleop", "--port", "/dev/fake", "--write"]
+    ) == 1
+    assert main(
+        ["radio", "teleop", "--port", "/dev/fake", "--confirm-arm"]
+    ) == 1
+
+
+def test_radio_teleop_prints_a_disarmed_report(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FakeLink:
+        def __init__(self) -> None:
+            self.transport = MemoryTransport(timeout=0.0)
+
+    link = FakeLink()
+    monkeypatch.setattr("aerial_kit.comms.cli._radio_link", lambda _args: link)
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli.run_keyboard_teleop",
+        lambda _transport, **_kwargs: KeyboardTeleopReport(
+            duration_sec=2.0,
+            requested_hz=150.0,
+            frames_sent=300,
+            actual_hz=150.0,
+            stop_reason="duration",
+            arm_hold_sec=0.75,
+            arm_hold_completed=True,
+            received_frames=0,
+            link_statistics_frames=0,
+            telemetry={},
+            crc_errors=0,
+            resyncs=0,
+            disarmed_at_end=True,
+            error=None,
+            passed=True,
+        ),
+    )
+    assert main(
+        [
+            "radio", "teleop", "--port", "/dev/fake",
+            "--duration", "2", "--write", "--confirm-arm",
+        ]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "Press Enter to arm" in output
+    assert "disarmed_at_end=true" in output
+
+
+def test_radio_teleop_json_stdout_is_machine_readable(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FakeLink:
+        def __init__(self) -> None:
+            self.transport = MemoryTransport(timeout=0.0)
+
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._radio_link",
+        lambda _args: FakeLink(),
+    )
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli.run_keyboard_teleop",
+        lambda _transport, **_kwargs: KeyboardTeleopReport(
+            duration_sec=1.0,
+            requested_hz=150.0,
+            frames_sent=150,
+            actual_hz=150.0,
+            stop_reason="panic",
+            arm_hold_sec=0.75,
+            arm_hold_completed=False,
+            received_frames=0,
+            link_statistics_frames=0,
+            telemetry={},
+            crc_errors=0,
+            resyncs=0,
+            disarmed_at_end=True,
+            error=None,
+            passed=True,
+        ),
+    )
+    assert main(
+        [
+            "radio", "teleop", "--port", "/dev/fake",
+            "--duration", "2", "--write", "--confirm-arm", "--json", "-",
+        ]
+    ) == 0
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert output["stop_reason"] == "panic"
+    assert output["disarmed_at_end"] is True
+    assert "Press Enter to arm" in captured.err
 
 
 def test_radio_profiles_map_aerial_kit_and_betaflight_switches() -> None:
