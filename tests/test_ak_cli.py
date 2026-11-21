@@ -29,6 +29,11 @@ def test_ak_sim_strips_the_family_word(monkeypatch) -> None:
     assert captured == [["--example", "quadrotor", "--no-show"]]
 
 
+def test_ak_propagates_a_sim_failure(monkeypatch) -> None:
+    monkeypatch.setattr("aerial_kit.sim.cli.main", lambda _argv: 5)
+    assert cli.main(["sim", "--no-show"]) == 5
+
+
 def test_ak_teleop_strips_the_family_word(monkeypatch) -> None:
     captured: list[list[str]] = []
 
@@ -38,3 +43,24 @@ def test_ak_teleop_strips_the_family_word(monkeypatch) -> None:
     monkeypatch.setattr("aerial_kit.sim.teleop.main", fake_main)
     assert cli.main(["teleop", "--airframe", "quad"]) == 0
     assert captured == [["--airframe", "quad"]]
+
+
+def test_ak_propagates_a_teleop_failure(monkeypatch) -> None:
+    monkeypatch.setattr("aerial_kit.sim.teleop.main", lambda _argv: 6)
+    assert cli.main(["teleop", "--airframe", "quad"]) == 6
+
+
+def test_ak_help_lists_all_command_families(capsys) -> None:
+    assert cli.main(["--help"]) == 0
+    output = capsys.readouterr().out
+    for command in ("radio", "fc", "mavlink", "sim", "teleop"):
+        assert command in output
+    assert "arm-capable" in output
+
+
+def test_ak_help_alias_and_no_argument_exit(capsys) -> None:
+    assert cli.main(["help"]) == 0
+    assert "usage: ak" in capsys.readouterr().out
+
+    assert cli.main([]) == 2
+    assert "usage: ak" in capsys.readouterr().err

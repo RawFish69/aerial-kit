@@ -168,6 +168,32 @@ frame. It requires an interactive terminal plus `--write --confirm-arm`; the
 command starts disarmed and Enter is still required before the arm hold. A
 sent arm request is not evidence that the flight controller armed.
 
+### Keyboard teleop acceptance
+
+Keep the vehicle restrained and props off for the first session. Confirm the
+flight-controller arm channel and mode channel before sending RC.
+
+1. Run `ak fc preflight` and resolve every nonzero exit.
+2. Run `ak radio status`; record the TX path, product, firmware and role.
+3. Start the bounded session with the transmitter at minimum power and
+   antennas or loads attached:
+
+   ```bash
+   ak radio teleop --profile betaflight --duration 30 \
+     --write --confirm-arm --json teleop.json
+   ```
+4. Before pressing Enter, confirm the receiver reports disarmed and the report
+   stream is being written at the requested rate.
+5. Press Enter and leave throttle at zero through the arm hold. Do not increase
+   throttle for this first pass.
+6. Press X. Require `stop_reason=panic` and `disarmed_at_end=true` in the JSON.
+7. Repeat with Ctrl-C and with the bounded timeout. Both must leave the FC
+   disarmed.
+
+Do not call teleop hardware-ready until the receiver endpoint independently
+observes the RC stream and link statistics. A transmitted frame or a sent arm
+request alone is not a PASS.
+
 Use antennas or 50-ohm loads and minimum RF power for physical testing. Do not
 change the Rev A3 role switch while powered.
 
