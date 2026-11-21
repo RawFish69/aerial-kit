@@ -534,6 +534,7 @@ class _BetaflightTransport(MemoryTransport):
         super().__init__(timeout=0.0)
         self.saved = 0
         self.armed = False
+        self.arming_disable_flags = 0
         self.setting_writes: list[tuple[str, str]] = []
 
     def _write(self, data: bytes) -> int:
@@ -585,10 +586,14 @@ class _BetaflightTransport(MemoryTransport):
             self._reply_v1(
                 command,
                 struct.pack("<HHHI", 1000, 0, 0x2B, int(self.armed))
-                + bytes((0, 0))
-                + bytes((0, 3))
-                + struct.pack("<I", 0),
+                + bytes((0,))
+                + struct.pack("<H", 0)
+                + bytes((0,))
+                + bytes((3,))
+                + struct.pack("<I", self.arming_disable_flags),
             )
+        elif command == msp.MSP_RC:
+            self._reply_v1(command, struct.pack("<8H", *range(1500, 1508)))
         elif command == msp.MSP_ATTITUDE:
             self._reply_v1(command, bytes(6))
         elif command == msp.MSP_ANALOG:
@@ -633,6 +638,112 @@ def test_fc_auto_detects_betaflight_and_uses_named_settings(
     output = capsys.readouterr().out
     assert "protocol=betaflight Betaflight 2026.6.1" in output
     assert "armed=0" in output
+    assert "link=unknown" in output
+
+
+def test_fc_betaflight_preflight_fails_failsafe_and_names_other_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = _BetaflightTransport()
+    transport.arming_disable_flags = (1 << 2) | (1 << 8)
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._transport_from_args",
+        lambda _args: transport,
+    )
+    assert main(
+        [
+            "fc", "preflight", "--port", "/dev/fake",
+            "--protocol", "betaflight", "--timeout", "0.01",
+        ]
+    ) == 1
+    output = capsys.readouterr().out
+    assert "verdict=fail" in output
+    assert "rx_failsafe,angle" in output
+    assert "receiver_link=not_represented_by_msp" in output
+
+
+def test_fc_betaflight_rc_is_a_fresh_observation_not_a_link_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = _BetaflightTransport()
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._transport_from_args",
+        lambda _args: transport,
+    )
+    assert main(
+        [
+            "fc", "rc", "--port", "/dev/fake",
+            "--protocol", "betaflight", "--timeout", "0.01", "--json", "-",
+        ]
+    ) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["protocol"] == "betaflight"
+    assert output["link_live"] is None
+    assert output["channels"] == list(range(1500, 1508))
+
+
+def test_fc_betaflight_status_json_stdout_is_machine_readable(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = _BetaflightTransport()
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._transport_from_args",
+        lambda _args: transport,
+    )
+    assert main(
+        [
+            "fc", "status", "--port", "/dev/fake",
+            "--protocol", "betaflight", "--timeout", "0.01", "--json", "-",
+        ]
+    ) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["state"]["link_live"] is None
+    assert output["identity"].startswith("protocol=betaflight ")
+
+
+def test_fc_betaflight_named_settings_and_writes_have_json_results(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    transport = _BetaflightTransport()
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._transport_from_args",
+        lambda _args: transport,
+    )
+    assert main(
+        [
+            "fc", "params", "--port", "/dev/fake",
+            "--protocol", "betaflight", "--timeout", "0.01",
+            "--name", "failsafe_throttle", "--json", "-",
+        ]
+    ) == 0
+    params = json.loads(capsys.readouterr().out)
+    assert params["settings"] == [
+        {
+            "name": "failsafe_throttle",
+            "setting": "failsafe_throttle = 1050",
+        }
+    ]
+
+    transport = _BetaflightTransport()
+    monkeypatch.setattr(
+        "aerial_kit.comms.cli._transport_from_args",
+        lambda _args: transport,
+    )
+    assert main(
+        [
+            "fc", "set", "failsafe_throttle", "1200",
+            "--port", "/dev/fake", "--protocol", "betaflight",
+            "--timeout", "0.01", "--write", "--json", "-",
+        ]
+    ) == 0
+    written = json.loads(capsys.readouterr().out)
+    assert written["name"] == "failsafe_throttle"
+    assert written["setting"] == "failsafe_throttle = 1200"
+    assert transport.setting_writes == [("failsafe_throttle", "1200")]
 
 
 def test_fc_betaflight_set_checks_arming_and_is_explicitly_gated(

@@ -95,6 +95,12 @@ indices and can be enumerated. MSP has no command that lists Betaflight
 settings, so Betaflight values are addressed by exact name and a write's reply
 is its read-back. `MSP_EEPROM_WRITE` is a separate save operation.
 
+`MSP_STATUS` has no receiver-link-live field. The shared MSP state decoder
+therefore reports `link_live=None`; a successful MSP response proves the flight
+controller is reachable, not that its receiver is linked. `ak fc rc` takes a
+fresh channel observation, while `ak fc preflight` decodes every Betaflight
+arming-disable bit. The `failsafe` and `rx_failsafe` bits make preflight fail.
+
 `MSP_SET_RAW_RC` is exposed as a low-level, opt-in operation because Betaflight
 uses it only when MSP is the receiver input or when MSP override is enabled.
 The protocol client cannot infer that configuration from a successful write,

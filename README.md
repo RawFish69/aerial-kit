@@ -152,6 +152,8 @@ ak fc params --port /dev/ttyACM0 --name failsafe_throttle
 ak fc get failsafe_throttle --port /dev/ttyACM0
 ak fc set failsafe_throttle 1200 --port /dev/ttyACM0 --write
 ak fc save --port /dev/ttyACM0 --write
+ak fc preflight --port /dev/ttyACM0 --protocol betaflight --json fc-preflight.json
+ak fc rc --port /dev/ttyACM0 --protocol betaflight --json fc-rc.json
 ak sim --no-show
 ```
 
@@ -166,6 +168,13 @@ Betaflight setting reply is the read-back, while save remains a separate
 reboot and fail unless the six-byte UID reads back exactly. `aerial-kit-link`,
 `aerial-kit-sim` and `aerial-kit-teleop` remain compatibility commands; new
 scripts should use `ak`.
+
+Betaflight MSP status does not contain a receiver-link-live field. `ak fc
+status` therefore prints `link=unknown` for Betaflight instead of inferring a
+healthy link from a successful USB response. Use `ak fc rc` for a fresh channel
+observation and `ak fc preflight` to decode Betaflight arming-disable flags;
+failsafe and receiver-failsafe bits make preflight exit nonzero.
+
 See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for framing,
 transport and safety details. Native-USB radio monitor, drive, capture,
 telemetry injection and two-board evidence are covered in

@@ -125,6 +125,8 @@ from .mavlink import (
     yaw_from_quaternion_enu,
 )
 from .msp import (
+    ARMING_DISABLE_FAILSAFE_MASK,
+    ARMING_DISABLE_FLAGS,
     Deadline,
     Error as MspError,
     MSP_SET_RAW_RC,
@@ -134,6 +136,7 @@ from .msp import (
     Port,
     ProtocolError as MspProtocolError,
     Timeout as MspTimeout,
+    arming_disable_names,
     build as build_msp,
     build_v2 as build_msp_v2,
     describe as describe_msp,
@@ -202,6 +205,8 @@ __all__ = [
     "MavlinkVehicle",
     "MavlinkWriteRefused",
     "PymavlinkDialect",
+    "ARMING_DISABLE_FAILSAFE_MASK",
+    "ARMING_DISABLE_FLAGS",
     "Deadline",
     "MSP_SET_RAW_RC",
     "Msp",
@@ -211,6 +216,7 @@ __all__ = [
     "MspTimeout",
     "MspWriteRefused",
     "Port",
+    "arming_disable_names",
     "build_msp",
     "build_msp_v2",
     "describe_msp",

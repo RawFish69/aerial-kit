@@ -90,6 +90,55 @@ MSP_ANALOG = 110
 # that from a successful frame.
 MSP_SET_RAW_RC = 200
 
+
+# Betaflight 2026.6.1 `src/main/fc/runtime_config.h`. Keep the names here so
+# every client decodes the same wire value, including the two bits that say the
+# receiver or the aircraft is in failsafe.
+ARMING_DISABLE_FLAGS: tuple[tuple[int, str], ...] = (
+    (1 << 0, "no_gyro"),
+    (1 << 1, "failsafe"),
+    (1 << 2, "rx_failsafe"),
+    (1 << 3, "not_disarmed"),
+    (1 << 4, "box_failsafe"),
+    (1 << 5, "runaway_takeoff"),
+    (1 << 6, "crash_detected"),
+    (1 << 7, "throttle"),
+    (1 << 8, "angle"),
+    (1 << 9, "boot_grace_time"),
+    (1 << 10, "noprearm"),
+    (1 << 11, "load"),
+    (1 << 12, "calibrating"),
+    (1 << 13, "cli"),
+    (1 << 14, "cms_menu"),
+    (1 << 15, "bst"),
+    (1 << 16, "msp"),
+    (1 << 17, "paralyze"),
+    (1 << 18, "gps"),
+    (1 << 19, "resc"),
+    (1 << 20, "dshot_telem"),
+    (1 << 21, "reboot_required"),
+    (1 << 22, "dshot_bitbang"),
+    (1 << 23, "acc_calibration"),
+    (1 << 24, "motor_protocol"),
+    (1 << 25, "crashflip"),
+    (1 << 26, "althold"),
+    (1 << 27, "poshold"),
+    (1 << 28, "autopilot"),
+    (1 << 29, "arm_switch"),
+)
+ARMING_DISABLE_FAILSAFE_MASK = (1 << 1) | (1 << 2)
+
+
+def arming_disable_names(flags: int) -> tuple[str, ...]:
+    """Decode Betaflight's arming-disable bitfield without hiding unknown bits."""
+    names = [name for bit, name in ARMING_DISABLE_FLAGS if flags & bit]
+    known_mask = sum(bit for bit, _name in ARMING_DISABLE_FLAGS)
+    unknown = flags & ~known_mask
+    if unknown:
+        names.append("unknown_0x%x" % unknown)
+    return tuple(names)
+
+
 # The two commands a Betaflight board's *settings* answer on, from
 # `msp_protocol_v2_betaflight.h` - and the reason they are up here rather than
 # with the commands above: a v2 command is 16 bits wide, and these are two of
@@ -908,7 +957,9 @@ def state(msp):
     analog = decode_analog(msp.request(MSP_ANALOG))
     out = {
         "flight_state": status["modes"] & 1,     # Betaflight's ARM box, bit 0
-        "link_live": 1,
+        # MSP_STATUS has no receiver-link-live field. A successful MSP request
+        # proves the FC is reachable, not that its receiver is linked.
+        "link_live": None,
         "gps_fix_type": None,
         "gps_satellites": None,
         "lat": None,
