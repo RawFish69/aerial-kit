@@ -8,7 +8,7 @@ effects.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
 import re
@@ -53,8 +53,10 @@ from .crsf import (
 )
 from .mavlink import MavlinkError, MavlinkVehicle
 from .msp import (
+    ARMING_DISABLE_FAILSAFE_MASK,
     MspClient,
     MspError,
+    arming_disable_names,
     identify as identify_msp,
     describe as describe_msp,
     state as msp_state,
@@ -819,6 +821,14 @@ def _fc_identity_line(session: _FcSession) -> str:
     return f"protocol=betaflight {describe_msp(identity)}"
 
 
+def _fc_identity_data(session: _FcSession) -> dict[str, object]:
+    if session.protocol == "akp":
+        assert isinstance(session.identity, AkHello)
+        return {"protocol": "akp", **asdict(session.identity)}
+    assert isinstance(session.identity, dict)
+    return {"protocol": "betaflight", **session.identity}
+
+
 def _fc_state(session: _FcSession) -> dict[str, object]:
     if session.protocol == "akp":
         assert isinstance(session.client, AkClient)
@@ -842,8 +852,17 @@ def _fc_state(session: _FcSession) -> dict[str, object]:
 
 
 def _print_fc_state(state: dict[str, object]) -> None:
+    link_value = state.get("link_live")
+    link = (
+        "unknown"
+        if link_value is None
+        else "live"
+        if _as_int(link_value) != 0
+        else "down"
+    )
     fields = [
         f"armed={_as_int(state.get('armed', 0))}",
+        f"link={link}",
         f"roll_deg={_as_float(state.get('roll_deg', 0.0)):.1f}",
         f"pitch_deg={_as_float(state.get('pitch_deg', 0.0)):.1f}",
         f"yaw_deg={_as_float(state.get('yaw_deg', 0.0)):.1f}",
@@ -924,47 +943,97 @@ def _fc_msp_setting_name(args: argparse.Namespace) -> str:
 def _fc(session: _FcSession, args: argparse.Namespace) -> int:
     action = args.fc_action
     if action in {"hello", "info"}:
-        print(_fc_identity_line(session))
+        if args.json != "-":
+            print(_fc_identity_line(session))
+        if args.json:
+            _write_json(args.json, _fc_identity_data(session))
         return 0
 
     if action == "status":
-        print(_fc_identity_line(session))
         state = _fc_state(session)
-        _print_fc_state(state)
+        identity = _fc_identity_line(session)
+        if args.json != "-":
+            print(identity)
+            _print_fc_state(state)
         if args.json:
-            _write_json(args.json, {"identity": _fc_identity_line(session), "state": state})
+            _write_json(args.json, {"identity": identity, "state": state})
         return 0
 
     if action == "params":
         if session.protocol == "akp":
             assert isinstance(session.client, AkClient)
-            for item in session.client.parameter_info():
-                print(
-                    f"{item.index:3d} {item.name or '':24s} "
-                    f"{item.type if item.type is not None else ''} "
-                    f"{item.group_name or ''}"
+            items = session.client.parameter_info()
+            if args.json != "-":
+                for item in items:
+                    print(
+                        f"{item.index:3d} {item.name or '':24s} "
+                        f"{item.type if item.type is not None else ''} "
+                        f"{item.group_name or ''}"
+                    )
+            if args.json:
+                _write_json(
+                    args.json,
+                    {
+                        "protocol": "akp",
+                        "parameters": [asdict(item) for item in items],
+                    },
                 )
             return 0
         assert isinstance(session.client, MspClient)
         names = args.name or []
         if not names:
-            print(
+            message = (
                 "Betaflight does not enumerate settings; use "
                 "`--name NAME` (repeatable) or `ak fc get NAME`."
             )
+            if args.json != "-":
+                print(message)
+            if args.json:
+                _write_json(
+                    args.json,
+                    {
+                        "protocol": "betaflight",
+                        "settings": [],
+                        "note": message,
+                    },
+                )
             return 0
-        for name in names:
-            print(session.client.setting(name))
+        settings = [
+            {"name": name, "setting": session.client.setting(name)}
+            for name in names
+        ]
+        if args.json != "-":
+            for item in settings:
+                print(item["setting"])
+        if args.json:
+            _write_json(
+                args.json,
+                {"protocol": "betaflight", "settings": settings},
+            )
         return 0
 
     if action == "get":
         if session.protocol == "akp":
             assert isinstance(session.client, AkClient)
             value = session.client.get_parameter(_fc_index(args, session.client))
-            print(f"{value.name}={value.value} status={value.status}")
+            if args.json != "-":
+                print(f"{value.name}={value.value} status={value.status}")
+            if args.json:
+                _write_json(
+                    args.json,
+                    {"protocol": "akp", "parameter": asdict(value)},
+                )
         else:
             assert isinstance(session.client, MspClient)
-            print(session.client.setting(_fc_msp_setting_name(args)))
+            name = _fc_msp_setting_name(args)
+            value = session.client.setting(name)
+            if args.json != "-":
+                print(value)
+            if args.json:
+                _write_json(
+                    args.json,
+                    {"protocol": "betaflight", "name": name, "setting": value},
+                )
         return 0
 
     if action == "set":
@@ -980,14 +1049,31 @@ def _fc(session: _FcSession, args: argparse.Namespace) -> int:
                 str(value),
                 allow_write=True,
             )
-            print(f"status={result.status} {result.message}")
+            if args.json != "-":
+                print(f"status={result.status} {result.message}")
+            if args.json:
+                _write_json(
+                    args.json,
+                    {"protocol": "akp", "result": asdict(result)},
+                )
         else:
             assert isinstance(session.client, MspClient)
-            print(session.client.set_setting(
+            value_text = session.client.set_setting(
                 _fc_msp_setting_name(args),
                 value,
                 allow_write=True,
-            ))
+            )
+            if args.json != "-":
+                print(value_text)
+            if args.json:
+                _write_json(
+                    args.json,
+                    {
+                        "protocol": "betaflight",
+                        "name": _fc_msp_setting_name(args),
+                        "setting": value_text,
+                    },
+                )
         return 0
 
     if action == "save":
@@ -996,11 +1082,28 @@ def _fc(session: _FcSession, args: argparse.Namespace) -> int:
         if session.protocol == "akp":
             assert isinstance(session.client, AkClient)
             result = session.client.save_parameters(allow_write=True)
-            print(f"status={result.status} {result.message}")
+            if args.json != "-":
+                print(f"status={result.status} {result.message}")
+            if args.json:
+                _write_json(
+                    args.json,
+                    {"protocol": "akp", "result": asdict(result)},
+                )
         else:
             assert isinstance(session.client, MspClient)
             session.client.save(allow_write=True)
-            print("save acknowledged by the flight controller")
+            message = "save acknowledged by the flight controller"
+            if args.json != "-":
+                print(message)
+            if args.json:
+                _write_json(
+                    args.json,
+                    {
+                        "protocol": "betaflight",
+                        "saved": True,
+                        "message": message,
+                    },
+                )
         return 0
 
     if action in {"telemetry", "monitor"}:
@@ -1012,7 +1115,8 @@ def _fc(session: _FcSession, args: argparse.Namespace) -> int:
         for number in range(samples):
             state = _fc_state(session)
             rows.append({"time": time.time(), "state": state})
-            _print_fc_state(state)
+            if args.json != "-":
+                _print_fc_state(state)
             if number + 1 < samples:
                 time.sleep(interval)
         if args.json:
@@ -1023,36 +1127,121 @@ def _fc(session: _FcSession, args: argparse.Namespace) -> int:
         if session.protocol == "akp":
             assert isinstance(session.client, AkClient)
             rc = session.client.rc_channels()
-            print(
-                f"status={rc.status_name} protocol={rc.protocol_name or ''} "
-                f"link={'link' in rc.flag_names} "
-                f"channels={','.join(map(str, rc.channels)) or 'none'}"
-            )
+            output = {
+                "protocol": "akp",
+                "status": rc.status_name,
+                "protocol_name": rc.protocol_name,
+                "link_live": "link" in rc.flag_names,
+                "flags": list(rc.flag_names),
+                "channels": list(rc.channels),
+                "counters": rc.counters,
+                "observed_at": time.time(),
+            }
+            if args.json != "-":
+                print(
+                    f"status={rc.status_name} protocol={rc.protocol_name or ''} "
+                    f"link={'link' in rc.flag_names} "
+                    f"channels={','.join(map(str, rc.channels)) or 'none'}"
+                )
         else:
             assert isinstance(session.client, MspClient)
-            print("channels=" + ",".join(map(str, session.client.rc_channels())))
+            channels = session.client.rc_channels()
+            output = {
+                "protocol": "betaflight",
+                "link_live": None,
+                "channels": list(channels),
+                "observed_at": time.time(),
+                "note": (
+                    "fresh MSP_RC observation; MSP_STATUS does not expose "
+                    "receiver-link state"
+                ),
+            }
+            if args.json != "-":
+                print("channels=" + ",".join(map(str, channels)))
+        if args.json:
+            _write_json(args.json, output)
         return 0
 
     if action == "preflight":
         if session.protocol == "akp":
             assert isinstance(session.client, AkClient)
-            for line in session.client.preflight():
-                print(f"{line.name} verdict={line.verdict} {line.detail}")
+            lines = session.client.preflight()
+            output = {
+                "protocol": "akp",
+                "lines": [
+                    {
+                        "name": line.name,
+                        "verdict": line.verdict,
+                        "detail": line.detail,
+                    }
+                    for line in lines
+                ],
+            }
+            if args.json != "-":
+                for line in lines:
+                    print(f"{line.name} verdict={line.verdict} {line.detail}")
+            if args.json:
+                _write_json(args.json, output)
+            return 1 if any(line.verdict == 0 for line in lines) else 0
         else:
             state = _fc_state(session)
-            print(
-                f"armed={_as_int(state.get('armed', 0))} "
-                f"arming_disable_flags={state.get('arming_disable_flags', 'unknown')}"
-            )
-        return 0
+            armed = _as_int(state.get("armed", 0))
+            raw_flags = state.get("arming_disable_flags")
+            if raw_flags is None:
+                verdict = "unknown"
+                flag_names: tuple[str, ...] = ()
+                flags_text = "unknown"
+            else:
+                flags = _as_int(raw_flags)
+                flag_names = arming_disable_names(flags)
+                flags_text = f"0x{flags:x}"
+                if armed or flags & ARMING_DISABLE_FAILSAFE_MASK:
+                    verdict = "fail"
+                elif flags:
+                    verdict = "blocked"
+                else:
+                    verdict = "pass"
+            output = {
+                "protocol": "betaflight",
+                "verdict": verdict,
+                "armed": armed,
+                "arming_disable_flags": raw_flags,
+                "arming_disable_names": list(flag_names),
+                "receiver_link": "not_represented_by_msp",
+                "receiver_link_command": "ak fc rc",
+            }
+            if args.json != "-":
+                names = ",".join(flag_names) or "none"
+                print(
+                    f"verdict={verdict} armed={armed} "
+                    f"arming_disable_flags={flags_text} flags={names}"
+                )
+                print(
+                    "receiver_link=not_represented_by_msp "
+                    "observe=fresh-ak-fc-rc"
+                )
+            if args.json:
+                _write_json(args.json, output)
+            return 0 if verdict == "pass" else 1
 
     if action == "logs":
         if session.protocol != "akp":
             raise ValueError("MSP/Betaflight does not expose the Aerial Kit log store")
         assert isinstance(session.client, AkClient)
-        print(f"records={session.client.log_info().count}")
+        info = session.client.log_info()
+        log_output: dict[str, object] = {
+            "protocol": "akp",
+            "records": info.count,
+        }
+        if args.json != "-":
+            print(f"records={info.count}")
         if args.index is not None:
-            print(session.client.log_record(args.index))
+            record = session.client.log_record(args.index)
+            log_output["record"] = list(record.values)
+            if args.json != "-":
+                print(record)
+        if args.json:
+            _write_json(args.json, log_output)
         return 0
 
     raise ValueError(f"unknown flight-controller action {action!r}")

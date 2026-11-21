@@ -12,6 +12,7 @@ from aerial_kit.comms import (
     MspClient,
     MspProtocolError,
     MspWriteRefused,
+    arming_disable_names,
     build_msp,
     describe_msp,
     identify_msp,
@@ -62,6 +63,7 @@ def test_msp_frame_and_identity_against_the_fake_board() -> None:
         telemetry = msp_state(client)
         assert telemetry["vbat_v"] == pytest.approx(12.6, abs=0.05)
         assert telemetry["gps_satellites"] == 11
+        assert telemetry["link_live"] is None
     finally:
         pipe.close()
 
@@ -130,6 +132,8 @@ def test_msp_status_reports_arming_disable_flags_from_the_extended_frame() -> No
     status = msp.decode_status(payload)
     assert status["arming_disable_flags"] == 0x104
     assert status["load_pct"] == 0
+    assert arming_disable_names(0x104) == ("rx_failsafe", "angle")
+    assert arming_disable_names(0x100000000) == ("unknown_0x100000000",)
 
 
 def test_firmware_tool_is_a_thin_importable_wrapper() -> None:

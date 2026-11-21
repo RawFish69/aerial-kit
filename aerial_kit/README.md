@@ -81,6 +81,8 @@ ak fc params --port /dev/ttyACM0 --name failsafe_throttle
 ak fc get failsafe_throttle --port /dev/ttyACM0
 ak fc set failsafe_throttle 1200 --port /dev/ttyACM0 --write
 ak fc save --port /dev/ttyACM0 --write
+ak fc preflight --port /dev/ttyACM0 --protocol betaflight --json fc-preflight.json
+ak fc rc --port /dev/ttyACM0 --protocol betaflight --json fc-rc.json
 ```
 
 Use `--protocol akp` or `--protocol betaflight` to skip auto-detection. Reads
@@ -88,6 +90,12 @@ are safe by default. Configuration writes require `--write`, are refused while
 the board reports itself armed, and are never retried after a refusal. Aerial
 Kit parameters can be enumerated; Betaflight settings are addressed by name
 because MSP has no enumerate-all command.
+
+`ak fc status` treats a successful Betaflight MSP response as proof that the
+flight controller is reachable, not proof that its receiver is linked.
+Betaflight prints `link=unknown`; take a fresh `ak fc rc` observation and decode
+the arming-disable flags with `ak fc preflight`. Failsafe or receiver-failsafe
+flags make the preflight command exit nonzero.
 
 ## Simulation and visualization
 
