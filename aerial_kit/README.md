@@ -83,6 +83,8 @@ ak fc set failsafe_throttle 1200 --port /dev/ttyACM0 --write
 ak fc save --port /dev/ttyACM0 --write
 ak fc preflight --port /dev/ttyACM0 --protocol betaflight --json fc-preflight.json
 ak fc rc --port /dev/ttyACM0 --protocol betaflight --json fc-rc.json
+ak doctor
+ak doctor --probe /dev/ttyACM0
 ```
 
 Use `--protocol akp` or `--protocol betaflight` to skip auto-detection. Reads
@@ -108,6 +110,11 @@ The stream starts disarmed. Press Enter to arm after the low-throttle hold;
 A/D, W/S and Q/E step roll, pitch and yaw, R/F change throttle, C centres the
 sticks, and X panic-disarms and exits. Every exit path attempts a disarmed
 frame. The no-argument `ak teleop` command remains the simulator viewer.
+
+`ak doctor` is the read-only discovery command. Without `--probe` it lists
+serial endpoints and permissions without opening hardware. With
+`--probe PATH` it attempts read-only CRSF, AKP and Betaflight identification
+and reports every attempt.
 
 ## Simulation and visualization
 

@@ -44,6 +44,10 @@ def build_parser(prog: str = "ak") -> argparse.ArgumentParser:
         help="PX4/ArduPilot MAVLink vehicle access",
     )
     commands.add_parser(
+        "doctor",
+        help="list serial endpoints and optionally identify a connected device",
+    )
+    commands.add_parser(
         "sim",
         help="run the Python simulation",
     )
@@ -66,6 +70,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args[0] in {"-h", "--help", "help"}:
         build_parser().print_help()
         return 0
+    if args[0] == "doctor":
+        from .doctor import main as doctor_main
+
+        return _exit_code(doctor_main(args[1:]))
     if args and args[0] == "sim":
         from .sim.cli import main as sim_main
 

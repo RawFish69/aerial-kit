@@ -19,6 +19,10 @@ that text first; the decoder discards it until a valid frame begins.
 # A real DEVICE_INFO response is required.
 ak radio status --port /dev/ttyACM0 --baud 400000
 
+# Read-only endpoint discovery. Without --probe this does not open a port.
+ak doctor
+ak doctor --probe /dev/ttyACM0
+
 # Read the MSP RXTX UID with a four-second window and one post-reconnect retry.
 ak radio uid --port /dev/ttyACM0 --baud 400000 --role tx
 ak radio uid --port /dev/ttyACM1 --baud 420000 --role rx
