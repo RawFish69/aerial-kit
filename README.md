@@ -146,6 +146,8 @@ ak radio monitor --port /dev/ttyACM0 --duration 5 --json monitor.json
 ak radio drive --port /dev/ttyACM0 --hz 150 --duration 10 --write
 ak radio drive --port /dev/ttyACM0 --profile betaflight --write
 ak radio teleop --port /dev/ttyACM0 --profile betaflight --duration 30 --write --confirm-arm
+ak doctor                                   # list serial endpoints, no port opening
+ak doctor --probe /dev/ttyACM0              # read-only radio/AKP/Betaflight probe
 ak fc status --port /dev/ttyACM0             # auto-detects AKP or MSP
 ak fc status --port /dev/ttyACM0 --protocol betaflight
 ak fc params --port /dev/ttyACM0             # Aerial Kit indexed table
@@ -183,6 +185,11 @@ and X immediately disarms and exits. Timeout, Ctrl-C, panic and transport
 errors all attempt a final disarmed frame. The command is bounded by
 `--duration` and requires both `--write` and `--confirm-arm`. The existing
 `ak teleop` command remains simulator-only.
+
+`ak doctor` lists `/dev/serial/by-id` aliases, raw ACM/USB paths, read/write
+permissions and optional protocol dependencies without opening a port. Add
+`--probe PATH` only when a read-only identification attempt is intended; it
+tries CRSF device information, Aerial Kit AKP and Betaflight MSP in that order.
 
 See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for framing,
 transport and safety details. Native-USB radio monitor, drive, capture,

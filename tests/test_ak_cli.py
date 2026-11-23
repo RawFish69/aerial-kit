@@ -53,7 +53,7 @@ def test_ak_propagates_a_teleop_failure(monkeypatch) -> None:
 def test_ak_help_lists_all_command_families(capsys) -> None:
     assert cli.main(["--help"]) == 0
     output = capsys.readouterr().out
-    for command in ("radio", "fc", "mavlink", "sim", "teleop"):
+    for command in ("radio", "fc", "mavlink", "doctor", "sim", "teleop"):
         assert command in output
     assert "arm-capable" in output
 
@@ -64,3 +64,15 @@ def test_ak_help_alias_and_no_argument_exit(capsys) -> None:
 
     assert cli.main([]) == 2
     assert "usage: ak" in capsys.readouterr().err
+
+
+def test_ak_doctor_dispatches_and_propagates_its_result(monkeypatch) -> None:
+    captured: list[list[str]] = []
+
+    def fake_main(argv):
+        captured.append(list(argv))
+        return 4
+
+    monkeypatch.setattr("aerial_kit.doctor.main", fake_main)
+    assert cli.main(["doctor", "--json", "-"]) == 4
+    assert captured == [["--json", "-"]]
